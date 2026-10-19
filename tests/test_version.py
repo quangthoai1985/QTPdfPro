@@ -41,10 +41,12 @@ def test_required_project_and_agent_docs_exist() -> None:
         assert p.stat().st_size > 50, f"Tệp {rel} quá ngắn hoặc rỗng"
 
 
-def test_bat_files_are_pure_ascii() -> None:
+def test_bat_files_are_pure_ascii_and_crlf() -> None:
     for bat_name in ("run.bat", "build.bat"):
         raw = (ROOT_DIR / bat_name).read_bytes()
         try:
             raw.decode("ascii")
         except UnicodeDecodeError as exc:
             raise AssertionError(f"Tệp {bat_name} phải thuần ASCII để cmd.exe không lỗi: {exc}") from exc
+        assert b"\r\n" in raw, f"Tệp {bat_name} phải dùng dòng kết thúc CRLF"
+        assert b"\n" not in raw.replace(b"\r\n", b""), f"Tệp {bat_name} không được chứa LF đơn lẻ"
