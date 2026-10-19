@@ -12,14 +12,16 @@
    - Khi `PageLayoutSummary.is_scanned == True`, hiển thị gợi ý bật OCR (`Tesseract vie+eng` / `VietOCR`) để chuyển PDF scan sang DOCX chỉnh sửa được mà vẫn giữ nguyên con dấu đỏ và chữ ký.
 2. **Chuyển đổi hàng loạt (Batch PDF → DOCX)**:
    - Thêm hộp thoại chuyển đổi hàng loạt nhiều công văn/quyết định PDF sang DOCX cùng lúc kèm bảng báo cáo điểm chuẩn xác (`FidelityReport`).
-3. **Đóng gói bản phát hành độc lập**:
-   - Đóng gói `QTPdfPro-0.2.0-win64.zip` bằng `build.bat` (PyInstaller) và đẩy lên GitHub Releases.
 
 ---
 
-## [0.2.0] — 2026-10-19 (Hoàn thiện Chuyển đổi Văn bản Hành chính Việt Nam 100% & Giao diện PdfCraft Sáng/Tối)
+## [0.2.0] — 2026-10-19 (Hoàn thiện Chuyển đổi Văn bản Hành chính Việt Nam 100% & Giao diện PdfCraft Sáng/Tối & Phát hành Release)
 
 ### Thêm mới
+- **Đóng gói bản phát hành Windows độc lập & Xuất bản GitHub Release**:
+  - Biên dịch hoàn chỉnh thành tệp thực thi độc lập `QTPdfPro.exe` bằng PyInstaller ([`build.bat`](file:///c:/Users/quang/OneDrive/Desktop/App/QTPdfPro/build.bat), [`QTPdfPro.spec`](file:///c:/Users/quang/OneDrive/Desktop/App/QTPdfPro/QTPdfPro.spec)).
+  - Đóng gói tệp nén `QTPdfPro-v0.2.0-win64.zip` (125.6 MB) chứa đầy đủ runtime, DLLs và tài liệu đi kèm (người dùng giải nén là chạy được ngay, không cần cài đặt Python).
+  - Xuất bản bản phát hành chính thức đầu tiên lên GitHub Releases: [Release v0.2.0](https://github.com/quangthoai1985/QTPdfPro/releases/tag/v0.2.0) kèm tệp đính kèm `QTPdfPro-v0.2.0-win64.zip`.
 - **Bảo toàn 100% thành phần văn bản hành chính Việt Nam có chữ ký số & đóng dấu (`qtpdfpro/core/converter.py`, `qtpdfpro/core/openxml_fixer.py`)**:
   - **Ghép tự động số hiệu & ngày tháng đóng dấu đè (`_splice_overlapping_stamped_text`)**: Trong các văn bản hành chính ký số (VGCA), số văn bản (`"3865"`) và ngày ban hành (`"14"`) được đóng dấu đè lên khoảng trắng của dòng mẫu (`"Số:           /QĐ-UBND"`, `"An Giang, ngày      tháng 8 năm 2026"`). Can thiệp trực tiếp vào `RawPageFitz._preprocess_text` để chèn các ký tự đóng dấu vào đúng khe khoảng trắng của dòng gốc trước khi `pdf2docx` chạy bước lọc chồng lấp.
   - **Trích xuất Chữ ký số, Con dấu đỏ UBND & Chữ ký nháy từ PDF Signature Widgets (`_extract_widget_overlays`)**: Duyệt cây đối tượng `/AP /N -> /FRM -> /n2` của mọi `page.widgets()`, giải mã ảnh gốc kết hợp kênh mặt nạ Alpha (`/SMask`) thành ảnh PNG RGBA trong suốt 100%, tính toạ độ trang chính xác từ ma trận biến đổi `cm`, và neo nổi phía trên văn bản Word (`<wp:anchor behindDoc="0" relativeFrom="page">`).

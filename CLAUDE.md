@@ -113,8 +113,8 @@ cmd.exe /c ".\build.bat"                    # Xuất ra dist\QTPdfPro\QTPdfPro.e
    - Tự động nhận diện trang scan (`is_scanned=True`) và chuyển đổi sang văn bản Word có giữ định dạng kèm trích xuất con dấu đỏ.
 2. **Chuyển đổi hàng loạt (Batch Conversion)**:
    - Thêm hộp thoại chuyển đổi cùng lúc nhiều tệp PDF hành chính sang DOCX.
-3. **Đóng gói bản phát hành độc lập (`QTPdfPro-0.2.0-win64.zip`)**:
-   - Đóng gói bằng `build.bat` (PyInstaller) và phát hành lên GitHub Releases.
+3. **Phát hành các bản cập nhật kế tiếp**:
+   - Bản phát hành hiện tại: [Release v0.2.0](https://github.com/quangthoai1985/QTPdfPro/releases/tag/v0.2.0) kèm tệp nén `QTPdfPro-v0.2.0-win64.zip`.
 
 ---
 
