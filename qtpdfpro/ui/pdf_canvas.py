@@ -73,6 +73,7 @@ class PDFScrollViewer(QScrollArea):
         self._continuous: bool = True
         self._current_page: int = 0
         self._show_layout_overlay: bool = False
+        self._canvas_theme: str = "dark"
 
         self._search_hits_by_page: Dict[int, List[SearchHit]] = {}
         self._active_hit: Optional[SearchHit] = None
@@ -113,6 +114,11 @@ class PDFScrollViewer(QScrollArea):
     def show_layout_overlay(self) -> bool:
         return self._show_layout_overlay
 
+    def set_canvas_theme(self, theme: str) -> None:
+        """Cập nhật màu nền vùng vẽ PDF theo giao diện `'light'` hoặc `'dark'`."""
+        self._canvas_theme = "light" if theme == "light" else "dark"
+        self._surface.update()
+
     def set_continuous_mode(self, enabled: bool) -> None:
         """Chuyển đổi giữa chế độ Cuộn liên tục và Từng trang."""
         if self._continuous == enabled:
@@ -123,7 +129,7 @@ class PDFScrollViewer(QScrollArea):
         self.go_to_page(target_page)
 
     def set_show_layout_overlay(self, enabled: bool) -> None:
-        """Bật/tắt hiển thị khung soi bố cục (Văn bản, Bảng, Ảnh, Vector) trên trang PDF."""
+        """Bật/tắt hiển thị khung soi bố cục (Văn bản, Bảng, Ảnh, Chữ ký, Vector) trên trang PDF."""
         self._show_layout_overlay = bool(enabled)
         self._surface.update()
 
@@ -315,8 +321,9 @@ class PDFScrollViewer(QScrollArea):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
 
-        # Nền vùng làm việc
-        painter.fillRect(event.rect(), QColor("#111318"))
+        # Nền vùng làm việc (Sáng: xám nhạt PdfCraft #E2E8F0, Tối: đen than #111318)
+        bg_color = QColor("#E2E8F0") if self._canvas_theme == "light" else QColor("#111318")
+        painter.fillRect(event.rect(), bg_color)
 
         if not self._page_rects_px:
             painter.end()
@@ -336,7 +343,8 @@ class PDFScrollViewer(QScrollArea):
 
             # Bóng đổ trang
             shadow_rect = prect.translated(4.0, 5.0)
-            painter.fillRect(shadow_rect, QColor(0, 0, 0, 110))
+            shadow_alpha = 45 if self._canvas_theme == "light" else 110
+            painter.fillRect(shadow_rect, QColor(15, 23, 42, shadow_alpha))
 
             # Kết xuất trang từ PyMuPDF ở độ phân giải màn hình thật (High-DPI)
             buf = self.reader.render_page(pno, scale=self._effective_scale * dpr)
@@ -350,8 +358,9 @@ class PDFScrollViewer(QScrollArea):
             painter.drawImage(prect, qimg)
 
             # Viền trang (nổi bật trang đang chọn)
-            border_color = QColor("#3B82F6") if pno == self._current_page else QColor("#374151")
-            painter.setPen(QPen(border_color, 1.5 if pno == self._current_page else 1.0))
+            inactive_border = QColor("#CBD5E1") if self._canvas_theme == "light" else QColor("#374151")
+            border_color = QColor("#2563EB") if pno == self._current_page else inactive_border
+            painter.setPen(QPen(border_color, 1.6 if pno == self._current_page else 1.0))
             painter.drawRect(prect)
 
             # Lớp phủ 1: Tô sáng kết quả tìm kiếm trên trang này
@@ -383,13 +392,14 @@ class PDFScrollViewer(QScrollArea):
         painter.end()
 
     def _draw_layout_overlay(self, painter: QPainter, page_index: int, prect: QRectF) -> None:
-        """Vẽ các khung nhận diện Văn bản / Bảng biểu / Hình ảnh / Vector lên trang PDF."""
+        """Vẽ các khung nhận diện Văn bản / Bảng biểu / Hình ảnh / Chữ ký / Vector lên trang PDF."""
         summary = self.reader.get_page_layout(page_index)
         color_map = {
-            "text": (QColor("#2563EB"), QColor(37, 99, 235, 28)),     # Xanh dương
-            "table": (QColor("#16A34A"), QColor(22, 163, 74, 42)),   # Xanh lá
-            "image": (QColor("#EA580C"), QColor(234, 88, 12, 38)),   # Cam
-            "vector": (QColor("#9333EA"), QColor(147, 51, 234, 20)), # Tím
+            "text": (QColor("#2563EB"), QColor(37, 99, 235, 28)),       # Xanh dương
+            "table": (QColor("#16A34A"), QColor(22, 163, 74, 42)),      # Xanh lá
+            "image": (QColor("#EA580C"), QColor(234, 88, 12, 38)),      # Cam
+            "signature": (QColor("#E11D48"), QColor(225, 29, 72, 42)),  # Đỏ hồng (Chữ ký số / Con dấu)
+            "vector": (QColor("#9333EA"), QColor(147, 51, 234, 20)),    # Tím
         }
         font = QFont("Segoe UI", 8)
         font.setBold(True)
@@ -405,12 +415,12 @@ class PDFScrollViewer(QScrollArea):
                 (y1 - y0) * self._effective_scale,
             )
             painter.fillRect(erect, fill_c)
-            pen_width = 2.0 if el.kind == "table" else 1.1
+            pen_width = 2.0 if el.kind in ("table", "signature") else 1.1
             painter.setPen(QPen(border_c, pen_width, Qt.PenStyle.SolidLine))
             painter.drawRect(erect)
 
-            if el.kind in ("table", "image") and el.label:
-                tag_rect = QRectF(erect.left(), max(prect.top(), erect.top() - 16), min(220.0, erect.width() + 80), 16)
+            if el.kind in ("table", "image", "signature") and el.label:
+                tag_rect = QRectF(erect.left(), max(prect.top(), erect.top() - 16), min(230.0, erect.width() + 90), 16)
                 painter.fillRect(tag_rect, border_c)
                 painter.setPen(QColor("#FFFFFF"))
                 painter.drawText(tag_rect.adjusted(4, 0, -2, 0), Qt.AlignmentFlag.AlignVCenter, el.label)

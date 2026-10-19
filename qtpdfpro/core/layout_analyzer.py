@@ -41,6 +41,7 @@ class PageLayoutSummary:
     table_count: int = 0
     image_count: int = 0
     vector_count: int = 0
+    signature_count: int = 0
     char_count: int = 0
     is_scanned: bool = False
     fonts_used: List[str] = field(default_factory=list)
@@ -177,6 +178,23 @@ def analyze_page_layout(page: fitz.Page, include_vectors: bool = True) -> PageLa
                                 label="Đường kẻ / Khung vector",
                             )
                         )
+    except Exception:
+        pass
+
+    # 4. Phát hiện chữ ký số / con dấu hành chính / trường biểu mẫu (Widgets)
+    try:
+        for w in page.widgets() or []:
+            wr = w.rect
+            wbbox: BBox = (float(wr.x0), float(wr.y0), float(wr.x1), float(wr.y1))
+            summary.signature_count += 1
+            fname = (w.field_name or "Chữ ký/Con dấu").strip()
+            summary.elements.append(
+                LayoutElement(
+                    kind="signature",
+                    bbox=wbbox,
+                    label=f"Chữ ký số / Con dấu ({fname})",
+                )
+            )
     except Exception:
         pass
 

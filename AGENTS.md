@@ -4,7 +4,7 @@
 
 ## Tóm tắt nhanh cho Agent
 
-1. **Tên dự án**: **QT PDF Pro** (`v0.1.0`) — Ứng dụng chuyên đọc PDF & chuyển đổi PDF sang DOCX chuẩn xác từng thành phần.
+1. **Tên dự án**: **QT PDF Pro** (`v0.2.0`) — Ứng dụng chuyên đọc PDF & chuyển đổi PDF sang DOCX chuẩn xác từng thành phần.
 2. **Ngăn xếp công nghệ**: Python 3.14 + PySide6 (Qt6) + PyMuPDF (`fitz`) + `pdf2docx` + `python-docx` + `lxml` (OpenXML Precision Fixer).
 3. **Tài liệu cốt lõi**:
    - Bàn giao toàn diện (Kiến trúc, Quy tắc, Rào cản kỹ thuật, Việc cần làm tiếp): **[CLAUDE.md](CLAUDE.md)**

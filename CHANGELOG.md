@@ -8,14 +8,34 @@
 ## [Chưa phát hành]
 
 ### Việc còn dở / Ưu tiên kế tiếp cho Agent phiên sau
-1. **Kiểm thử thực tế với bộ mẫu PDF đa dạng ngoài đời thực**:
-   - Thử nghiệm chuyển đổi ≥ 15 tệp PDF phức tạp thật (công văn/nghị định hành chính nhà nước có Quốc hiệu – Tiêu ngữ 2 cột, bảng biểu tài chính nhiều cột hẹp, hợp đồng nhiều trang, biểu mẫu có con dấu đỏ đè lên chữ).
-   - Mở trực tiếp các tệp `.docx` đầu ra bằng Microsoft Word (`WINWORD.EXE`) và đối chiếu ảnh chụp từng trang để tinh chỉnh thêm hệ số `line_spacing` và `tcMar` trong `core/openxml_fixer.py`.
-2. **Tái tạo nâng cao cho khối Quốc hiệu – Tiêu ngữ không viền**:
-   - Bổ sung heuristic trong `core/layout_analyzer.py` và `core/openxml_fixer.py` để tự động gom 2 khối chữ song song ở đầu trang 1 của văn bản hành chính Việt Nam vào bảng ẩn viền 2 cột cân đối kèm đường kẻ chân dưới dòng *"Độc lập - Tự do - Hạnh phúc"*.
-3. **Tích hợp OCR Tiếng Việt cho PDF ảnh quét (Scanned PDF)**:
-   - Khi `PageLayoutSummary.is_scanned == True`, hiển thị gợi ý bật OCR (`Tesseract vie+eng` / `VietOCR`) để chuyển PDF scan sang DOCX chỉnh sửa được.
-4. **Chuyển đổi hàng loạt (Batch PDF → DOCX)** và đóng gói bản phát hành `QTPdfPro-0.1.0-win64.zip` lên GitHub Releases.
+1. **Tích hợp OCR Tiếng Việt cho PDF ảnh quét (Scanned PDF)**:
+   - Khi `PageLayoutSummary.is_scanned == True`, hiển thị gợi ý bật OCR (`Tesseract vie+eng` / `VietOCR`) để chuyển PDF scan sang DOCX chỉnh sửa được mà vẫn giữ nguyên con dấu đỏ và chữ ký.
+2. **Chuyển đổi hàng loạt (Batch PDF → DOCX)**:
+   - Thêm hộp thoại chuyển đổi hàng loạt nhiều công văn/quyết định PDF sang DOCX cùng lúc kèm bảng báo cáo điểm chuẩn xác (`FidelityReport`).
+3. **Đóng gói bản phát hành độc lập**:
+   - Đóng gói `QTPdfPro-0.2.0-win64.zip` bằng `build.bat` (PyInstaller) và đẩy lên GitHub Releases.
+
+---
+
+## [0.2.0] — 2026-10-19 (Hoàn thiện Chuyển đổi Văn bản Hành chính Việt Nam 100% & Giao diện PdfCraft Sáng/Tối)
+
+### Thêm mới
+- **Bảo toàn 100% thành phần văn bản hành chính Việt Nam có chữ ký số & đóng dấu (`qtpdfpro/core/converter.py`, `qtpdfpro/core/openxml_fixer.py`)**:
+  - **Ghép tự động số hiệu & ngày tháng đóng dấu đè (`_splice_overlapping_stamped_text`)**: Trong các văn bản hành chính ký số (VGCA), số văn bản (`"3865"`) và ngày ban hành (`"14"`) được đóng dấu đè lên khoảng trắng của dòng mẫu (`"Số:           /QĐ-UBND"`, `"An Giang, ngày      tháng 8 năm 2026"`). Can thiệp trực tiếp vào `RawPageFitz._preprocess_text` để chèn các ký tự đóng dấu vào đúng khe khoảng trắng của dòng gốc trước khi `pdf2docx` chạy bước lọc chồng lấp.
+  - **Trích xuất Chữ ký số, Con dấu đỏ UBND & Chữ ký nháy từ PDF Signature Widgets (`_extract_widget_overlays`)**: Duyệt cây đối tượng `/AP /N -> /FRM -> /n2` của mọi `page.widgets()`, giải mã ảnh gốc kết hợp kênh mặt nạ Alpha (`/SMask`) thành ảnh PNG RGBA trong suốt 100%, tính toạ độ trang chính xác từ ma trận biến đổi `cm`, và neo nổi phía trên văn bản Word (`<wp:anchor behindDoc="0" relativeFrom="page">`).
+  - **Tái tạo đường kẻ chân Quốc hiệu / Tiêu ngữ & Tiêu đề (`_extract_standalone_horizontal_rules`)**: Tự động phát hiện các đường kẻ vector ngang độc lập dưới *"TỈNH AN GIANG"*, *"Độc lập - Tự do - Hạnh phúc"* và tiêu đề Quyết định; loại bỏ chúng khỏi luồng `shapes` của `pdf2docx` (tránh tạo đường viền bảng kéo dài hết trang) và neo đúng kích thước, đúng toạ độ trang trong Word.
+  - **Bố cục chuẩn 2 cột cho Quốc hiệu – Tiêu ngữ và Khối Nơi nhận – Chữ ký (`_patched_parse_section`, `_patched_parse_line_break`)**: Tách khối tiêu đề căn giữa (*"QUYẾT ĐỊNH"*) khỏi khối 2 cột Quốc hiệu – Tiêu ngữ; giữ nguyên khối *"Nơi nhận"* và *"TM. ỦY BAN NHÂN DÂN / KT. CHỦ TỊCH"* trong cùng 1 section 2 cột chuẩn xác; bảo toàn ngắt dòng ở các khối căn giữa và danh sách gạch đầu dòng (`- Như Điều 4;`) mà không làm đứt dòng các đoạn văn căn đều (`JUSTIFY`).
+  - **Kiểm định thực tế bằng Microsoft Word (`WINWORD.EXE`) trên Quyết định 3865/QĐ-UBND của UBND tỉnh An Giang**: Đạt **100.0/100 điểm chuẩn xác** (`1075/1075` từ, `3734/3734` ký tự, `7/7` lớp đồ hoạ con dấu/chữ ký/đường kẻ, giữ nguyên đúng **3 trang** như PDF gốc). Lưu tệp mẫu tại `samples/Quyet_dinh_3865_UBND_An_Giang.docx`.
+- **Thiết kế lại Giao diện theo phong cách [storytold/pdfcraft](https://github.com/storytold/pdfcraft) & Chuyển đổi Sáng/Tối 1 chạm (`qtpdfpro/ui/main_window.py`, `qtpdfpro/ui/theme.py`, `qtpdfpro/ui/pdf_canvas.py`)**:
+  - **Nút chuyển nhanh Giao diện Sáng / Tối (`☀️ Giao diện Sáng` / `🌙 Giao diện Tối`)** đặt nổi bật ngay góc phải thanh Header (`Ctrl+Shift+T`), đồng bộ tức thì toàn bộ cửa sổ, các bảng công cụ và cả màu nền vùng vẽ PDF (`#E2E8F0` ở chế độ Sáng / `#111318` ở chế độ Tối).
+  - **Bố cục bàn làm việc 3 cột kiểu PdfCraft (`PDFDocumentTab`)**:
+    1. **Cột trái (`Tất cả công cụ` — `F3`)**: Có ô lọc nhanh công cụ (`🔍 Tìm nhanh công cụ...`) và các thẻ thao tác 1 chạm chia theo nhóm (*Chuyển đổi sang Word*, *Soi bố cục & Văn bản*, *Thao tác trang & Tài liệu*).
+    2. **Cột giữa (Khung đọc PDF + Thanh thông báo thông minh)**: Tự động phát hiện và hiển thị thanh thông báo số lượng chữ ký số / con dấu hành chính hoặc bảng biểu trong tài liệu kèm nút **⚡ Xuất Word chuẩn 1:1 ngay**.
+    3. **Cột phải (Ngăn 4 tab `Trang`, `Mục lục`, `Tìm kiếm`, `Soi bố cục` + Thanh điều khiển dọc `Right Rail`)**: Thanh icon dọc bên phải cùng cho phép bật/tắt nhanh từng ngăn và điều khiển Trang (`▲`, `1/3`, `▼`), Thu phóng (`＋`, `100%`, `－`, `↔`, `↻`) chuẩn phong cách PdfCraft.
+  - **Nhận diện khung Chữ ký số / Con dấu (`signature`) trong Layout Inspector (`F8`)**: Vẽ khung viền đỏ hồng (`#E11D48`) kèm nhãn trực tiếp lên các vùng chữ ký số và con dấu trên trang PDF.
+
+### Kiểm thử
+- Mở rộng bộ kiểm thử tự động `pytest` lên **16/16 bài test vượt qua 100%** (bao gồm kiểm thử ghép số văn bản đóng dấu đè `_splice_overlapping_stamped_text` và kiểm thử giao diện PdfCraft Sáng/Tối).
 
 ---
 

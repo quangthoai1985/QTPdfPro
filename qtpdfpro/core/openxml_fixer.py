@@ -186,7 +186,7 @@ def _tune_document_xml(
             char_spacing = rpr.find(f"{W}spacing")
             if char_spacing is None:
                 char_spacing = etree.SubElement(rpr, f"{W}spacing")
-                char_spacing.set(f"{W}val", "-2")
+                char_spacing.set(f"{W}val", "-1")
             else:
                 try:
                     cur_val = int(char_spacing.get(f"{W}val", "0"))
@@ -225,6 +225,21 @@ def _tune_document_xml(
                     after_str = spacing.get(f"{W}after", "")
                     if after_str and int(after_str) > 360:
                         spacing.set(f"{W}after", str(int(int(after_str) * 0.92)))
+                except ValueError:
+                    pass
+
+        # Chống rớt 1 từ ở dòng đầu tiên của đoạn văn căn đều 2 bên (justified)
+        if prevent_line_overflow:
+            jc = ppr.find(f"{W}jc")
+            ind = ppr.find(f"{W}ind")
+            if jc is not None and jc.get(f"{W}val") == "both" and ind is not None:
+                try:
+                    r_ind = int(ind.get(f"{W}right", "0"))
+                    if 0 < r_ind <= 100:
+                        ind.set(f"{W}right", "0")
+                    fl_ind = int(ind.get(f"{W}firstLine", "0"))
+                    if fl_ind >= 600:
+                        ind.set(f"{W}firstLine", str(fl_ind - 40))
                 except ValueError:
                     pass
 
