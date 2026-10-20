@@ -7,9 +7,42 @@
 
 ## [Chưa phát hành]
 
+### 2026-10-20 — Chức năng «Chỉnh sửa PDF»: tô màu, đánh dấu, chú thích & sắp xếp / cắt ghép trang
+
+#### Thêm mới — Engine (`qtpdfpro/core/`, không phụ thuộc PySide6)
+- **`page_ops.py`** — tổ chức trang: mô hình `PageRef` (trang nguồn + góc xoay thêm; `page_index=None` = trang trắng), `assemble_pdf` (gom các trang liên tiếp cùng nguồn vào 1 lệnh `insert_pdf`, giữ chú thích / liên kết / trường biểu mẫu, **giữ mục lục** của trang còn lại — trỏ tới lần xuất hiện đầu tiên, sửa cấp mục lục; khi ghép nhiều tệp thêm 1 mục cấp 1 cho mỗi tệp), `merge_pdfs` (nhận `a.pdf:1-3`, chịu ổ đĩa `C:\`), `split_pdf` (mỗi N trang / theo khoảng / cắt sau các trang), `extract_pages`, `organize_pdf` theo chuỗi thứ tự (`'3,1-2r90,blank,end,le,chan'`), `save_pdf` ghi qua tệp tạm rồi đổi tên; từ chối ghi đè tệp nguồn đang mở.
+- **`annotations.py`** — chú thích: tô sáng / gạch chân / gạch ngang / gạch sóng (chọn chữ theo **thứ tự đọc** từ điểm đầu tới điểm cuối như bôi đen trong Word, hoặc theo vùng), vẽ tay, bút dạ quang (Multiply, trong suốt), khung / elip / đường / mũi tên, ghi chú dán, **hộp chữ** và **dấu đóng** (9 mẫu: ĐÃ DUYỆT, BẢN SAO, MẬT, KHẨN, HỎA TỐC, ĐÃ XEM, ĐÃ KÝ, KHÔNG DUYỆT, BẢN NHÁP — kèm dòng ngày tuỳ chọn); liệt kê (`list_annotations`, kèm chữ dưới vùng tô sáng), chọn theo điểm (nét vẽ/đường xét khoảng cách tới nét), dời chú thích (`translate_annotation`), xoá mềm, làm phẳng (`bake`), `mark_text` (đánh dấu mọi chỗ có cụm từ), `apply_operations` (danh sách thao tác JSON, toạ độ trang đang hiển thị).
+- **`edit_session.py`** — `EditSession`: thêm / xoá / di chuyển / sửa nội dung kèm **Hoàn tác – Làm lại** (tối đa 200 bước), trạng thái «chưa lưu» theo mốc lưu.
+- **`reader.py`**: `edit_session()`, `has_unsaved_changes`, `save()` (vào chính tệp: **ghi bổ sung incremental**, giữ bản ký số trước đó; tệp không ghi bổ sung được thì ghi đè an toàn qua tệp tạm rồi mở lại; tệp khác: ghi toàn bộ rồi tab chuyển sang tệp mới), `export_flattened()`, `invalidate_pages()`, `page_view_matrix()` / `view_to_page()` (toạ độ trang chưa xoay ↔ điểm ảnh, tính cả `/Rotate` lẫn xoay xem).
+
+#### Thêm mới — Giao diện
+- **Chế độ chỉnh sửa trên khung đọc** (`ui/annotation_tools.py`): bật bằng `Ctrl+E`, chế độ «Chỉnh sửa» trên thanh trên cùng, thẻ «CHỈNH SỬA PDF» ở cột trái hoặc công cụ trong danh mục. Thanh công cụ 2 tầng: 16 công cụ (Cuộn, Chọn, Tô sáng, Gạch chân, Gạch ngang, Gạch sóng, Bút, Bút dạ quang, Khung, Elip, Đường, Mũi tên, Hộp chữ, Ghi chú, Dấu, Tẩy — phím tắt V/H/U/K/G/P/M/R/O/L/A/T/N/D/X khi con trỏ ở khung đọc) + Hoàn tác/Làm lại + «🧩 Trang» + «💾 Lưu»; tầng 2 đổi theo công cụ: 9 màu nhanh + màu tuỳ chọn (mỗi công cụ nhớ màu riêng), độ dày nét, độ đậm, phông Arial/Times/Courier + cỡ + đậm, «Tô nền», mẫu dấu + «Kèm ngày», dòng gợi ý cách dùng. Xem trước khi kéo (vùng chọn chữ, nét đang vẽ, hình, mũi tên); Shift bắt hình vuông/tròn/góc 45°; Alt chọn chữ theo vùng; trang ảnh quét tô sáng theo vùng; công cụ Chọn kéo để di chuyển, Delete để xoá, nhấp đúp để sửa nội dung; tự cuộn khi kéo sát mép.
+- **Ngăn «Chú thích»** (tab thứ 5 bên phải + nút trên thanh dọc): danh sách theo trang (màu, loại, nội dung/chữ được tô, tác giả, thời gian), nhấp để đi tới & chọn, sửa nội dung, xoá.
+- **«Sắp xếp & cắt ghép trang»** (`ui/organizer_dialog.py`, `Ctrl+Shift+O`; «Ghép tệp PDF» `Ctrl+Shift+M`, «Tách tệp PDF», «Trích trang»): lưới ảnh trang kéo thả (vẽ bằng delegate: số thứ tự, tệp nguồn có chấm màu, góc xoay, «Phần k», điểm cắt ✂), chọn nhiều, xoay, nhân bản, xoá, chèn trang trắng, đảo thứ tự, di chuyển (Ctrl+←/→, «Di chuyển tới vị trí…»), thêm tệp PDF (có hỏi mật khẩu), đặt điểm cắt → «Xuất các phần…», «Chia tệp…» (mỗi N trang / khoảng trang / điểm cắt / mỗi trang một tệp), trích trang chọn, hoàn tác/làm lại, menu chuột phải, thanh cỡ ảnh. Làm việc trên tài liệu đang mở (gồm cả chú thích chưa lưu); lưu đè lên tệp đang mở thì tab được đóng, ghi tệp, mở lại đúng trang.
+- `MainWindow`: menu «Chỉnh sửa PDF», `Ctrl+S` Lưu / `Ctrl+Shift+S` Lưu thành (cảnh báo văn bản có chữ ký số) / Xuất bản làm phẳng, `Ctrl+Z` / `Ctrl+Y`; dấu **●** trên tab có thay đổi chưa lưu; hỏi «Lưu / Không lưu / Huỷ» khi đóng tab hoặc thoát ứng dụng. Danh mục: 8 công cụ nhóm «Chỉnh sửa» chuyển sang dùng được (thêm «Tô sáng & đánh dấu chữ», «Vẽ & hình khối»); «Chỉnh sửa PDF» vào «Công cụ đề xuất».
+- Cài đặt mới `annot_author` (tên người chú thích; trống = tên đăng nhập Windows).
+- CLI: `merge`, `split`, `organize`, `extract`, `annotate` (`--highlight/--underline/--strikeout` cụm từ, `--stamp … --stamp-date`, `--ops` JSON, `--flatten`, `--author`), `annots`.
+
+#### Đã sửa
+- Tô sáng kết quả tìm kiếm và khung «Soi bố cục» lệch chỗ trên trang có `/Rotate` hoặc đang xoay xem — nay đổi toạ độ qua `page_transform` (cùng phép biến đổi với chú thích).
+
+#### Rào cản kỹ thuật đã gặp (ghi vào CLAUDE.md mục 5)
+- Hộp chữ (FreeText) do MuPDF tự vẽ dùng Helvetica dựng sẵn → «Ỷ» thành «Ý»; chế độ rich-text thì thụt lề ~40 pt, lẫn phông, bỏ qua màu viền. → Tự dựng hình hiển thị bằng `insert_htmlbox` + phông Windows (nhúng tập con) trên trang tạm, chép nội dung + tài nguyên thành Form XObject (`_graft_form_xobject`) làm `/AP /N`; xoay bằng `/Matrix` theo `/Rotate`.
+- Gọi `set_info` / `set_rect` sau khi gắn hình hiển thị riêng làm MuPDF coi chú thích «cần vẽ lại» và tự sinh lại bằng Helvetica → ghi `/Rect`, `/T`, `/M`, `/Contents`, `/CA` trực tiếp qua `xref_set_key`. Dấu đóng đặt `/Name /QTDauDong` để MuPDF không vẽ lại thành «APPROVED».
+- Bật journal của MuPDF (undo/redo gốc) thì PyMuPDF 1.28 chặn `show_pdf_page`/`new_page`… (`ENSURE_OPERATION` → «Can't undo/redo during an operation») → tự viết lịch sử hoàn tác (xoá mềm bằng cờ Hidden, dịch ngược, khôi phục khoá).
+- `set_rect` không dùng được cho Ink/Line và làm khung chữ nhật phình 1 pt mỗi lần `update()` → di chuyển bằng cách dịch mọi khoá hình học (`Rect`, `QuadPoints`, `InkList`, `L`, `Vertices`, `CL`) trong không gian PDF.
+- `QImage(pix.samples, …)`: `pix.samples` tạo bytes mới mỗi lần gọi, bị giải phóng trước khi `.copy()` → ảnh rác; phải giữ biến tạm. Vẽ viền ảnh bằng `drawRect` khi chổi tô còn màu nền thẻ sẽ phủ kín ảnh → đặt `NoBrush`.
+- Giữ `Page` còn sống khi dùng `Annot` (duyệt `doc[0].annots()` trên trang tạm rồi đọc `annot.rect` có thể gây segfault).
+
+#### Kiểm thử
+- **62/62** `pytest` (thêm `test_page_ops.py` 8 bài, `test_annotations.py` 8 bài, `test_edit_ui.py` 5 bài — thao tác chuột thật qua `PDFScrollViewer`: tô sáng, vẽ, đóng dấu, kéo di chuyển, hộp chữ, ghi chú, tẩy, hoàn tác, lưu; hộp thoại sắp xếp: xoay/nhân bản/xoá/trang trắng/di chuyển/kéo thả (`moveRow`)/ghép tệp/điểm cắt/lưu/tách/ghi đè tệp đang mở). `test_ui.py`: kiểm tra «Coming Soon» chuyển sang công cụ OCR.
+- Kiểm chứng NĐ30 (MS Word) 3 văn bản mẫu sau khi sửa `core/`: cả 3 «Trùng khớp PDF gốc» (công văn 26/26 dòng, lệch ≤ 0,48 pt; quyết định 51/51, ≤ 0,72 pt; kế hoạch 78/78, ≤ 0,84 pt).
+- Chạy thử GUI với `QT_PDF_PRO_DATA` tạm (Sáng/Tối): thanh chỉnh sửa, ngăn Chú thích, hộp thoại sắp xếp hiển thị đúng tiếng Việt; **kéo thả thật bằng chuột** trong lưới trang đổi đúng thứ tự (nhấp/rê nhẹ không đổi), Ctrl+Z hoàn tác. Dấu đóng/hộp chữ đứng thẳng và đúng tâm trên trang xoay 0/90/180/270°.
+
 ### Việc còn dở / Ưu tiên kế tiếp cho Agent phiên sau
 1. **Kiểm thử engine NĐ30 trên văn bản thật** (PDF ký số VGCA, PDF xuất từ phần mềm quản lý văn bản, PDF in từ LibreOffice): chạy `python -m qtpdfpro.cli convert <tệp> --mode nd30 --verify-layout` (hoặc `cli batch <thư mục> --verify-layout`) và xử lý các trường hợp «Lệch nhỏ».
 2. **Xem 2 trang song song** (v0.4) và **OCR Tiếng Việt cho PDF ảnh quét** (`Tesseract vie+eng` / `VietOCR`, v1.1) — đang «Coming Soon».
+   - «Chỉnh sửa PDF» mở rộng: đổi cỡ hộp chữ/hình bằng tay nắm, sửa kiểu dáng chú thích đã có, che thông tin (redaction), dấu đóng có ảnh chữ ký.
 3. Tuỳ chọn: chuyển hàng loạt song song bằng nhiều tiến trình (`ProcessPoolExecutor`, cần `multiprocessing.freeze_support()` cho bản PyInstaller).
 
 ---

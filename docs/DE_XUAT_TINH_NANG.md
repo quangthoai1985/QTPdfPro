@@ -25,7 +25,7 @@
 |---|---|
 | Chuyển đổi hàng loạt, Xem 2 trang song song | v0.4 |
 | Scan & OCR tiếng Việt | v1.1 |
-| PDF sang Excel / ảnh / PowerPoint, Tạo PDF từ Word / ảnh, Sắp xếp / Ghép / Tách / Trích trang, Chỉnh sửa PDF, Chú thích, Đóng dấu, Điền biểu mẫu, Nén PDF | v1.2 |
+| PDF sang Excel / ảnh / PowerPoint, Tạo PDF từ Word / ảnh, Điền biểu mẫu, Nén PDF | v1.2 |
 | Ký số PDF, Xác thực chữ ký số, Đặt mật khẩu, Xoá thông tin nhạy cảm, So sánh 2 tệp PDF | v2.0 |
 
 ---
@@ -43,6 +43,8 @@
 ---
 
 ## Giai đoạn 3 (v1.2.0): Công cụ Biên tập & Tổ chức Trang PDF
+
+> **Đã làm sớm (chưa phát hành, dự kiến vào bản kế tiếp)**: mục 1 (ghép, tách, xoay, xoá, sắp xếp trang kéo-thả, chèn trang trắng, trích trang, điểm cắt ✂) và mục 2 (tô sáng, gạch chân, gạch ngang, gạch sóng, bút, bút dạ quang, khung/elip/đường/mũi tên, hộp chữ tiếng Việt, ghi chú dán, dấu đóng «ĐÃ DUYỆT»/«BẢN SAO»/«MẬT»…, hoàn tác, lưu ghi bổ sung giữ chữ ký số) — xem `core/page_ops.py`, `core/annotations.py`, `core/edit_session.py`, `ui/organizer_dialog.py`, `ui/annotation_tools.py`. Còn lại: sửa trực tiếp chữ có sẵn trong PDF, che thông tin (redaction), điền biểu mẫu.
 
 1. **Ghép, Tách, Xoay, Xoá, Sắp xếp lại trang PDF** bằng giao diện kéo-thả trực quan trên lưới trang thu nhỏ.
 2. **Chú thích & Đánh dấu (Annotations)**:

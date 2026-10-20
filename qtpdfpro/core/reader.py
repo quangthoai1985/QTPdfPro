@@ -6,13 +6,15 @@ cho cả giao diện đồ hoạ, dòng lệnh CLI và bộ kiểm thử tự đ
 
 from __future__ import annotations
 
+import os
 from collections import OrderedDict
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Iterable, List, Optional, Tuple
 
 import fitz  # PyMuPDF
 
+from qtpdfpro.core.edit_session import EditSession
 from qtpdfpro.core.font_resolver import normalize_vietnamese_text
 from qtpdfpro.core.layout_analyzer import BBox, PageLayoutSummary, analyze_page_layout
 
@@ -74,16 +76,23 @@ class PDFDocumentReader:
         if not self.path.exists():
             raise FileNotFoundError(f"Không tìm thấy tệp PDF: {self.path}")
 
-        self._doc: fitz.Document = fitz.open(str(self.path))
-        if self._doc.needs_pass:
-            if not password or not self._doc.authenticate(password):
-                self._doc.close()
-                raise PermissionError("Tệp PDF được bảo vệ bằng mật khẩu.")
+        self._password = password
+        self._doc: fitz.Document = self._open_doc(self.path, password)
 
         self._cache_size = max(4, cache_size)
         self._render_cache: "OrderedDict[Tuple[int, int, int], RenderedPageBuffer]" = OrderedDict()
         self._page_rotations: Dict[int, int] = {}
         self._layout_cache: Dict[int, PageLayoutSummary] = {}
+        self._edit_session: Optional[EditSession] = None
+
+    @staticmethod
+    def _open_doc(path: Path, password: Optional[str]) -> fitz.Document:
+        doc = fitz.open(str(path))
+        if doc.needs_pass:
+            if not password or not doc.authenticate(password):
+                doc.close()
+                raise PermissionError("Tệp PDF được bảo vệ bằng mật khẩu.")
+        return doc
 
     def __enter__(self) -> "PDFDocumentReader":
         return self
@@ -105,6 +114,110 @@ class PDFDocumentReader:
         self._layout_cache.clear()
         if getattr(self, "_doc", None) is not None and not self._doc.is_closed:
             self._doc.close()
+
+    # ─── Chỉnh sửa (chú thích) & lưu tệp ──────────────────────────────────
+
+    @property
+    def is_pdf(self) -> bool:
+        return bool(self._doc.is_pdf)
+
+    @property
+    def has_edit_session(self) -> bool:
+        return self._edit_session is not None
+
+    def edit_session(self, author: Optional[str] = None) -> EditSession:
+        """Phiên chỉnh sửa chú thích của tài liệu (tạo khi dùng lần đầu)."""
+        if self._edit_session is None:
+            self._edit_session = EditSession(self._doc, author)
+        elif author:
+            self._edit_session.author = author
+        return self._edit_session
+
+    @property
+    def has_unsaved_changes(self) -> bool:
+        return self._edit_session is not None and self._edit_session.modified
+
+    @property
+    def has_digital_signature(self) -> bool:
+        try:
+            return self._doc.get_sigflags() > 0
+        except Exception:
+            return False
+
+    def invalidate_pages(self, pages: Iterable[int]) -> None:
+        """Bỏ ảnh kết xuất trong bộ đệm của các trang vừa thay đổi (chú thích mới, xoá, di chuyển…)."""
+        targets = set(pages)
+        for key in [k for k in self._render_cache if k[0] in targets]:
+            self._render_cache.pop(key, None)
+
+    def _reopen(self, path: Path) -> None:
+        self._render_cache.clear()
+        if not self._doc.is_closed:
+            self._doc.close()
+        self.path = path.resolve()
+        self._doc = self._open_doc(self.path, self._password)
+        if self._edit_session is not None:
+            self._edit_session.rebind(self._doc)
+
+    def save(self, path: Optional[str | Path] = None) -> Path:
+        """Lưu chú thích / thay đổi.
+
+        - Lưu vào chính tệp đang mở: ghi **bổ sung (incremental)** — giữ nguyên các bản ký số trước đó
+          (chữ ký số VGCA vẫn kiểm tra được phần đã ký) và nhanh với tệp lớn.
+        - Lưu thành tệp khác: ghi toàn bộ (nén, dọn đối tượng thừa), sau đó tab chuyển sang tệp mới.
+        """
+        if self._edit_session is not None:
+            self._edit_session.prepare_save()
+        target = Path(path).resolve() if path else self.path
+        if target == self.path:
+            if self._doc.can_save_incrementally():
+                self._doc.save(str(self.path), incremental=True, encryption=fitz.PDF_ENCRYPT_KEEP)
+            else:
+                data = self._doc.tobytes(garbage=3, deflate=True, encryption=fitz.PDF_ENCRYPT_KEEP)
+                tmp = self.path.with_name(f".{self.path.stem}.qtpdfpro-tmp.pdf")
+                tmp.write_bytes(data)
+                self._doc.close()
+                os.replace(tmp, self.path)
+                self._reopen(self.path)
+        else:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            self._doc.save(str(target), garbage=3, deflate=True, encryption=fitz.PDF_ENCRYPT_KEEP)
+            self._reopen(target)
+        self._render_cache.clear()
+        if self._edit_session is not None:
+            self._edit_session.mark_saved()
+        return self.path
+
+    def export_flattened(self, path: str | Path) -> Path:
+        """Xuất bản sao đã làm phẳng chú thích (vẽ vào nội dung trang) — tài liệu đang mở không đổi."""
+        from qtpdfpro.core.annotations import flatten_annotations
+        from qtpdfpro.core.page_ops import save_pdf
+
+        copy = fitz.open()
+        try:
+            copy.insert_pdf(self._doc)
+            flatten_annotations(copy)
+            return save_pdf(copy, path)
+        finally:
+            copy.close()
+
+    # ─── Toạ độ trang ↔ điểm ảnh khi hiển thị ─────────────────────────────
+
+    def page_view_matrix(self, page_index: int, scale: float) -> fitz.Matrix:
+        """Ma trận đổi toạ độ trang chưa xoay (hệ của chú thích/`get_text`) → điểm ảnh trên ảnh kết xuất
+        ở tỷ lệ `scale`, đã tính cả /Rotate của trang lẫn góc xoay xem thêm (`rotate_page`)."""
+        self._check_page_index(page_index)
+        page = self._doc[page_index]
+        mat = fitz.Matrix(scale, scale)
+        extra = self._page_rotations.get(page_index, 0) % 360
+        if extra:
+            mat = mat.prerotate(extra)
+        box = page.rect * mat
+        return page.rotation_matrix * mat * fitz.Matrix(1, 0, 0, 1, -box.x0, -box.y0)
+
+    def view_to_page(self, page_index: int, x: float, y: float, scale: float) -> fitz.Point:
+        """Điểm ảnh (gốc trên-trái của trang đang hiển thị) → toạ độ trang chưa xoay."""
+        return fitz.Point(x, y) * ~self.page_view_matrix(page_index, scale)
 
     def get_info(self) -> DocumentInfo:
         """Trả về thông tin metadata của tài liệu PDF."""

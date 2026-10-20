@@ -16,6 +16,10 @@
 - **Kho GitHub**: `https://github.com/quangthoai1985/QTPdfPro`
 
 ### Trạng thái hiện tại (`v0.3.1` — đã phát hành [GitHub Release](https://github.com/quangthoai1985/QTPdfPro/releases/tag/v0.3.1) 2026-10-20):
+- **Mới, chưa phát hành (sẽ vào bản kế tiếp)**: **«Chỉnh sửa PDF»** —
+  1. **Chế độ chỉnh sửa trên khung đọc** (`Ctrl+E`): tô sáng / gạch chân / gạch ngang / gạch sóng (kéo chuột qua chữ theo thứ tự đọc), bút, bút dạ quang, khung, elip, đường, mũi tên, hộp chữ, ghi chú, dấu đóng (ĐÃ DUYỆT, BẢN SAO, MẬT…), tẩy, chọn–kéo di chuyển; Hoàn tác/Làm lại; ngăn «Chú thích»; Lưu ghi bổ sung (giữ chữ ký số), Lưu thành, Xuất bản làm phẳng; dấu ● trên tab chưa lưu.
+  2. **«Sắp xếp & cắt ghép trang»** (`Ctrl+Shift+O`): lưới trang kéo thả, xoay, nhân bản, xoá, trang trắng, ghép nhiều tệp, điểm cắt ✂ → xuất từng phần, chia tệp, trích trang; giữ chú thích, liên kết, mục lục.
+  3. CLI `merge`, `split`, `organize`, `extract`, `annotate`, `annots`.
 - **Có trong bản phát hành v0.3.0 (gộp vào trước khi phát hành)**: **Chuyển đổi hàng loạt** — `core/batch.py` (`convert_batch`, mặc định `auto` → `nd30`/`faithful`, không kiểm chứng Word), lệnh `cli batch`, hộp thoại «Chuyển đổi hàng loạt» (kéo thả nhiều PDF/thư mục, bảng điểm chuẩn xác & thể thức NĐ30 từng tệp, báo cáo CSV/JSON, Ctrl+Shift+B). **Sửa theme**: radio đang chọn hiện chấm, checkbox có khung + dấu ✔ ở cả giao diện Sáng/Tối.
 - **Mới ở v0.3.0**:
   1. **Chế độ chuyển đổi `nd30`** (mặc định qua `auto` khi phát hiện Quốc hiệu – Tiêu ngữ): tái dựng văn bản hành chính như người soạn trong Word — lề / cỡ chữ / giãn dòng / cách đoạn / thụt đầu dòng **đo trên PDF rồi ước lượng về giá trị gốc**, phần đầu & khối ký trong **bảng 2 cột không viền**, đường kẻ là viền dưới đoạn văn đúng toạ độ PDF, số trang là trường `PAGE`. Chính sách `faithful` (mặc định, giữ đúng bố cục PDF) hoặc `nd30` (ép chuẩn hoá).
@@ -34,7 +38,7 @@
      - `auto`: Tự động chọn `hybrid` hoặc `exact` dựa trên phân tích bố cục trang.
      - Kèm **Bộ Kiểm định Độ chính xác (`core/fidelity.py`)** chấm điểm bảo toàn từ vựng, ký tự, bảng biểu, hình ảnh ngay sau khi chuyển đổi.
 - **Mới ở v0.3.1**: **Icon ứng dụng** (`qtpdfpro/ui/assets/app_icon.ico`, nhúng vào .exe và hiện ở thanh tiêu đề / thanh tác vụ).
-- **Tất cả 41/41 bài kiểm thử tự động (`tests/`) đã chạy qua 100%** (bài kiểm chứng bằng MS Word tự bỏ qua nếu máy không có Word).
+- **Tất cả 62/62 bài kiểm thử tự động (`tests/`) đã chạy qua 100%** (bài kiểm chứng bằng MS Word tự bỏ qua nếu máy không có Word).
 
 ---
 
@@ -73,6 +77,12 @@ python -m qtpdfpro.cli inspect in.pdf --json
 python -m qtpdfpro.cli verify in.pdf out.docx --json
 python -m qtpdfpro.cli verify in.pdf out.docx --render   # dựng DOCX bằng MS Word, so vị trí từng dòng
 python -m qtpdfpro.cli batch thu_muc_pdf a.pdf -o thu_muc_docx [--verify-layout] [--report bc.csv] [--json]
+python -m qtpdfpro.cli merge a.pdf b.pdf:1-3 -o gop.pdf             # Chỉnh sửa PDF: ghép / tách / sắp xếp / trích
+python -m qtpdfpro.cli split in.pdf --every 2 | --ranges "1-3,4-6" | --after 3,7 [-o thu_muc]
+python -m qtpdfpro.cli organize in.pdf --order "3,1-2r90,blank,end" [-o out.pdf]
+python -m qtpdfpro.cli extract in.pdf --pages 1-3,5 [-o out.pdf]
+python -m qtpdfpro.cli annotate in.pdf --highlight "cụm từ" --stamp "ĐÃ DUYỆT" --stamp-date [--ops ops.json] [--flatten]
+python -m qtpdfpro.cli annots in.pdf --json                          # liệt kê chú thích
 
 # 4. Chạy toàn bộ kiểm thử tự động (bắt buộc qua 100% trước khi commit)
 python -m pytest -q tests
@@ -95,7 +105,7 @@ python tools/make_app_icon.py --preview <thư mục tạm>/xem_truoc.png
 | `qtpdfpro/core/settings.py` | Cấu hình & Tệp gần đây | Lưu tại `%LOCALAPPDATA%\QTPdfPro\settings.json`; đọc bằng `utf-8-sig` (chịu BOM); hỗ trợ `QT_PDF_PRO_DATA` |
 | `qtpdfpro/core/font_resolver.py` | Chuẩn hoá phông & Tiếng Việt | Gỡ tiền tố subset `^[A-Z]{6}\+`; ánh xạ tên phông PostScript (`TimesNewRomanPSMT` → `Times New Roman`, v.v.); gộp dấu rời NFD → NFC; chuyển mã TCVN3 (`.Vn*`) sang Unicode |
 | `qtpdfpro/core/layout_analyzer.py` | Phân tích cấu trúc trang | Trích xuất `LayoutElement` (`text`, `table`, `image`, `signature`, `vector`), đếm thành phần (`signature_count`), gợi ý `recommended_mode` (`hybrid` vs `exact`) |
-| `qtpdfpro/core/reader.py` | Engine đọc PDF | Bọc `fitz.Document`; kết xuất trang sang bộ đệm RGB (`RenderedPageBuffer`) có `LRU Cache` 24 trang; lấy mục lục (`get_bookmarks`); tìm kiếm toàn văn (`search`) trả về `bbox` + ngữ cảnh |
+| `qtpdfpro/core/reader.py` | Engine đọc PDF | Bọc `fitz.Document`; kết xuất trang sang bộ đệm RGB (`RenderedPageBuffer`) có `LRU Cache` 24 trang; lấy mục lục (`get_bookmarks`); tìm kiếm toàn văn (`search`) trả về `bbox` + ngữ cảnh; `edit_session()`, `save()` (cùng tệp = incremental `PDF_ENCRYPT_KEEP`, giữ chữ ký số; tệp khác = ghi toàn bộ rồi `_reopen`), `export_flattened`, `invalidate_pages`, `page_view_matrix` (trang chưa xoay → điểm ảnh, gồm `/Rotate` + xoay xem) |
 | `qtpdfpro/core/openxml_fixer.py` | Hậu xử lý chuẩn xác OpenXML | Dùng `lxml` sửa trực tiếp `word/document.xml` & `word/styles.xml`: đồng bộ 4 thuộc tính `w:rFonts`, khôi phục `w:b`/`w:i`, tắt `w:snapToGrid`, khoá `w:tblLayout="fixed"`, thu gọn `w:tcMar`, điều chỉnh `line_spacing_factor` (`0.93`), và neo ảnh con dấu/chữ ký/đường kẻ theo toạ độ trang (`anchor_page_overlays` với `<wp:anchor relativeFrom="page">`) |
 | `qtpdfpro/core/exact_layout_engine.py` | Engine vị trí tuyệt đối 1:1 | Xoá chữ trên bản sao trang PDF bằng `apply_redactions(images=PDF_REDACT_IMAGE_NONE, graphics=PDF_REDACT_LINE_ART_NONE)` để lấy ảnh nền đồ hoạ neo dưới chữ (`wp:anchor behindDoc="1"`), đặt từng dòng chữ vào `<w:framePr>` theo toạ độ `twips` |
 | `qtpdfpro/core/word_com_bridge.py` | Cầu nối MS Word Reflow | Gọi `Word.Application` qua PowerShell không giao diện khi máy có cài Office; thất bại thì tự lùi về `hybrid` |
@@ -106,15 +116,20 @@ python tools/make_app_icon.py --preview <thư mục tạm>/xem_truoc.png
 | `qtpdfpro/core/layout_verify.py` | Kiểm chứng bằng MS Word | `verify_docx_layout` (Word xuất PDF qua PowerShell COM) + `compare_pdf_layouts` (difflib theo dòng, lệch dọc/ngang pt) |
 | `qtpdfpro/core/converter.py` | Điều phối chuyển đổi | Hàm chính `convert_pdf_to_docx`, kèm bộ bản vá `_install_pdf2docx_patches()` xử lý số văn bản đóng dấu đè, trích xuất chữ ký số/con dấu đỏ (`_extract_widget_overlays`), và đường kẻ chân Quốc hiệu (`_extract_standalone_horizontal_rules`) |
 | `qtpdfpro/core/batch.py` | Chuyển đổi hàng loạt | `convert_batch` tuần tự (bộ vá `pdf2docx` dùng biến toàn cục → không chạy song song trong 1 tiến trình), lỗi 1 tệp không dừng cả lượt, `should_cancel`; sự kiện `BatchProgress` mang **bản sao** `BatchItemResult`; `collect_pdf_paths`, `plan_output_paths` (hậu tố `_2` khi trùng tên), `write_batch_report` (.csv UTF-8 BOM / .json) |
+| `qtpdfpro/core/page_ops.py` | Tổ chức trang | `PageRef` (nguồn + `rotation` thêm; `page_index=None` = trang trắng), `assemble_pdf` (gom trang liên tiếp → 1 `insert_pdf`, giữ chú thích/liên kết, remap mục lục, `bookmark_titles` khi ghép nhiều tệp, xoá chú thích đã xoá mềm), `parse_order_spec` (`'3,1-2r90,blank,end,le,chan'`), `merge_pdfs`/`split_pdf`/`extract_pages`/`organize_pdf`/`write_parts`, `save_pdf` qua tệp tạm; từ chối ghi đè tệp nguồn |
+| `qtpdfpro/core/annotations.py` | Chú thích & đánh dấu | Toạ độ = **trang chưa xoay** (hệ của `get_text`/`add_*_annot`; từ toạ độ hiển thị nhân `page.derotation_matrix`). Hộp chữ & dấu đóng: hình hiển thị tự dựng (`insert_htmlbox` + phông Windows trên trang tạm → `_graft_form_xobject` → `/AP /N`, `/Matrix` theo `/Rotate`), mọi khoá ghi qua `xref_set_key`, JSON kiểu dáng ở khoá `/QTPdfPro`; xoá mềm = cờ Hidden + `/QTPdfProDeleted`; `translate_annotation` dịch khoá hình học; `select_text_rects` (thứ tự đọc), `apply_operations` (JSON CLI) |
+| `qtpdfpro/core/edit_session.py` | Phiên chỉnh sửa | `EditSession`: thêm/xoá/di chuyển/sửa nội dung + Hoàn tác/Làm lại tự viết (không dùng journal MuPDF), `modified` theo mốc lưu, `prepare_save` (xoá hẳn chú thích ẩn), `rebind` sau khi mở lại tệp |
 | `qtpdfpro/core/fidelity.py` | Kiểm định độ chính xác | So sánh từ vựng/ký tự (Multiset Bag-of-Words), cỡ trang, số bảng/khung/ảnh giữa PDF và DOCX, chấm điểm `overall_score` (thang 100) |
-| `qtpdfpro/ui/pdf_canvas.py` | Khung vẽ & Cuộn PDF | `PDFScrollViewer`: kết xuất theo vùng nhìn (lazy viewport), đổi màu nền Sáng/Tối (`set_canvas_theme`), vẽ tô sáng tìm kiếm và khung `Layout Inspector Overlay` (gồm cả `signature` màu đỏ hồng `#E11D48`) |
+| `qtpdfpro/ui/pdf_canvas.py` | Khung vẽ & Cuộn PDF | `PDFScrollViewer`: kết xuất theo vùng nhìn (lazy viewport), đổi màu nền Sáng/Tối (`set_canvas_theme`), vẽ tô sáng tìm kiếm và khung `Layout Inspector Overlay` (gồm cả `signature` màu đỏ hồng `#E11D48`) qua `page_transform`/`page_rect_to_widget` (đúng cả trang xoay); `set_interaction(handler)` chuyển chuột trái cho công cụ chú thích (`CanvasInteraction`: press/move/release/double_click/key_press/paint/cursor, toạ độ trang chưa xoay), chuột giữa luôn kéo cuộn, `scroll_to_rect` |
+| `qtpdfpro/ui/annotation_tools.py` | Chế độ chỉnh sửa | `AnnotationController` (bộ xử lý chuột, xem trước, gọi `EditSession`, nhớ kiểu dáng theo công cụ, tín hiệu `documentChanged`), `EditToolbar` (2 tầng, phím tắt chữ cái chỉ bật khi ở chế độ chỉnh sửa), `AnnotationListPanel` (ngăn «Chú thích») |
+| `qtpdfpro/ui/organizer_dialog.py` | Sắp xếp & cắt ghép trang | `PageOrganizerDialog`: `QListWidget` **ListMode + LeftToRight + wrapping + `Movement.Snap` + InternalMove** (IconMode không đổi thứ tự model; ListMode mặc định `Static` tắt kéo), `_PageGridDelegate` tự vẽ thẻ, trạng thái `_items` đồng bộ qua `rowsMoved`, lịch sử ảnh chụp danh sách; `is_locked`/`overwrite_handler` do `MainWindow` cấp để ghi đè tệp đang mở |
 | `qtpdfpro/ui/convert_dialog.py` | Hộp thoại chuyển đổi | Chạy `_ConversionWorker(QThread)`, thanh tiến trình, hiển thị báo cáo `FidelityReport` và nút mở tệp Word ngay; `MODE_CHOICES`/`POLICY_CHOICES` dùng chung |
 | `qtpdfpro/ui/batch_dialog.py` | Hộp thoại hàng loạt | `BatchConvertDialog`: kéo thả PDF/thư mục, `_BatchWorker(QThread)` + cờ `_running` (đợi luồng thoát trong `_on_finished` để không huỷ QThread đang chạy), bảng điểm từng tệp, «Dừng», mở thư mục kết quả, lưu báo cáo; nơi lưu chọn bằng `QComboBox` |
 | `qtpdfpro/ui/app.py` + `ui/assets/` | Khởi động GUI & icon | `app_icon()` đọc `assets/app_icon.ico` (10 cỡ, sinh bằng `tools/make_app_icon.py` từ `app_icon.svg` + `app_icon_small.svg` cho ≤ 32 px); `app.setWindowIcon`; `_set_windows_app_id()` chỉ khi chạy bằng python.exe (không đặt cho bản .exe đóng gói) |
 | `qtpdfpro/ui/theme.py` | QSS Sáng/Tối | `_DARK_QSS`/`_LIGHT_QSS` + `_SHELL_TEMPLATE` điền theo bảng màu `@token` (khoá dài thay trước); tự vẽ `QRadioButton`/`QCheckBox::indicator` (kiểu `windows11` không vẽ radio đang chọn khi có QSS); dấu ✔ là SVG ghi vào `<thư mục dữ liệu>/theme/` (QSS không nhận ảnh nhúng) |
-| `qtpdfpro/ui/main_window.py` | Cửa sổ chính đa tab | Header 2 tầng kiểu PdfCraft (`doc_tab_bar` ở dải tiêu đề đồng bộ với `doc_tabs` ẩn thanh tab; thanh chế độ `mode_buttons` lọc công cụ; menu nằm trong nút «☰ Menu» nên mọi `QAction` phải `self.addActions` để phím tắt chạy); `run_tool(key)` điều phối công cụ; khung tài liệu 3 cột (`tools_panel`, `viewer` + `signature_banner`, `sidebar_tabs` + `right_rail`) |
+| `qtpdfpro/ui/main_window.py` | Cửa sổ chính đa tab | `PDFDocumentTab` có `annot_controller` + `edit_toolbar` + ngăn «Chú thích» (tab 4), tín hiệu `modifiedChanged`/`editModeChanged`/`statusMessage`; `MainWindow` menu «Chỉnh sửa PDF», `action_save`/`action_save_as`/`action_organize`, `_overwrite_open_document`, hỏi lưu ở `close_tab_at`/`closeEvent`; chế độ «Chỉnh sửa» trên thanh chế độ bật thanh chú thích, «Đọc» tắt. Header 2 tầng kiểu PdfCraft (`doc_tab_bar` ở dải tiêu đề đồng bộ với `doc_tabs` ẩn thanh tab; thanh chế độ `mode_buttons` lọc công cụ; menu nằm trong nút «☰ Menu» nên mọi `QAction` phải `self.addActions` để phím tắt chạy); `run_tool(key)` điều phối công cụ; khung tài liệu 3 cột (`tools_panel`, `viewer` + `signature_banner`, `sidebar_tabs` + `right_rail`) |
 | `qtpdfpro/ui/home_page.py` | Trang chủ PdfCraft | `ToolCatalogPanel` (cột «Tất cả công cụ»), `ToolCard` (công cụ đề xuất), `OpenFileCard`, `RecentRow`; lưới thẻ tự đổi số cột theo chiều rộng |
-| `qtpdfpro/ui/tool_catalog.py` | Danh mục công cụ | `TOOLS` (35 công cụ — 15 dùng được, `ready=False` → «Coming Soon» + `milestone`), `RECOMMENDED`, tìm không dấu `tools_for()` |
+| `qtpdfpro/ui/tool_catalog.py` | Danh mục công cụ | `TOOLS` (37 công cụ — 24 dùng được, `ready=False` → «Coming Soon» + `milestone`), `RECOMMENDED`, tìm không dấu `tools_for()` |
 | `qtpdfpro/ui/command_palette.py`, `nd30_dialog.py` | Ctrl+K & NĐ30 | Bảng lệnh; hộp thoại báo cáo NĐ30 & kiểm chứng DOCX (chạy `QThread`) |
 
 ---
@@ -137,6 +152,13 @@ python tools/make_app_icon.py --preview <thư mục tạm>/xem_truoc.png
 | Chế độ `word_com` luôn lùi về `hybrid` | Script PowerShell đặt `param(...)` sau `$ErrorActionPreference` | `param` phải là câu lệnh đầu tiên; ghi script UTF-8 có BOM |
 | Nút `QRadioButton` đang chọn không hiện chấm tròn | Kiểu `windows11` của Qt 6 + QSS của `theme.py` không vẽ indicator khi đã chọn (lỗi có sẵn) | **Đã sửa**: `theme.py` tự vẽ `QRadioButton::indicator` (chấm = `qradialgradient` màu nhấn/trắng) và `QCheckBox::indicator` (ô tô màu nhấn + SVG ✔) cho cả Sáng/Tối, kể cả `:hover`/`:disabled`. Bảng màu `Accent` vẫn đúng — đừng sửa palette |
 | Ứng dụng không có icon (thanh tiêu đề & thanh tác vụ hiện biểu tượng mặc định) | Chưa gọi `setWindowIcon`; `build.bat` chưa `--icon`; chạy bằng `python.exe` thì Windows gộp cửa sổ vào nhóm «Python» | `app.setWindowIcon(app_icon())`; `build.bat` thêm `--icon` + `--add-data` cho `app_icon.ico`; `SetCurrentProcessExplicitAppUserModelID` khi không đóng gói. Explorer có thể giữ icon cũ trong bộ đệm — đổi tên/chép thư mục `dist` nếu thấy icon cũ |
+| Hộp chữ (FreeText) / dấu đóng hiện sai chữ tiếng Việt («Ỷ» → «Ý») | Hình hiển thị MuPDF tự sinh dùng Helvetica dựng sẵn; rich-text thì thụt lề ~40 pt, lẫn phông, bỏ màu viền | Tự dựng `/AP /N` bằng `insert_htmlbox` + phông Windows (Arial/Times, nhúng tập con) trên trang tạm rồi chép thành Form XObject (`annotations._graft_form_xobject`); `/Matrix` xoay theo `/Rotate` |
+| Hình hiển thị tự dựng bị MuPDF vẽ lại bằng Helvetica / dấu thành «APPROVED» | Gọi `annot.set_info`/`set_rect`/`update` sau khi gắn AP → chú thích «cần vẽ lại» | Chỉ ghi `/Rect` `/T` `/M` `/Contents` `/CA` qua `xref_set_key` (`_set_rect_key` đổi sang không gian PDF bằng `~page.transformation_matrix`); dấu đóng đặt `/Name /QTDauDong`. MuPDF đọc lại `/F` `/Rect` `/AP` khi kết xuất — **không cần** `reload_page` (nó còn lỗi assert khi trang đang được tham chiếu) |
+| Hoàn tác bằng journal MuPDF làm hỏng các hàm khác | PyMuPDF 1.28 `ENSURE_OPERATION` gọi `pdf_undoredo_step` → «Can't undo/redo during an operation» cho `show_pdf_page`, `new_page`… | Không bật journal; `EditSession` tự ghi thao tác ngược (xoá mềm = cờ Hidden, dịch ngược, khôi phục khoá) |
+| Di chuyển chú thích làm khung phình / không di chuyển được nét vẽ | `set_rect` không áp dụng cho Ink/Line; `set_rect`+`update` cộng thêm viền mỗi lần | `translate_annotation`: dịch `Rect`, `QuadPoints`, `InkList`, `L`, `Vertices`, `CL` trong không gian PDF, không gọi `update` |
+| Ảnh thu nhỏ rác / trắng trơn trong lưới trang | `pix.samples` trả bytes mới, bị giải phóng trước `QImage.copy()`; `drawRect` viền khi chổi tô còn màu nền thẻ phủ kín ảnh | Giữ `samples = pix.samples` trước khi tạo `QImage`; `painter.setBrush(Qt.NoBrush)` trước khi vẽ viền |
+| Segfault khi đọc `annot.rect` | Duyệt `doc[0].annots()` trên trang tạm — `Page` bị thu hồi khi `Annot` còn dùng | Luôn giữ biến `page` sống suốt lúc dùng chú thích |
+| Kéo thả trong lưới `QListWidget` không đổi thứ tự | IconMode chỉ dời vị trí hiển thị; ListMode mặc định `Movement.Static` (tắt kéo) | ListMode + `setFlow(LeftToRight)` + `setWrapping(True)` + `setMovement(Snap)` rồi `setDragDropMode(InternalMove)`; đồng bộ dữ liệu qua `model().rowsMoved` (đã thử kéo bằng chuột thật) |
 | Python ghi tệp bằng `Path.write_text` trên Windows đổi xuống dòng sang CRLF | Chế độ văn bản dịch `\n` → `os.linesep`; kho dùng `eol=lf` (`.gitattributes`) | Ghi bằng `write_text(..., newline="\n")` hoặc công cụ Write/Edit |
 | Trang PDF 3 trang khi sang Word bị tràn vài dòng sang trang thứ 4 | Word mặc định cộng dồn khoảng cách dòng lớn hơn PDF | Đặt `<w:snapToGrid w:val="0"/>`, `w:header="0" w:footer="0"` và nhân hệ số `line_spacing_factor = 0.93` trong `openxml_fixer.py` để giữ nguyên đúng 3 trang như PDF gốc |
 
@@ -145,7 +167,7 @@ python tools/make_app_icon.py --preview <thư mục tạm>/xem_truoc.png
 ## 6. Việc cần làm tiếp theo (Theo thứ tự ưu tiên cho Agent phiên sau)
 
 1. **Kiểm thử engine `nd30` trên văn bản hành chính thật** (PDF ký số VGCA có số/ngày đóng dấu đè, PDF từ phần mềm quản lý văn bản, PDF in từ LibreOffice, văn bản nhiều phụ lục khổ ngang). Quy trình: `python -m qtpdfpro.cli convert <tệp> --mode nd30 --verify-layout`; mọi kết quả «Lệch nhỏ» phải truy nguyên bằng `compare_pdf_layouts` và bổ sung test. Văn bản chỉ dùng nội bộ, **không** đưa vào `samples/` nếu có thông tin thật.
-2. **Hiện thực các công cụ đang «Coming Soon»** theo `docs/DE_XUAT_TINH_NANG.md` — mỗi công cụ xong thì đặt `ready=True` trong `qtpdfpro/ui/tool_catalog.py` và thêm nhánh xử lý trong `MainWindow.run_tool`. Ưu tiên: Xem 2 trang (v0.4), OCR tiếng Việt (v1.1). (Chuyển đổi hàng loạt đã xong.)
+2. **Hiện thực các công cụ đang «Coming Soon»** theo `docs/DE_XUAT_TINH_NANG.md` — mỗi công cụ xong thì đặt `ready=True` trong `qtpdfpro/ui/tool_catalog.py` và thêm nhánh xử lý trong `MainWindow.run_tool`. Ưu tiên: Xem 2 trang (v0.4), OCR tiếng Việt (v1.1). (Chuyển đổi hàng loạt và «Chỉnh sửa PDF» — chú thích + sắp xếp/cắt ghép trang — đã xong.) Mở rộng «Chỉnh sửa PDF» nếu cần: tay nắm đổi cỡ hộp chữ/hình, sửa kiểu dáng chú thích đã có, che thông tin (redaction).
 3. **Phát hành bản kế tiếp (v0.4.0)** khi xong «Xem 2 trang»: tăng `__version__`, thêm mục `## [0.4.0]` vào CHANGELOG (test `test_version.py` kiểm), chạy `build.bat`, nén `dist\QTPdfPro` thành `QTPdfPro-v0.4.0-win64.zip`, `git tag v0.4.0` + push, `gh release create` kèm tệp zip (bản trước: [v0.3.1](https://github.com/quangthoai1985/QTPdfPro/releases/tag/v0.3.1)).
 
 ---
@@ -153,7 +175,7 @@ python tools/make_app_icon.py --preview <thư mục tạm>/xem_truoc.png
 ## 7. Danh sách kiểm tra bắt buộc trước khi báo "Xong"
 
 - [x] `python -m pytest -q tests` chạy qua 100% không có lỗi.
-- [x] Nếu sửa giao diện (`qtpdfpro/ui/`): chạy thử cửa sổ với `QT_PDF_PRO_DATA` tạm và kiểm tra hiển thị tiếng Việt.
+- [x] Nếu sửa giao diện (`qtpdfpro/ui/`): chạy thử cửa sổ với `QT_PDF_PRO_DATA` tạm và kiểm tra hiển thị tiếng Việt (có thể chụp bằng `widget.grab().save(...)`; bài test GUI mở hộp thoại modal như `QFileDialog` sẽ treo `pytest` — luôn giả lập bằng `monkeypatch`).
 - [x] Nếu sửa engine chuyển đổi (`qtpdfpro/core/`): chạy `python -m qtpdfpro.cli convert samples/nd30/<tệp>.pdf -o <thư mục tạm>/x.docx --mode nd30 --verify-layout` cho cả 3 văn bản mẫu — kết quả phải là «Trùng khớp PDF gốc» (không ghi tệp DOCX vào `samples/`).
 - [x] Cập nhật [CHANGELOG.md](CHANGELOG.md) và tệp `CLAUDE.md` này.
 - [x] Thực hiện `git commit` và `git push` lên kho lưu trữ GitHub `quangthoai1985/QTPdfPro`.

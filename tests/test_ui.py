@@ -185,10 +185,13 @@ def test_home_page_pdfcraft_layout_and_coming_soon(sample_vietnamese_pdf: Path) 
     win.set_mode_category("all")
 
     # Công cụ Coming Soon → chỉ hiện thông báo, không mở hộp thoại
-    win.run_tool("organize")
+    win.run_tool("ocr")
     app.processEvents()
     assert win._toast is not None and COMING_SOON_LABEL in win._toast.text()
-    assert get_tool("organize").ready is False
+    assert get_tool("ocr").ready is False
+    # Nhóm «Chỉnh sửa PDF» đã dùng được
+    assert all(get_tool(k).ready for k in ("edit_pdf", "organize", "combine", "split", "extract_pages",
+                                            "comments", "stamp", "highlight_text"))
 
     # Mở tài liệu → tab hiện ở dải tiêu đề, chuyển sang khung tài liệu
     tab = win.open_pdf_path(sample_vietnamese_pdf)

@@ -6,27 +6,56 @@ Hỗ trợ:
 - Thu phóng theo phần trăm (25% – 400%), Vừa chiều ngang (Fit Width), Vừa trang (Fit Page), Ctrl + Cuộn chuột
 - Lớp phủ tô sáng kết quả tìm kiếm (Search Highlights)
 - Lớp phủ soi khung bố cục trực quan (Layout Inspector Overlay: Văn bản, Bảng biểu, Hình ảnh, Vector)
+- Bộ xử lý thao tác chuột tuỳ chọn (`set_interaction`) cho công cụ chú thích: nhận toạ độ trang chưa xoay
+  (hệ của PyMuPDF), vẽ xem trước lên trang; chuột giữa luôn dùng để kéo cuộn
 """
 
 from __future__ import annotations
 
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Iterable, List, Optional, Protocol, Tuple
 
-from PySide6.QtCore import QPoint, QRectF, Qt, Signal
+import fitz  # PyMuPDF
+
+from PySide6.QtCore import QPoint, QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import (
     QColor,
     QFont,
     QImage,
+    QKeyEvent,
     QMouseEvent,
     QPainter,
     QPaintEvent,
     QPen,
+    QTransform,
     QWheelEvent,
 )
 from PySide6.QtWidgets import QScrollArea, QWidget
 
 from qtpdfpro.core.layout_analyzer import BBox
 from qtpdfpro.core.reader import PDFDocumentReader, SearchHit
+
+
+class CanvasInteraction(Protocol):
+    """Giao diện bộ xử lý chuột gắn vào `PDFScrollViewer.set_interaction` (vd công cụ chú thích).
+
+    `pt` là toạ độ trang **chưa xoay** (cùng hệ với chú thích PyMuPDF); khi đang kéo, `page_index` giữ nguyên
+    trang lúc bấm chuột kể cả khi con trỏ ra ngoài trang.
+    """
+
+    def press(self, viewer: "PDFScrollViewer", page_index: int, pt: fitz.Point, event: QMouseEvent) -> None: ...
+
+    def move(self, viewer: "PDFScrollViewer", page_index: Optional[int], pt: Optional[fitz.Point],
+             event: QMouseEvent, dragging: bool) -> None: ...
+
+    def release(self, viewer: "PDFScrollViewer", page_index: int, pt: fitz.Point, event: QMouseEvent) -> None: ...
+
+    def double_click(self, viewer: "PDFScrollViewer", page_index: int, pt: fitz.Point, event: QMouseEvent) -> None: ...
+
+    def key_press(self, viewer: "PDFScrollViewer", event: QKeyEvent) -> bool: ...
+
+    def paint(self, viewer: "PDFScrollViewer", painter: QPainter, page_index: int) -> None: ...
+
+    def cursor(self) -> Qt.CursorShape: ...
 
 
 class _PageDrawSurface(QWidget):
@@ -36,23 +65,49 @@ class _PageDrawSurface(QWidget):
         super().__init__(canvas)
         self._canvas = canvas
         self.setMouseTracking(True)
+        self.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
 
     def paintEvent(self, event: QPaintEvent) -> None:
         self._canvas._paint_surface(self, event)
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
-        if event.button() == Qt.MouseButton.LeftButton:
+        handler = self._canvas._interaction
+        btn = event.button()
+        if handler is not None and btn == Qt.MouseButton.LeftButton:
+            self.setFocus(Qt.FocusReason.MouseFocusReason)
+            self._canvas._interaction_press(event)
+            return
+        if btn in (Qt.MouseButton.LeftButton, Qt.MouseButton.MiddleButton):
             self._canvas._start_pan(event.globalPosition().toPoint(), event.position().toPoint())
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
-        self._canvas._update_pan(event.globalPosition().toPoint())
+        if self._canvas._panning:
+            self._canvas._update_pan(event.globalPosition().toPoint())
+        elif self._canvas._interaction is not None:
+            self._canvas._interaction_move(event)
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
-        if event.button() == Qt.MouseButton.LeftButton:
+        if self._canvas._panning and event.button() in (Qt.MouseButton.LeftButton, Qt.MouseButton.MiddleButton):
             self._canvas._end_pan()
+        elif self._canvas._interaction is not None and event.button() == Qt.MouseButton.LeftButton:
+            self._canvas._interaction_release(event)
+            return
         super().mouseReleaseEvent(event)
+
+    def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:
+        if self._canvas._interaction is not None and event.button() == Qt.MouseButton.LeftButton:
+            self._canvas._interaction_double_click(event)
+            return
+        super().mouseDoubleClickEvent(event)
+
+    def keyPressEvent(self, event: QKeyEvent) -> None:
+        handler = self._canvas._interaction
+        if handler is not None and handler.key_press(self._canvas, event):
+            event.accept()
+            return
+        super().keyPressEvent(event)
 
 
 class PDFScrollViewer(QScrollArea):
@@ -85,6 +140,9 @@ class PDFScrollViewer(QScrollArea):
         self._pan_start_global = QPoint()
         self._pan_start_scroll = QPoint()
 
+        self._interaction: Optional[CanvasInteraction] = None
+        self._drag_page: Optional[int] = None
+
         self._surface = _PageDrawSurface(self)
         self.setWidget(self._surface)
         self.setWidgetResizable(False)
@@ -113,6 +171,117 @@ class PDFScrollViewer(QScrollArea):
     @property
     def show_layout_overlay(self) -> bool:
         return self._show_layout_overlay
+
+    # ─── Bộ xử lý chuột & đổi toạ độ trang ↔ khung vẽ ─────────────────────
+
+    @property
+    def interaction(self) -> Optional[CanvasInteraction]:
+        return self._interaction
+
+    @property
+    def effective_scale(self) -> float:
+        return self._effective_scale
+
+    def set_interaction(self, handler: Optional[CanvasInteraction]) -> None:
+        """Gắn (hoặc gỡ với `None`) bộ xử lý chuột; khi có, chuột trái không còn kéo cuộn trang."""
+        self._interaction = handler
+        self._drag_page = None
+        self.refresh_cursor()
+        self._surface.update()
+
+    def refresh_cursor(self, shape: Optional[Qt.CursorShape] = None) -> None:
+        if shape is None:
+            shape = self._interaction.cursor() if self._interaction is not None else Qt.CursorShape.ArrowCursor
+        self._surface.setCursor(shape)
+
+    def refresh_pages(self, pages: Iterable[int]) -> None:
+        """Vẽ lại các trang vừa thay đổi nội dung (chú thích mới / xoá / di chuyển)."""
+        self.reader.invalidate_pages(pages)
+        self._surface.update()
+
+    def page_at(self, pos: QPointF) -> Optional[int]:
+        if not self._page_rects_px:
+            return None
+        if not self._continuous:
+            return self._current_page if self._page_rects_px[self._current_page].contains(pos) else None
+        for idx, r in enumerate(self._page_rects_px):
+            if r.contains(pos):
+                return idx
+        return None
+
+    def page_transform(self, page_index: int) -> QTransform:
+        """Phép biến đổi toạ độ trang chưa xoay → toạ độ khung vẽ (đã gồm thu phóng và mọi góc xoay)."""
+        m = self.reader.page_view_matrix(page_index, self._effective_scale)
+        r = self._page_rects_px[page_index]
+        return QTransform(m.a, m.b, m.c, m.d, m.e + r.left(), m.f + r.top())
+
+    def widget_to_page(self, page_index: int, pos: QPointF) -> fitz.Point:
+        inv, _ok = self.page_transform(page_index).inverted()
+        q = inv.map(QPointF(pos))
+        return fitz.Point(q.x(), q.y())
+
+    def page_rect_to_widget(self, page_index: int, rect, transform: Optional[QTransform] = None) -> QRectF:
+        t = transform if transform is not None else self.page_transform(page_index)
+        r = fitz.Rect(rect)
+        return t.mapRect(QRectF(r.x0, r.y0, r.width, r.height))
+
+    def scroll_to_rect(self, page_index: int, rect) -> None:
+        """Cuộn để vùng `rect` (toạ độ trang chưa xoay) của trang `page_index` nằm giữa vùng nhìn."""
+        if not 0 <= page_index < self.reader.page_count:
+            return
+        if not self._continuous or page_index != self._current_page:
+            self.go_to_page(page_index)
+        r = self.page_rect_to_widget(page_index, rect)
+        self.ensureVisible(int(r.center().x()), int(r.center().y()), 60, int(self.viewport().height() * 0.3))
+        self._surface.update()
+
+    def _interaction_press(self, event: QMouseEvent) -> None:
+        pos = event.position()
+        pno = self.page_at(pos)
+        if pno is None:
+            return
+        if pno != self._current_page:
+            self._current_page = pno
+            self.pageChanged.emit(pno)
+        self._drag_page = pno
+        self._interaction.press(self, pno, self.widget_to_page(pno, pos), event)
+        self._surface.update()
+
+    def _interaction_move(self, event: QMouseEvent) -> None:
+        pos = event.position()
+        dragging = self._drag_page is not None and bool(event.buttons() & Qt.MouseButton.LeftButton)
+        pno = self._drag_page if dragging else self.page_at(pos)
+        pt = self.widget_to_page(pno, pos) if pno is not None else None
+        self._interaction.move(self, pno, pt, event, dragging)
+        if dragging:
+            self._autoscroll(pos)
+            self._surface.update()
+
+    def _interaction_release(self, event: QMouseEvent) -> None:
+        pno = self._drag_page
+        self._drag_page = None
+        if pno is None:
+            return
+        self._interaction.release(self, pno, self.widget_to_page(pno, event.position()), event)
+        self._surface.update()
+
+    def _interaction_double_click(self, event: QMouseEvent) -> None:
+        pos = event.position()
+        pno = self.page_at(pos)
+        if pno is not None:
+            self._interaction.double_click(self, pno, self.widget_to_page(pno, pos), event)
+            self._surface.update()
+
+    def _autoscroll(self, pos: QPointF) -> None:
+        """Kéo chuột sát mép vùng nhìn khi đang vẽ/chọn thì tự cuộn theo."""
+        vp = self.viewport()
+        local = vp.mapFromGlobal(self._surface.mapToGlobal(pos.toPoint()))
+        margin, step = 24, 18
+        bar = self.verticalScrollBar()
+        if local.y() < margin:
+            bar.setValue(bar.value() - step)
+        elif local.y() > vp.height() - margin:
+            bar.setValue(bar.value() + step)
 
     def set_canvas_theme(self, theme: str) -> None:
         """Cập nhật màu nền vùng vẽ PDF theo giao diện `'light'` hoặc `'dark'`."""
@@ -174,8 +343,7 @@ class PDFScrollViewer(QScrollArea):
             self.pageChanged.emit(self._current_page)
         elif self._continuous:
             if 0 <= hit.page_index < len(self._page_rects_px):
-                prect = self._page_rects_px[hit.page_index]
-                hit_y = prect.top() + hit.bbox[1] * self._effective_scale
+                hit_y = self.page_rect_to_widget(hit.page_index, hit.bbox).top()
                 vh = self.viewport().height()
                 self.verticalScrollBar().setValue(max(0, int(hit_y - vh * 0.35)))
         self._surface.update()
@@ -314,7 +482,7 @@ class PDFScrollViewer(QScrollArea):
 
     def _end_pan(self) -> None:
         self._panning = False
-        self._surface.setCursor(Qt.CursorShape.ArrowCursor)
+        self.refresh_cursor()
 
     def _paint_surface(self, surface: QWidget, event: QPaintEvent) -> None:
         painter = QPainter(surface)
@@ -365,14 +533,9 @@ class PDFScrollViewer(QScrollArea):
 
             # Lớp phủ 1: Tô sáng kết quả tìm kiếm trên trang này
             hits = self._search_hits_by_page.get(pno, [])
+            transform = self.page_transform(pno) if (hits or self._show_layout_overlay) else None
             for h in hits:
-                hx0, hy0, hx1, hy1 = h.bbox
-                hrect = QRectF(
-                    prect.left() + hx0 * self._effective_scale,
-                    prect.top() + hy0 * self._effective_scale,
-                    (hx1 - hx0) * self._effective_scale,
-                    (hy1 - hy0) * self._effective_scale,
-                ).adjusted(-2, -2, 2, 2)
+                hrect = self.page_rect_to_widget(pno, h.bbox, transform).adjusted(-2, -2, 2, 2)
                 is_active = self._active_hit is not None and (
                     self._active_hit.page_index == h.page_index
                     and self._active_hit.bbox == h.bbox
@@ -387,11 +550,20 @@ class PDFScrollViewer(QScrollArea):
 
             # Lớp phủ 2: Soi bố cục (Layout Inspector Overlay)
             if self._show_layout_overlay:
-                self._draw_layout_overlay(painter, pno, prect)
+                self._draw_layout_overlay(painter, pno, prect, transform)
+
+            # Lớp phủ 3: Xem trước của công cụ chú thích (vùng chọn chữ, nét đang vẽ, chú thích đang chọn)
+            if self._interaction is not None:
+                painter.save()
+                painter.setClipRect(prect.adjusted(-40, -40, 40, 40))
+                self._interaction.paint(self, painter, pno)
+                painter.restore()
 
         painter.end()
 
-    def _draw_layout_overlay(self, painter: QPainter, page_index: int, prect: QRectF) -> None:
+    def _draw_layout_overlay(
+        self, painter: QPainter, page_index: int, prect: QRectF, transform: Optional[QTransform] = None
+    ) -> None:
         """Vẽ các khung nhận diện Văn bản / Bảng biểu / Hình ảnh / Chữ ký / Vector lên trang PDF."""
         summary = self.reader.get_page_layout(page_index)
         color_map = {
@@ -407,13 +579,7 @@ class PDFScrollViewer(QScrollArea):
 
         for el in summary.elements:
             border_c, fill_c = color_map.get(el.kind, (QColor("#2563EB"), QColor(37, 99, 235, 25)))
-            x0, y0, x1, y1 = el.bbox
-            erect = QRectF(
-                prect.left() + x0 * self._effective_scale,
-                prect.top() + y0 * self._effective_scale,
-                (x1 - x0) * self._effective_scale,
-                (y1 - y0) * self._effective_scale,
-            )
+            erect = self.page_rect_to_widget(page_index, el.bbox, transform)
             painter.fillRect(erect, fill_c)
             pen_width = 2.0 if el.kind in ("table", "signature") else 1.1
             painter.setPen(QPen(border_c, pen_width, Qt.PenStyle.SolidLine))

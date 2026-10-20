@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Callable, List, Optional
 
-from PySide6.QtCore import QSize, Qt, QTimer, QUrl
+from PySide6.QtCore import QSize, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import (
     QAction,
+    QCloseEvent,
     QDesktopServices,
     QDragEnterEvent,
     QDropEvent,
@@ -51,12 +53,14 @@ from qtpdfpro.core.converter import is_admin_document
 from qtpdfpro.core.reader import PDFDocumentReader, SearchHit
 from qtpdfpro.core.settings import AppSettings
 from qtpdfpro.core.word_com_bridge import is_ms_word_available
+from qtpdfpro.ui.annotation_tools import AnnotationController, AnnotationListPanel, EditToolbar
 from qtpdfpro.ui.batch_dialog import BatchConvertDialog
 from qtpdfpro.ui.command_palette import SEARCH_IN_DOCUMENT_KEY, CommandPaletteDialog
 from qtpdfpro.ui.convert_dialog import ConvertToDocxDialog
 from qtpdfpro.ui.dialogs import AboutDialog, DocumentInfoDialog, PageTextDialog
 from qtpdfpro.ui.home_page import HomePage
 from qtpdfpro.ui.nd30_dialog import LayoutVerifyDialog, ND30ReportDialog
+from qtpdfpro.ui.organizer_dialog import PageOrganizerDialog
 from qtpdfpro.ui.pdf_canvas import PDFScrollViewer
 from qtpdfpro.ui.theme import get_stylesheet
 from qtpdfpro.ui.tool_catalog import CATEGORIES, COMING_SOON_LABEL, TOOLS, get_tool
@@ -66,8 +70,13 @@ class PDFDocumentTab(QWidget):
     """Một tab tài liệu PDF hoàn chỉnh theo bố cục 3 cột kiểu PdfCraft:
     - Cột trái: Bảng 'Tất cả công cụ' (All Tools) có ô lọc nhanh & thẻ thao tác 1 chạm
     - Cột giữa: Thanh thông báo chữ ký số/con dấu + Khung vẽ PDF tốc độ cao (PDFScrollViewer)
-    - Cột phải: Ngăn thông tin 4 tab (Trang, Mục lục, Tìm kiếm, Soi bố cục) + Thanh điều khiển dọc (Right Rail)
+    - Cột phải: Ngăn thông tin 5 tab (Trang, Mục lục, Tìm kiếm, Soi bố cục, Chú thích) + Thanh điều khiển dọc
+    - Chế độ «Chỉnh sửa» (Ctrl+E): thanh công cụ chú thích phía trên khung đọc (tô màu, đánh dấu, vẽ, chèn chữ…)
     """
+
+    modifiedChanged = Signal(bool)
+    editModeChanged = Signal(bool)
+    statusMessage = Signal(str)
 
     def __init__(
         self,
@@ -121,6 +130,17 @@ class PDFDocumentTab(QWidget):
         self.viewer.set_zoom_mode(
             self.settings.default_zoom_mode, self.settings.default_zoom_percent
         )
+
+        # Chế độ chỉnh sửa: bộ điều khiển chú thích + thanh công cụ 2 tầng (ẩn cho tới khi bật)
+        self.annot_controller = AnnotationController(self.reader, self.settings.annot_author or None, self)
+        self.edit_toolbar = EditToolbar(self.annot_controller, self.viewer, self)
+        self.edit_toolbar.setVisible(False)
+        self.edit_toolbar.exitRequested.connect(self.exit_edit_mode)
+        self.annot_controller.documentChanged.connect(self._on_annotations_changed)
+        self.annot_controller.message.connect(self.statusMessage)
+        self.annot_controller.toolChanged.connect(lambda _k: self.viewer.refresh_cursor())
+        self.annot_controller.selectionChanged.connect(self._on_annotation_selection)
+        center_layout.addWidget(self.edit_toolbar)
         center_layout.addWidget(self.viewer, 1)
 
         # ─── 3. CỘT PHẢI: Ngăn 4 tab (Trang, Mục lục, Tìm kiếm, Soi bố cục) ──
@@ -194,6 +214,16 @@ class PDFDocumentTab(QWidget):
         insp_layout.addWidget(self.sidebar_convert_btn)
         self.sidebar_tabs.addTab(inspector_panel, "Soi bố cục")
 
+        # Ngăn 5: Chú thích (danh sách chú thích, đi tới, sửa, xoá)
+        self.annot_panel = AnnotationListPanel()
+        self.annot_panel.activated.connect(self.go_to_annotation)
+        self.annot_panel.editRequested.connect(lambda pg, x: self.annot_controller.edit_annotation(pg, x, self))
+        self.annot_panel.deleteRequested.connect(self.annot_controller.delete_annotation)
+        self.annot_panel.startEditingRequested.connect(lambda: self.enter_edit_mode())
+        self.editModeChanged.connect(lambda on: self.annot_panel.btn_start.setVisible(not on))
+        self.sidebar_tabs.addTab(self.annot_panel, "Chú thích")
+        self._annot_list_dirty = True
+
         # Ghép 3 cột vào Splitter
         self.splitter.addWidget(self.tools_panel)
         self.splitter.addWidget(center_container)
@@ -213,6 +243,7 @@ class PDFDocumentTab(QWidget):
         self.viewer.pageChanged.connect(self._on_viewer_page_changed)
         self.viewer.zoomChanged.connect(self._on_viewer_zoom_changed)
         self.sidebar_tabs.currentChanged.connect(self._sync_rail_buttons)
+        self.sidebar_tabs.currentChanged.connect(lambda _i: self._refresh_annotation_list_if_visible())
         self._update_inspector(0)
         self._sync_rail_status()
         self._sync_rail_buttons()
@@ -282,6 +313,28 @@ class PDFDocumentTab(QWidget):
             self.tool_btn_convert_hybrid,
             self.tool_btn_convert_dialog,
         ):
+            body_layout.addWidget(b)
+
+        lbl_edit = self._make_section_label("CHỈNH SỬA PDF", "edit")
+        body_layout.addWidget(lbl_edit)
+        self.tool_btn_edit_mode = self._make_tool_card(
+            "✏️ Chỉnh sửa && chú thích (Ctrl+E)\nTô màu, đánh dấu, vẽ, chèn chữ", category="edit"
+        )
+        self.tool_btn_highlight = self._make_tool_card(
+            "🖍 Tô sáng văn bản\nKéo chuột qua chữ để tô màu", category="edit"
+        )
+        self.tool_btn_stamp = self._make_tool_card(
+            "🔖 Đóng dấu\nĐÃ DUYỆT, BẢN SAO, MẬT, KHẨN…", category="edit"
+        )
+        self.tool_btn_organize = self._make_tool_card(
+            "🧩 Sắp xếp && cắt ghép trang\nKéo thả, xoay, xoá, ghép, tách", category="edit"
+        )
+        self.tool_btn_save = self._make_tool_card("💾 Lưu thay đổi (Ctrl+S)\nGhi bổ sung, giữ chữ ký số", category="edit")
+        self.tool_btn_edit_mode.clicked.connect(lambda: self.enter_edit_mode())
+        self.tool_btn_highlight.clicked.connect(lambda: self.enter_edit_mode("highlight"))
+        self.tool_btn_stamp.clicked.connect(lambda: self.enter_edit_mode("stamp"))
+        for b in (self.tool_btn_edit_mode, self.tool_btn_highlight, self.tool_btn_stamp,
+                  self.tool_btn_organize, self.tool_btn_save):
             body_layout.addWidget(b)
 
         lbl_inspect = self._make_section_label("SOI BỐ CỤC & VĂN BẢN", "read")
@@ -381,6 +434,7 @@ class PDFDocumentTab(QWidget):
             ("📑\nMục lục", 1, "Hiện/Ẩn mục lục tài liệu (Bookmarks)"),
             ("🔍\nTìm", 2, "Hiện/Ẩn bảng tìm kiếm văn bản"),
             ("📐\nBố cục", 3, "Hiện/Ẩn bảng phân tích bố cục & chữ ký"),
+            ("💬\nChú\nthích", 4, "Hiện/Ẩn danh sách chú thích (tô sáng, ghi chú, dấu đóng…)"),
         ]
         for label, tab_idx, tip in tab_specs:
             btn = QPushButton(label)
@@ -511,7 +565,103 @@ class PDFDocumentTab(QWidget):
             self.signature_banner.setVisible(False)
 
     def close_document(self) -> None:
+        self.viewer.set_interaction(None)
         self.reader.close()
+
+    # ─── Chế độ chỉnh sửa (chú thích) ─────────────────────────────────────
+
+    @property
+    def edit_mode(self) -> bool:
+        return self.viewer.interaction is not None
+
+    def enter_edit_mode(self, tool: Optional[str] = None) -> None:
+        """Bật thanh công cụ chú thích; `tool` chọn sẵn công cụ (vd "highlight", "stamp")."""
+        if not self.reader.is_pdf:
+            self.statusMessage.emit("Chỉ chỉnh sửa được tệp PDF.")
+            return
+        was = self.edit_mode
+        self.edit_toolbar.setVisible(True)
+        self.edit_toolbar.set_shortcuts_enabled(True)
+        if tool:
+            self.annot_controller.set_tool(tool)
+        self.viewer.set_interaction(self.annot_controller)
+        self._sync_history()
+        self.viewer.setFocus()
+        if not was:
+            self.editModeChanged.emit(True)
+            self.statusMessage.emit("Chế độ chỉnh sửa — chọn công cụ trên thanh phía trên trang (Ctrl+E để thoát).")
+
+    def exit_edit_mode(self) -> None:
+        if not self.edit_mode:
+            return
+        self.viewer.set_interaction(None)
+        self.edit_toolbar.set_shortcuts_enabled(False)
+        self.edit_toolbar.setVisible(False)
+        self.editModeChanged.emit(False)
+
+    def toggle_edit_mode(self) -> None:
+        if self.edit_mode:
+            self.exit_edit_mode()
+        else:
+            self.enter_edit_mode()
+
+    def _sync_history(self) -> None:
+        if not self.reader.has_edit_session:
+            self.edit_toolbar.update_history(False, False)
+            return
+        ses = self.annot_controller.session
+        self.edit_toolbar.update_history(ses.can_undo, ses.can_redo, ses.undo_label, ses.redo_label)
+
+    def _on_annotations_changed(self, page_index: int) -> None:
+        self.viewer.refresh_pages([page_index])
+        self._refresh_thumbnail(page_index)
+        self._annot_list_dirty = True
+        self._refresh_annotation_list_if_visible()
+        self._sync_history()
+        self.modifiedChanged.emit(self.reader.has_unsaved_changes)
+
+    def _on_annotation_selection(self) -> None:
+        sel = self.annot_controller.selected
+        if sel is not None:
+            self.annot_panel.select(*sel)
+        self.viewer.widget().update()
+
+    def _refresh_annotation_list_if_visible(self) -> None:
+        if self._annot_list_dirty and self.sidebar_tabs.isVisible() and self.sidebar_tabs.currentIndex() == 4:
+            self.refresh_annotation_list()
+
+    def refresh_annotation_list(self) -> None:
+        self.annot_panel.set_items(self.annot_controller.session.list_annotations())
+        self._annot_list_dirty = False
+
+    def show_annotation_panel(self) -> None:
+        self.sidebar_tabs.setVisible(True)
+        self.sidebar_tabs.setCurrentIndex(4)
+        self._sync_rail_buttons()
+        self.refresh_annotation_list()
+
+    def go_to_annotation(self, page_index: int, xref: int) -> None:
+        rect = self.annot_controller.session.annotation_rect(page_index, xref)
+        if rect is None:
+            return
+        self.viewer.scroll_to_rect(page_index, rect)
+        self.annot_controller.select(page_index, xref)
+
+    def after_save(self) -> None:
+        """Làm mới hiển thị sau khi lưu (tệp có thể vừa được mở lại / đổi đường dẫn)."""
+        self.viewer.refresh_pages(range(self.reader.page_count))
+        self._annot_list_dirty = True
+        self._refresh_annotation_list_if_visible()
+        self._sync_history()
+        self.modifiedChanged.emit(self.reader.has_unsaved_changes)
+
+    def _refresh_thumbnail(self, page_index: int) -> None:
+        item = self.thumb_list.item(page_index)
+        if item is None or page_index >= 60:
+            return
+        buf = self.reader.render_page(page_index, scale=0.18)
+        qimg = QImage(buf.rgb_bytes, buf.width, buf.height, buf.stride, QImage.Format.Format_RGB888).copy()
+        item.setIcon(QIcon(QPixmap.fromImage(qimg)))
 
     def _populate_thumbnails(self) -> None:
         self.thumb_list.blockSignals(True)
@@ -783,13 +933,57 @@ class MainWindow(QMainWindow):
         tools_menu.addAction(act_verify)
         tools_menu.addAction(self.act_convert)
 
+        edit_menu = self.main_menu.addMenu("Chỉnh sửa PDF")
+        self.act_edit_mode = QAction("Chế độ chỉnh sửa && chú thích", self)
+        self.act_edit_mode.setShortcut(QKeySequence("Ctrl+E"))
+        self.act_edit_mode.triggered.connect(lambda: self.run_tool("edit_pdf"))
+        edit_menu.addAction(self.act_edit_mode)
+        self.act_undo = QAction("Hoàn tác chú thích", self)
+        self.act_undo.setShortcut(QKeySequence.StandardKey.Undo)
+        self.act_undo.triggered.connect(lambda: self._with_active_tab(lambda t: t.annot_controller.undo()))
+        edit_menu.addAction(self.act_undo)
+        self.act_redo = QAction("Làm lại chú thích", self)
+        self.act_redo.setShortcuts([QKeySequence("Ctrl+Y"), QKeySequence("Ctrl+Shift+Z")])
+        self.act_redo.triggered.connect(lambda: self._with_active_tab(lambda t: t.annot_controller.redo()))
+        edit_menu.addAction(self.act_redo)
+        act_annots = QAction("Danh sách chú thích", self)
+        act_annots.triggered.connect(lambda: self.run_tool("comments"))
+        edit_menu.addAction(act_annots)
+        edit_menu.addSeparator()
+        self.act_organize = QAction("Sắp xếp && cắt ghép trang...", self)
+        self.act_organize.setShortcut(QKeySequence("Ctrl+Shift+O"))
+        self.act_organize.triggered.connect(lambda: self.run_tool("organize"))
+        edit_menu.addAction(self.act_organize)
+        self.act_combine = QAction("Ghép tệp PDF...", self)
+        self.act_combine.setShortcut(QKeySequence("Ctrl+Shift+M"))
+        self.act_combine.triggered.connect(lambda: self.run_tool("combine"))
+        edit_menu.addAction(self.act_combine)
+        act_split = QAction("Tách tệp PDF...", self)
+        act_split.triggered.connect(lambda: self.run_tool("split"))
+        edit_menu.addAction(act_split)
+        act_extract = QAction("Trích trang...", self)
+        act_extract.triggered.connect(lambda: self.run_tool("extract_pages"))
+        edit_menu.addAction(act_extract)
+        edit_menu.addSeparator()
+        self.act_save = QAction("Lưu thay đổi", self)
+        self.act_save.setShortcut(QKeySequence.StandardKey.Save)
+        self.act_save.triggered.connect(self.action_save)
+        edit_menu.addAction(self.act_save)
+        self.act_save_as = QAction("Lưu thành tệp mới...", self)
+        self.act_save_as.setShortcut(QKeySequence("Ctrl+Shift+S"))
+        self.act_save_as.triggered.connect(self.action_save_as)
+        edit_menu.addAction(self.act_save_as)
+        act_flat = QAction("Xuất bản làm phẳng chú thích...", self)
+        act_flat.triggered.connect(self.action_export_flattened)
+        edit_menu.addAction(act_flat)
+
         help_menu = self.main_menu.addMenu("Trợ giúp")
         act_about = QAction(f"Giới thiệu {__app_name__}...", self)
         act_about.triggered.connect(self.action_show_about)
         help_menu.addAction(act_about)
 
         # Menu nằm trong nút «☰ Menu» nên phải gắn hành động vào cửa sổ để phím tắt hoạt động
-        for menu in (file_menu, view_menu, tools_menu, help_menu):
+        for menu in (file_menu, view_menu, tools_menu, edit_menu, help_menu):
             self.addActions([a for a in menu.actions() if not a.isSeparator() and a.menu() is None])
         self.menuBar().setVisible(False)
 
@@ -1043,6 +1237,10 @@ class MainWindow(QMainWindow):
         tab = self.active_tab()
         if tab is not None and self.stack.currentWidget() is self.doc_tabs:
             tab.tools_panel.setVisible(True)
+            if category == "edit":
+                tab.enter_edit_mode()
+            elif category == "read":
+                tab.exit_edit_mode()
 
     def active_tab(self) -> Optional[PDFDocumentTab]:
         if self.doc_tabs.count() == 0:
@@ -1117,6 +1315,12 @@ class MainWindow(QMainWindow):
         tab.tool_btn_extract_text.clicked.connect(self.action_extract_current_page_text)
         tab.tool_btn_doc_info.clicked.connect(self.action_show_doc_info)
         tab.tool_btn_all_tools.clicked.connect(lambda: self.action_command_palette(""))
+        tab.tool_btn_organize.clicked.connect(lambda: self.run_tool("organize"))
+        tab.tool_btn_save.clicked.connect(self.action_save)
+        tab.edit_toolbar.saveRequested.connect(self.action_save)
+        tab.edit_toolbar.organizeRequested.connect(lambda: self.run_tool("organize"))
+        tab.modifiedChanged.connect(lambda _m, t=tab: self._update_tab_title(t))
+        tab.statusMessage.connect(lambda text: self.statusBar().showMessage(text, 6000))
 
         safe_tab_title = path.name.replace("&", "&&")
         idx = self.doc_tabs.addTab(tab, safe_tab_title)
@@ -1134,10 +1338,12 @@ class MainWindow(QMainWindow):
         self._sync_toolbar_with_active_tab()
         return tab
 
-    def close_tab_at(self, index: int) -> None:
+    def close_tab_at(self, index: int, force: bool = False) -> None:
         if not 0 <= index < self.doc_tabs.count():
             return
         w = self.doc_tabs.widget(index)
+        if not force and isinstance(w, PDFDocumentTab) and not self._confirm_close_tab(w):
+            return
         self.doc_tabs.removeTab(index)
         self.doc_tab_bar.blockSignals(True)
         self.doc_tab_bar.removeTab(index)
@@ -1215,10 +1421,216 @@ class MainWindow(QMainWindow):
             "read_mode": self.action_read_mode,
             "rotate_view": lambda: self._with_active_tab(lambda t: t.viewer.rotate_current_page(90)),
             "doc_info": self.action_show_doc_info,
+            "edit_pdf": lambda: self._with_active_tab(lambda t: t.toggle_edit_mode()),
+            "highlight_text": lambda: self._with_active_tab(lambda t: t.enter_edit_mode("highlight")),
+            "draw_shapes": lambda: self._with_active_tab(lambda t: t.enter_edit_mode("pen")),
+            "stamp": lambda: self._with_active_tab(lambda t: t.enter_edit_mode("stamp")),
+            "comments": self._open_annotation_panel,
+            "organize": lambda: self.action_organize("organize"),
+            "combine": lambda: self.action_organize("combine"),
+            "split": lambda: self.action_organize("split"),
+            "extract_pages": lambda: self.action_organize("extract"),
         }
         fn = handlers.get(key)
         if fn is not None:
             fn()
+
+    def _open_annotation_panel(self) -> None:
+        tab = self.active_tab()
+        if tab is None:
+            return
+        tab.enter_edit_mode("note")
+        tab.show_annotation_panel()
+
+    # ─── Chỉnh sửa PDF: lưu, sắp xếp & cắt ghép trang ─────────────────────
+
+    def _update_tab_title(self, tab: PDFDocumentTab) -> None:
+        idx = self.doc_tabs.indexOf(tab)
+        if idx < 0:
+            return
+        name = tab.reader.path.name.replace("&", "&&")
+        mark = "● " if tab.reader.has_unsaved_changes else "📄 "
+        self.doc_tab_bar.setTabText(idx, f"{mark}{name}")
+        self.doc_tab_bar.setTabToolTip(idx, str(tab.reader.path))
+        self.doc_tabs.setTabText(idx, name)
+        self.doc_tabs.setTabToolTip(idx, str(tab.reader.path))
+
+    def _save_tab(self, tab: PDFDocumentTab, path: Optional[Path] = None) -> bool:
+        signed = tab.reader.has_digital_signature
+        try:
+            saved = tab.reader.save(path)
+        except Exception as exc:
+            QMessageBox.critical(
+                self, "Không lưu được tệp",
+                f"Không ghi được tệp PDF:\n{exc}\n\nTệp có thể đang mở ở chương trình khác hoặc chỉ cho phép đọc — "
+                "hãy dùng «Lưu thành tệp mới…» (Ctrl+Shift+S).",
+            )
+            return False
+        tab.after_save()
+        self._update_tab_title(tab)
+        self.settings.add_recent_file(saved)
+        self._refresh_recent_menu()
+        note = " — ghi bổ sung, chữ ký số gốc vẫn kiểm tra được" if signed and path is None else ""
+        self._show_toast(f"💾 Đã lưu {saved.name}{note}")
+        self._sync_toolbar_with_active_tab()
+        return True
+
+    def action_save(self) -> None:
+        tab = self.active_tab()
+        if tab is None:
+            return
+        if not tab.reader.has_unsaved_changes:
+            self._show_toast("Không có thay đổi nào cần lưu.")
+            return
+        self._save_tab(tab)
+
+    def action_save_as(self) -> None:
+        tab = self.active_tab()
+        if tab is None:
+            return
+        src = tab.reader.path
+        default = str(src.with_name(f"{src.stem}_da_chinh_sua.pdf"))
+        chosen, _ = QFileDialog.getSaveFileName(self, "Lưu thành tệp PDF mới", default, "Tài liệu PDF (*.pdf)")
+        if not chosen:
+            return
+        target = Path(chosen).resolve()
+        if target.suffix.lower() != ".pdf":
+            target = target.with_suffix(".pdf")
+        if target != src and self._tab_for_path(target) is not None:
+            QMessageBox.warning(self, "Tệp đang mở", f"«{target.name}» đang mở ở tab khác — hãy đóng tab đó trước.")
+            return
+        if tab.reader.has_digital_signature and target != src:
+            ok = QMessageBox.question(
+                self, "Văn bản có chữ ký số",
+                "Lưu thành tệp mới sẽ ghi lại toàn bộ tệp nên chữ ký số gốc không còn kiểm tra được.\n"
+                "Muốn giữ chữ ký số, hãy dùng «Lưu» (Ctrl+S — ghi bổ sung vào tệp gốc).\n\nVẫn lưu thành tệp mới?",
+            )
+            if ok != QMessageBox.StandardButton.Yes:
+                return
+        self._save_tab(tab, target)
+
+    def action_export_flattened(self) -> None:
+        tab = self.active_tab()
+        if tab is None:
+            return
+        src = tab.reader.path
+        chosen, _ = QFileDialog.getSaveFileName(
+            self, "Xuất bản làm phẳng chú thích", str(src.with_name(f"{src.stem}_lam_phang.pdf")),
+            "Tài liệu PDF (*.pdf)",
+        )
+        if not chosen:
+            return
+        target = Path(chosen).resolve()
+        if self._tab_for_path(target) is not None:
+            QMessageBox.warning(self, "Tệp đang mở", f"«{target.name}» đang mở — hãy chọn tên khác.")
+            return
+        try:
+            out = tab.reader.export_flattened(target)
+        except Exception as exc:
+            QMessageBox.critical(self, "Không xuất được tệp", str(exc))
+            return
+        self._show_toast(f"Đã xuất bản làm phẳng: {out.name} (chú thích đã vẽ vào nội dung trang)")
+
+    def _tab_for_path(self, path: Path) -> Optional[PDFDocumentTab]:
+        target = Path(path).resolve()
+        for i in range(self.doc_tabs.count()):
+            w = self.doc_tabs.widget(i)
+            if isinstance(w, PDFDocumentTab) and w.reader.path == target:
+                return w
+        return None
+
+    def _confirm_close_tab(self, tab: PDFDocumentTab) -> bool:
+        """Hỏi lưu khi đóng tab có chú thích chưa lưu; trả về True nếu được phép đóng."""
+        if not tab.reader.has_unsaved_changes:
+            return True
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setWindowTitle("Lưu thay đổi?")
+        box.setText(f"Tài liệu «{tab.reader.path.name}» có chú thích / chỉnh sửa chưa lưu.")
+        box.setInformativeText("Lưu vào tệp trước khi đóng?")
+        btn_save = box.addButton("Lưu", QMessageBox.ButtonRole.AcceptRole)
+        btn_discard = box.addButton("Không lưu", QMessageBox.ButtonRole.DestructiveRole)
+        box.addButton("Huỷ", QMessageBox.ButtonRole.RejectRole)
+        box.setDefaultButton(btn_save)
+        box.exec()
+        clicked = box.clickedButton()
+        if clicked is btn_save:
+            return self._save_tab(tab)
+        return clicked is btn_discard
+
+    def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802 - API Qt
+        for i in range(self.doc_tabs.count()):
+            w = self.doc_tabs.widget(i)
+            if isinstance(w, PDFDocumentTab) and w.reader.has_unsaved_changes:
+                self.doc_tabs.setCurrentIndex(i)
+                self._show_documents()
+                if not self._confirm_close_tab(w):
+                    event.ignore()
+                    return
+        super().closeEvent(event)
+
+    def action_organize(self, mode: str = "organize") -> None:
+        """Mở «Sắp xếp & cắt ghép trang» (mode: organize / combine / split / extract)."""
+        tab = self.active_tab()
+        sources = []
+        files: List[str] = []
+        if tab is not None and tab.reader.is_pdf:
+            sources.append((str(tab.reader.path), tab.reader.doc, tab.reader.path.name))
+        elif mode != "combine":
+            chosen, _ = QFileDialog.getOpenFileName(self, "Chọn tệp PDF", "", "Tài liệu PDF (*.pdf)")
+            if not chosen:
+                return
+            files.append(chosen)
+        dlg = PageOrganizerDialog(
+            self, sources=sources, files=files, mode=mode, theme=self.settings.theme,
+            is_locked=lambda p: self._tab_for_path(p) is not None,
+            overwrite_handler=self._overwrite_open_document,
+        )
+        if not dlg.exec():
+            return
+        paths = dlg.result_paths
+        if dlg.result_kind == "file" and paths:
+            self._show_toast(f"💾 Đã lưu {paths[0].name} ({paths[0].parent})")
+            if dlg.open_results:
+                self.open_pdf_path(paths[0])
+        elif dlg.result_kind == "parts" and paths:
+            folder = paths[0].parent
+            self._show_toast(f"✂ Đã tách thành {len(paths)} tệp trong {folder}")
+            if dlg.open_results:
+                QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder)))
+
+    def _overwrite_open_document(self, path: Path, data: bytes) -> bool:
+        """Ghi đè một tệp đang mở trong tab bằng kết quả sắp xếp trang rồi mở lại đúng vị trí."""
+        tab = self._tab_for_path(path)
+        if tab is None:
+            return False
+        answer = QMessageBox.question(
+            self, "Ghi đè tài liệu đang mở?",
+            f"Ghi đè «{path.name}» bằng kết quả sắp xếp / cắt ghép trang?\n"
+            "Chú thích chưa lưu của tab đã được gộp vào kết quả.",
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return False
+        idx = self.doc_tabs.indexOf(tab)
+        page = tab.viewer.current_page
+        self.close_tab_at(idx, force=True)
+        target = Path(path).resolve()
+        tmp = target.with_name(f".{target.stem}.qtpdfpro-tmp.pdf")
+        try:
+            tmp.write_bytes(data)
+            os.replace(tmp, target)
+        except OSError as exc:
+            tmp.unlink(missing_ok=True)
+            QMessageBox.critical(self, "Không ghi được tệp", str(exc))
+            self.open_pdf_path(target)
+            return False
+        new_tab = self.open_pdf_path(target)
+        if new_tab is not None:
+            cur = self.doc_tabs.indexOf(new_tab)
+            if 0 <= idx < self.doc_tabs.count() and cur != idx:
+                self.doc_tab_bar.moveTab(cur, idx)
+            new_tab.viewer.go_to_page(min(page, new_tab.reader.page_count - 1))
+        return True
 
     def _open_inspector(self, overlay: bool) -> None:
         tab = self.active_tab()

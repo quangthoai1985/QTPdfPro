@@ -8,6 +8,15 @@ Hỗ trợ:
   python -m qtpdfpro.cli verify <input.pdf> <output.docx> [--render]
   python -m qtpdfpro.cli batch <thư mục | a.pdf b.pdf ...> [-o <thư mục ra>] [--mode auto] [--verify-layout]
                                [--recursive] [--report bao_cao.csv] [--json]
+
+Chỉnh sửa PDF (tổ chức trang & chú thích):
+  python -m qtpdfpro.cli merge a.pdf b.pdf:1-3 -o gop.pdf [--no-bookmarks]
+  python -m qtpdfpro.cli split in.pdf [-o thu_muc] (--every 2 | --ranges "1-3,4-6" | --after 3,7)
+  python -m qtpdfpro.cli organize in.pdf --order "3,1-2r90,blank,end" [-o out.pdf]
+  python -m qtpdfpro.cli extract in.pdf --pages "1-3,5" [-o out.pdf]
+  python -m qtpdfpro.cli annotate in.pdf [-o out.pdf] [--highlight "cụm từ"] [--underline ...] [--strikeout ...]
+                                  [--color vang] [--stamp "ĐÃ DUYỆT" --stamp-date] [--ops thao_tac.json] [--flatten]
+  python -m qtpdfpro.cli annots in.pdf [--json]
 """
 
 from __future__ import annotations
@@ -19,6 +28,8 @@ from pathlib import Path
 from typing import List, Optional
 
 from qtpdfpro import __app_name__, __version__
+from qtpdfpro.core import annotations as annots_mod
+from qtpdfpro.core import page_ops
 from qtpdfpro.core.batch import (
     STATUS_FAILED,
     STATUS_OK,
@@ -171,7 +182,179 @@ def build_parser() -> argparse.ArgumentParser:
     p_bat.add_argument("--report", help="Lưu báo cáo tổng hợp ra tệp .csv hoặc .json")
     p_bat.add_argument("--json", action="store_true", help="In kết quả dạng JSON")
 
+    _add_edit_commands(sub)
     return parser
+
+
+def _add_edit_commands(sub) -> None:
+    """Lệnh «Chỉnh sửa PDF»: ghép / tách / sắp xếp / trích trang và chú thích."""
+    p_merge = sub.add_parser("merge", help="Ghép nhiều tệp PDF thành một (mỗi tệp có thể kèm phạm vi trang: a.pdf:1-3)")
+    p_merge.add_argument("inputs", nargs="+", help="Các tệp PDF theo thứ tự ghép")
+    p_merge.add_argument("-o", "--output", required=True, help="Tệp PDF kết quả")
+    p_merge.add_argument("--no-bookmarks", action="store_true", help="Không tạo mục lục theo từng tệp nguồn")
+    p_merge.add_argument("--json", action="store_true", help="In kết quả dạng JSON")
+
+    p_split = sub.add_parser("split", help="Tách tệp PDF thành nhiều tệp")
+    p_split.add_argument("input_pdf", help="Tệp PDF cần tách")
+    p_split.add_argument("-o", "--output-dir", help="Thư mục lưu các phần (mặc định: <tên tệp>_tach cạnh tệp gốc)")
+    grp = p_split.add_mutually_exclusive_group(required=True)
+    grp.add_argument("--every", type=int, help="Mỗi phần N trang (1 = mỗi trang một tệp)")
+    grp.add_argument("--ranges", help="Mỗi khoảng là một tệp, vd '1-3,4-6,7'")
+    grp.add_argument("--after", help="Cắt sau các trang, vd '3,7' → 1-3, 4-7, 8-hết")
+    p_split.add_argument("--json", action="store_true", help="In kết quả dạng JSON")
+
+    p_org = sub.add_parser(
+        "organize",
+        help="Sắp xếp / xoá / xoay / nhân bản trang, chèn trang trắng theo chuỗi thứ tự",
+        description=(
+            "Chuỗi thứ tự (số trang tính từ 1, phân tách bằng dấu phẩy): '5', '1-3', '8-6' (đảo), 'end' (trang cuối), "
+            "'le'/'chan' (trang lẻ/chẵn), hậu tố xoay 'r90'/'r180'/'r270' (vd '2r90'), 'blank' (trang trắng). "
+            "Trang không có trong chuỗi sẽ bị xoá."
+        ),
+    )
+    p_org.add_argument("input_pdf", help="Tệp PDF nguồn")
+    p_org.add_argument("--order", required=True, help="Chuỗi thứ tự trang, vd '3,1-2r90,blank,end'")
+    p_org.add_argument("-o", "--output", help="Tệp kết quả (mặc định: <tên>_sap_xep.pdf)")
+    p_org.add_argument("--json", action="store_true", help="In kết quả dạng JSON")
+
+    p_ext = sub.add_parser("extract", help="Trích các trang chọn thành tệp PDF mới")
+    p_ext.add_argument("input_pdf", help="Tệp PDF nguồn")
+    p_ext.add_argument("-p", "--pages", required=True, help="Các trang cần trích, vd '1-3,5'")
+    p_ext.add_argument("-o", "--output", help="Tệp kết quả (mặc định: <tên>_trich.pdf)")
+    p_ext.add_argument("--json", action="store_true", help="In kết quả dạng JSON")
+
+    p_ann = sub.add_parser("annotate", help="Thêm chú thích: tô sáng/gạch chân cụm từ, dấu đóng, thao tác JSON")
+    p_ann.add_argument("input_pdf", help="Tệp PDF nguồn")
+    p_ann.add_argument("-o", "--output", help="Tệp kết quả (mặc định: <tên>_chu_thich.pdf; trùng tệp gốc = ghi bổ sung)")
+    p_ann.add_argument("--highlight", action="append", default=[], metavar="CỤM_TỪ", help="Tô sáng mọi chỗ có cụm từ")
+    p_ann.add_argument("--underline", action="append", default=[], metavar="CỤM_TỪ", help="Gạch chân cụm từ")
+    p_ann.add_argument("--strikeout", action="append", default=[], metavar="CỤM_TỪ", help="Gạch ngang cụm từ")
+    p_ann.add_argument("--color", help="Màu: #RRGGBB hoặc vang, xanhla, xanhtroi, hong, cam, do, xanh, tim, den")
+    p_ann.add_argument("--opacity", type=float, default=1.0, help="Độ đậm 0.05–1 (mặc định 1)")
+    p_ann.add_argument("-p", "--pages", default="", help="Chỉ đánh dấu trên các trang này (vd '1-2')")
+    p_ann.add_argument("--stamp", metavar="NHÃN", help="Đóng dấu, vd 'ĐÃ DUYỆT', 'BẢN SAO', 'MẬT'")
+    p_ann.add_argument("--stamp-page", type=int, default=1, help="Trang đóng dấu (mặc định 1)")
+    p_ann.add_argument("--stamp-at", help="Tâm dấu 'x,y' (pt, gốc trên-trái; mặc định lề trên bên phải)")
+    p_ann.add_argument("--stamp-date", action="store_true", help="Thêm dòng ngày hôm nay vào dấu")
+    p_ann.add_argument("--ops", help="Tệp JSON danh sách thao tác chú thích (xem annotations.apply_operations)")
+    p_ann.add_argument("--author", help="Tên người chú thích (mặc định: tên đăng nhập Windows)")
+    p_ann.add_argument("--flatten", action="store_true", help="Làm phẳng chú thích vào nội dung trang")
+    p_ann.add_argument("--json", action="store_true", help="In kết quả dạng JSON")
+
+    p_list = sub.add_parser("annots", help="Liệt kê chú thích trong tệp PDF")
+    p_list.add_argument("input_pdf", help="Tệp PDF")
+    p_list.add_argument("--json", action="store_true", help="In kết quả dạng JSON")
+
+
+def _print_organize(res: page_ops.OrganizeResult, title: str, as_json: bool) -> None:
+    if as_json:
+        print(json.dumps(res.to_dict(), ensure_ascii=False, indent=2))
+        return
+    print(f"{title}: {len(res.output_paths)} tệp, {res.total_pages} trang")
+    for path, n in zip(res.output_paths, res.page_counts):
+        print(f"  - {path} ({n} trang)")
+
+
+def _run_annotate(args: argparse.Namespace) -> int:
+    import fitz
+
+    src = Path(args.input_pdf).resolve()
+    dst = Path(args.output).resolve() if args.output else src.with_name(f"{src.stem}_chu_thich.pdf")
+    author = args.author if args.author is not None else annots_mod.default_author()
+    opacity = max(0.05, min(1.0, args.opacity))
+    doc = fitz.open(str(src))
+    try:
+        if doc.needs_pass:
+            raise PermissionError("Tệp PDF được bảo vệ bằng mật khẩu.")
+        pages = page_ops.parse_page_selection(args.pages, doc.page_count) if args.pages.strip() else None
+        added = 0
+        marks = (
+            ("highlight", args.highlight, "#FACC15"),
+            ("underline", args.underline, "#16A34A"),
+            ("strikeout", args.strikeout, "#DC2626"),
+        )
+        for kind, needles, default_color in marks:
+            for needle in needles:
+                color = annots_mod.color_hex(annots_mod.parse_color(args.color, default_color))
+                style = annots_mod.AnnotStyle(color=color, opacity=opacity)
+                n = annots_mod.mark_text(doc, needle, kind, style, pages, author)
+                if n == 0 and not args.json:
+                    print(f"  ! Không tìm thấy «{needle}»")
+                added += n
+        if args.ops:
+            ops = json.loads(Path(args.ops).read_text(encoding="utf-8-sig"))
+            if isinstance(ops, dict):
+                ops = ops.get("operations") or ops.get("ops") or []
+            added += annots_mod.apply_operations(doc, ops, author)
+        if args.stamp:
+            page = doc[max(1, min(doc.page_count, args.stamp_page)) - 1]
+            if args.stamp_at:
+                x, y = (float(v) for v in args.stamp_at.split(","))
+            else:
+                x, y = page.rect.width - 110, 32  # lề trên bên phải, không đè Quốc hiệu
+            label = args.stamp.strip()
+            preset = dict(annots_mod.STAMP_PRESETS).get(annots_mod._nfc(label).upper(), "#DC2626")
+            color = annots_mod.color_hex(annots_mod.parse_color(args.color or preset))
+            style = annots_mod.AnnotStyle(color=color, font_size=18, opacity=opacity)
+            date_text = annots_mod.stamp_date_text() if args.stamp_date else None
+            annots_mod.add_stamp(page, fitz.Point(x, y) * page.derotation_matrix, label, style, author, date_text)
+            added += 1
+        if args.flatten:
+            annots_mod.flatten_annotations(doc)
+        if dst == src:
+            doc.save(str(src), incremental=True, encryption=fitz.PDF_ENCRYPT_KEEP)
+        else:
+            page_ops.save_pdf(doc, dst)
+    finally:
+        doc.close()
+    if args.json:
+        payload = {"output": str(dst), "added": added, "flattened": bool(args.flatten)}
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+    else:
+        print(f"Đã thêm {added} chú thích → {dst}" + (" (đã làm phẳng)" if args.flatten else ""))
+    return 0
+
+
+def _run_edit_command(args: argparse.Namespace) -> int:
+    """Chạy các lệnh chỉnh sửa PDF; trả về mã thoát."""
+    try:
+        if args.command == "merge":
+            res = page_ops.merge_pdfs(args.inputs, args.output, bookmarks=not args.no_bookmarks)
+            _print_organize(res, "Đã ghép", args.json)
+        elif args.command == "split":
+            src = Path(args.input_pdf).resolve()
+            out_dir = Path(args.output_dir) if args.output_dir else src.with_name(f"{src.stem}_tach")
+            after = [int(x) for x in args.after.replace(";", ",").split(",") if x.strip()] if args.after else None
+            res = page_ops.split_pdf(src, out_dir, every=args.every, ranges=args.ranges, after=after)
+            _print_organize(res, "Đã tách", args.json)
+        elif args.command == "organize":
+            src = Path(args.input_pdf).resolve()
+            out = args.output or src.with_name(f"{src.stem}_sap_xep.pdf")
+            _print_organize(page_ops.organize_pdf(src, args.order, out), "Đã sắp xếp", args.json)
+        elif args.command == "extract":
+            src = Path(args.input_pdf).resolve()
+            out = args.output or src.with_name(f"{src.stem}_trich.pdf")
+            _print_organize(page_ops.extract_pages(src, args.pages, out), "Đã trích", args.json)
+        elif args.command == "annotate":
+            return _run_annotate(args)
+        elif args.command == "annots":
+            import fitz
+
+            with fitz.open(str(Path(args.input_pdf).resolve())) as doc:
+                items = annots_mod.list_annotations(doc)
+            if args.json:
+                print(json.dumps([i.to_dict() for i in items], ensure_ascii=False, indent=2))
+            else:
+                print(f"{Path(args.input_pdf).name}: {len(items)} chú thích")
+                for i in items:
+                    extra = f" — {i.content}" if i.content else ""
+                    who = f" ({i.author})" if i.author else ""
+                    print(f"  [Tr. {i.page_index + 1}] {i.label}{who}{extra}")
+    except (page_ops.PageOpsError, annots_mod.AnnotationError, FileNotFoundError, PermissionError,
+            ValueError, OSError) as exc:
+        print(f"Lỗi: {exc}", file=sys.stderr)
+        return 1
+    return 0
 
 
 def _print_batch_item(item: BatchItemResult, total: int) -> None:
@@ -312,6 +495,9 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     if args.command == "batch":
         return _run_batch(args)
+
+    if args.command in ("merge", "split", "organize", "extract", "annotate", "annots"):
+        return _run_edit_command(args)
 
     if args.command == "nd30":
         src = Path(args.input_pdf).resolve()

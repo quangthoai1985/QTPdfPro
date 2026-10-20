@@ -23,6 +23,14 @@
 - Bảng kết quả từng tệp: trạng thái, chế độ engine, số trang, **điểm chuẩn xác**, **điểm thể thức NĐ30**, kết luận kiểm chứng Word; một tệp lỗi không dừng cả lượt, có nút «Dừng».
 - Lưu báo cáo `.csv` (mở đúng tiếng Việt trong Excel) hoặc `.json`; dùng được qua dòng lệnh `cli batch`.
 
+### 1.0c. Chỉnh sửa PDF: tô màu, đánh dấu, cắt ghép trang (chưa phát hành — sẽ có ở bản kế tiếp)
+- **Chế độ chỉnh sửa ngay trên khung đọc** (`Ctrl+E` hoặc chế độ «Chỉnh sửa» trên thanh trên cùng): tô sáng / gạch chân / gạch ngang / gạch sóng chữ bằng cách **kéo chuột qua chữ như bôi đen trong Word** (giữ `Alt` để chọn theo vùng, trang ảnh quét thì tô theo vùng), bút vẽ tay, **bút dạ quang** (trong suốt, không che chữ), khung, elip, đường thẳng, mũi tên, **hộp chữ tiếng Việt**, ghi chú dán, **dấu đóng** «ĐÃ DUYỆT», «BẢN SAO», «MẬT», «KHẨN»… (kèm ngày tuỳ chọn), tẩy; chọn – kéo để di chuyển, nhấp đúp để sửa nội dung; 9 màu nhanh + màu tuỳ chọn, độ dày nét, độ đậm.
+- **Hoàn tác / Làm lại** mọi thao tác (`Ctrl+Z` / `Ctrl+Y`); ngăn **«Chú thích»** liệt kê mọi chú thích (đi tới, sửa, xoá).
+- **Lưu kiểu ghi bổ sung (incremental)** vào chính tệp gốc → chữ ký số VGCA đã có vẫn kiểm tra được phần đã ký; «Lưu thành…», «Xuất bản làm phẳng chú thích»; hỏi lưu khi đóng tab/ứng dụng.
+- Hộp chữ & dấu đóng được dựng bằng **phông TrueType của Windows (Arial / Times New Roman) nhúng tập con** — hiển thị đúng mọi chữ tiếng Việt có dấu ở mọi trình đọc PDF (phông dựng sẵn của MuPDF biến «Ỷ» thành «Ý»), đứng thẳng cả trên trang xoay.
+- **«Sắp xếp & cắt ghép trang»** (`Ctrl+Shift+O`): lưới ảnh trang **kéo thả** đổi thứ tự, xoay, nhân bản, xoá, chèn trang trắng, đảo thứ tự, **ghép trang từ nhiều tệp PDF** (mỗi tệp một màu), **đặt điểm cắt ✂** giữa các trang → xuất mỗi phần thành một tệp, chia theo mỗi N trang / theo khoảng trang, trích trang chọn; giữ chú thích, liên kết và **mục lục** (bookmark) của các trang còn lại.
+- Dòng lệnh: `merge`, `split`, `organize`, `extract`, `annotate` (tô sáng cụm từ, đóng dấu, thao tác JSON, làm phẳng), `annots`.
+
 ### 1.1. Chuyển đổi PDF sang Word (`.docx`) chuẩn xác (Chức năng chủ đạo)
 Khắc phục triệt để hiện tượng *vỡ khung, nhảy dòng, tràn trang, lỗi phông tiếng Việt* thường gặp ở các công cụ chuyển đổi thông thường nhờ **Kiến trúc Đa Chế độ + Bộ Hậu xử lý Chuẩn xác OpenXML (`lxml`)**:
 
@@ -45,7 +53,7 @@ Khắc phục triệt để hiện tượng *vỡ khung, nhảy dòng, tràn tra
 - **Đa tab tài liệu**, hỗ trợ kéo-thả tệp `.pdf` trực tiếp vào cửa sổ.
 - **Kết xuất sắc nét tốc độ cao** qua `PyMuPDF` (`fitz`), hỗ trợ màn hình High-DPI, bộ nhớ đệm trang thông minh (`LRU Cache`).
 - **Chế độ xem linh hoạt**: Cuộn liên tục (`Continuous Scroll`), Từng trang (`Single Page`), Vừa chiều ngang (`Fit Width`), Vừa trang (`Fit Page`), thu phóng `25% – 400%` (`Ctrl + Cuộn chuột`), xoay trang `90°`.
-- **Thanh bên (Sidebar) 4 ngăn**:
+- **Thanh bên (Sidebar) 5 ngăn** (thêm ngăn **Chú thích**):
   1. **Trang**: Danh sách ảnh thu nhỏ (Thumbnails) của từng trang.
   2. **Mục lục**: Cây mục lục (Bookmarks / Outline) điều hướng nhanh.
   3. **Tìm kiếm**: Tìm kiếm toàn văn tiếng Việt, hiển thị ngữ cảnh và **tô sáng vị trí từ khoá** ngay trên trang PDF.
@@ -94,6 +102,16 @@ python -m qtpdfpro.cli verify tailieu.pdf tailieu.docx
 
 # Chuyển cả thư mục PDF sang Word, ghi báo cáo CSV
 python -m qtpdfpro.cli batch thu_muc_pdf -o thu_muc_docx --report bao_cao.csv
+
+# Chỉnh sửa PDF: ghép, tách, sắp xếp / xoay / xoá / chèn trang trắng, trích trang
+python -m qtpdfpro.cli merge a.pdf b.pdf:1-3 -o gop.pdf
+python -m qtpdfpro.cli split tailieu.pdf --every 2            # hoặc --ranges "1-3,4-6" / --after 3,7
+python -m qtpdfpro.cli organize tailieu.pdf --order "3,1-2r90,blank,end" -o sap_xep.pdf
+python -m qtpdfpro.cli extract tailieu.pdf --pages 1-3,5
+
+# Chú thích: tô sáng cụm từ, đóng dấu kèm ngày, liệt kê chú thích
+python -m qtpdfpro.cli annotate vanban.pdf --highlight "Độc lập" --stamp "ĐÃ DUYỆT" --stamp-date
+python -m qtpdfpro.cli annots vanban_chu_thich.pdf
 ```
 
 ### Chạy kiểm thử tự động & Đóng gói `.exe`

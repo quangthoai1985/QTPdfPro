@@ -132,6 +132,18 @@ QListWidget#paletteList { border: none; font-size: 13px; background-color: @card
 QListWidget#paletteList::item { padding: 7px 8px; border-radius: 6px; }
 QListWidget#paletteList::item:selected { background-color: @accent_soft; color: @text; }
 QTableWidget { background-color: @card; gridline-color: @border; border: 1px solid @border; }
+QFrame#editToolbar { background-color: @bar; border: none; border-bottom: 1px solid @border; }
+QFrame#editToolbar QLabel { color: @text; }
+QFrame#editToolbar QLabel#mutedLabel { color: @muted; }
+QPushButton#annotToolBtn {
+    background-color: transparent; color: @text; border: 1px solid transparent; border-radius: 6px;
+    padding: 3px 6px; min-width: 20px; font-size: 14px;
+}
+QPushButton#annotToolBtn:hover { background-color: @hover; border-color: @border; }
+QPushButton#annotToolBtn:checked { background-color: @accent_soft; color: @accent_text; border-color: @accent; }
+QPushButton#annotToolBtn:disabled { color: @faint; }
+QFrame#editToolbarSep { color: @border_strong; margin: 4px 3px; }
+QListWidget#pageGrid { background-color: @page; border: 1px solid @border; border-radius: 10px; padding: 6px; }
 QScrollBar:vertical { background: transparent; width: 10px; margin: 0px; }
 QScrollBar:horizontal { background: transparent; height: 10px; margin: 0px; }
 QScrollBar::handle:vertical { background: @border_strong; border-radius: 4px; min-height: 30px; margin: 2px; }
