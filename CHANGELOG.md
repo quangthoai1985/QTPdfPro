@@ -7,6 +7,21 @@
 
 ## [Chưa phát hành]
 
+### 2026-10-20 — Sửa theme: nút chọn (radio) và ô đánh dấu (checkbox) hiện rõ trạng thái
+
+#### Đã sửa
+- **`QRadioButton` đang chọn không hiện chấm** ở cả giao diện Sáng lẫn Tối (kiểu `windows11` của Qt 6 + QSS của ứng dụng không vẽ trạng thái đã chọn — bảng màu `Accent` vẫn đúng, lỗi nằm ở phần vẽ). Thấy rõ nhất ở nhóm «Phạm vi trang» của hộp thoại chuyển 1 tệp: mục «Tất cả các trang» đang chọn mà không có vòng/chấm nào.
+- `qtpdfpro/ui/theme.py` (`_SHELL_TEMPLATE`, theo bảng màu Sáng/Tối) tự vẽ toàn bộ `QRadioButton::indicator` và `QCheckBox::indicator`:
+  - Chưa chọn: vòng tròn / ô vuông bo góc viền `faint`, nền `indicator_bg`; di chuột: viền màu nhấn + nền `accent_soft`.
+  - Radio đang chọn: hình tròn màu nhấn (`accent`) có chấm trắng giữa (gradient tròn), chấm to hơn khi di chuột — giống Windows 11.
+  - Checkbox đang chọn: ô tô màu nhấn + dấu ✔ trắng (trước đây chỉ có dấu ✔, không có khung ô).
+  - Trạng thái vô hiệu (`:disabled`, cả đã chọn) chuyển sang màu xám; chữ của radio/checkbox vô hiệu dùng màu `faint`.
+- Dấu ✔ là tệp SVG nhỏ do `theme._check_icon()` ghi vào `<thư mục dữ liệu>/theme/check_ffffff.svg` (QSS không nhận ảnh nhúng; cách này không phải sửa `build.bat`/PyInstaller). Không ghi được tệp thì dùng `image: none` — ô đang chọn vẫn tô màu nhấn nên vẫn phân biệt được.
+
+#### Kiểm thử
+- **40/40** bài test `pytest` vượt qua (thêm `test_theme_styles_radio_and_checkbox_indicators`: QSS cả 2 theme có kiểu indicator, không còn khoá màu `@…` chưa thay, tệp SVG dấu ✔ được ghi đúng thư mục dữ liệu tạm).
+- Đã chụp hộp thoại «Chuyển PDF sang Word» thật ở giao diện Tối và Sáng (kiểu `windows11`): radio «Tất cả các trang» hiện chấm, các checkbox có khung + dấu ✔; trạng thái vô hiệu hiển thị xám.
+
 ### 2026-10-20 — Chuyển đổi hàng loạt PDF sang Word (mốc v0.4)
 
 #### Thêm mới
@@ -35,7 +50,7 @@
 
 ### Việc còn dở / Ưu tiên kế tiếp cho Agent phiên sau
 1. **Kiểm thử engine NĐ30 trên văn bản thật** (PDF ký số VGCA, PDF xuất từ phần mềm quản lý văn bản, PDF in từ LibreOffice): chạy `python -m qtpdfpro.cli convert <tệp> --mode nd30 --verify-layout` (hoặc `cli batch <thư mục> --verify-layout`) và xử lý các trường hợp «Lệch nhỏ».
-2. **Sửa theme**: thêm kiểu `QRadioButton::indicator` cho giao diện Sáng/Tối để nút chọn đang bật hiện chấm (hộp thoại chuyển 1 tệp — «Phạm vi trang»).
+2. ~~**Sửa theme**: thêm kiểu `QRadioButton::indicator`~~ — đã xong (xem mục «Sửa theme» phía trên).
 3. **Xem 2 trang song song** (v0.4) và **OCR Tiếng Việt cho PDF ảnh quét** (`Tesseract vie+eng` / `VietOCR`, v1.1) — đang «Coming Soon».
 4. Tuỳ chọn: chuyển hàng loạt song song bằng nhiều tiến trình (`ProcessPoolExecutor`, cần `multiprocessing.freeze_support()` cho bản PyInstaller).
 

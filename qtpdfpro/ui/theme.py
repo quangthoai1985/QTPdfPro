@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from qtpdfpro.core.settings import get_data_dir
+
 
 def get_stylesheet(theme: str = "dark") -> str:
     """Trả về chuỗi QSS theo chủ đề `'dark'` hoặc `'light'`."""
@@ -16,14 +18,14 @@ _LIGHT_TOKENS = {
     "border": "#E2E5EA", "border_strong": "#CBD2DC", "text": "#0F172A", "muted": "#64748B", "faint": "#94A3B8",
     "accent": "#2563EB", "accent_soft": "#E8F0FE", "accent_text": "#1D4ED8", "hover": "#EEF1F5",
     "soon_bg": "#FEF3C7", "soon_text": "#92400E", "hero1": "#EEF4FF", "hero2": "#FFFFFF", "tab_sel": "#FFFFFF",
-    "toast_bg": "#0F172A", "toast_text": "#FFFFFF",
+    "toast_bg": "#0F172A", "toast_text": "#FFFFFF", "on_accent": "#FFFFFF", "indicator_bg": "#FFFFFF",
 }
 _DARK_TOKENS = {
     "strip": "#0E1015", "bar": "#16181D", "page": "#111318", "card": "#1A1D24", "card_hover": "#1F2430",
     "border": "#2A2F3A", "border_strong": "#3A4150", "text": "#E6E8EC", "muted": "#9CA3AF", "faint": "#6B7280",
     "accent": "#3B82F6", "accent_soft": "#1E2A44", "accent_text": "#93C5FD", "hover": "#232833",
     "soon_bg": "#3A2E12", "soon_text": "#FCD34D", "hero1": "#16233D", "hero2": "#1A1D24", "tab_sel": "#16181D",
-    "toast_bg": "#F8FAFC", "toast_text": "#0F172A",
+    "toast_bg": "#F8FAFC", "toast_text": "#0F172A", "on_accent": "#FFFFFF", "indicator_bg": "#121419",
 }
 
 _SHELL_TEMPLATE = """
@@ -141,7 +143,59 @@ QHeaderView::section {
     background-color: @page; color: @muted; border: none; border-bottom: 1px solid @border;
     padding: 6px; font-weight: 700;
 }
+QRadioButton, QCheckBox { spacing: 8px; }
+QRadioButton::indicator, QCheckBox::indicator {
+    width: 14px; height: 14px; border: 1px solid @faint; background-color: @indicator_bg;
+}
+QRadioButton::indicator { border-radius: 8px; }
+QCheckBox::indicator { border-radius: 4px; }
+QRadioButton::indicator:hover, QCheckBox::indicator:hover { border-color: @accent; background-color: @accent_soft; }
+QRadioButton::indicator:checked {
+    border-color: @accent;
+    background-color: qradialgradient(cx:0.5, cy:0.5, radius:0.5, fx:0.5, fy:0.5,
+        stop:0 @on_accent, stop:0.42 @on_accent, stop:0.5 @accent, stop:1 @accent);
+}
+QRadioButton::indicator:checked:hover {
+    background-color: qradialgradient(cx:0.5, cy:0.5, radius:0.5, fx:0.5, fy:0.5,
+        stop:0 @on_accent, stop:0.5 @on_accent, stop:0.58 @accent, stop:1 @accent);
+}
+QCheckBox::indicator:checked, QCheckBox::indicator:indeterminate {
+    border-color: @accent; background-color: @accent; image: @check_icon;
+}
+QCheckBox::indicator:indeterminate { image: none; }
+QRadioButton::indicator:disabled, QCheckBox::indicator:disabled { border-color: @border; background-color: @hover; }
+QRadioButton::indicator:checked:disabled {
+    border-color: @border_strong;
+    background-color: qradialgradient(cx:0.5, cy:0.5, radius:0.5, fx:0.5, fy:0.5,
+        stop:0 @on_accent, stop:0.42 @on_accent, stop:0.5 @border_strong, stop:1 @border_strong);
+}
+QCheckBox::indicator:checked:disabled { border-color: @border_strong; background-color: @border_strong; }
+QRadioButton:disabled, QCheckBox:disabled { color: @faint; }
 """
+
+
+_CHECK_SVG = (
+    '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 14 14">'
+    '<path d="M3 7.3 L5.8 10 L11 4.2" fill="none" stroke="{color}" stroke-width="1.8" '
+    'stroke-linecap="round" stroke-linejoin="round"/></svg>'
+)
+
+
+def _check_icon(color: str) -> str:
+    """Giá trị `image:` cho dấu ✔ của QCheckBox — tệp SVG ghi vào thư mục dữ liệu ứng dụng.
+
+    QSS không nhận ảnh nhúng nên phải trỏ tới tệp; không ghi được thì trả `none`
+    (ô đang chọn vẫn tô màu nhấn nên vẫn phân biệt được).
+    """
+    try:
+        path = get_data_dir() / "theme" / f"check_{color.lstrip('#').lower()}.svg"
+        svg = _CHECK_SVG.format(color=color)
+        if not path.exists() or path.read_text(encoding="utf-8") != svg:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(svg, encoding="utf-8", newline="\n")
+        return f'url("{path.as_posix()}")'
+    except OSError:
+        return "none"
 
 
 def _shell_qss(tokens: dict) -> str:
@@ -149,7 +203,8 @@ def _shell_qss(tokens: dict) -> str:
     out = _SHELL_TEMPLATE
     for key in sorted(tokens, key=len, reverse=True):
         out = out.replace("@" + key, tokens[key])
-    return out
+    # Đường dẫn tệp thay sau cùng để không bị thay nhầm khoá màu nằm trong đường dẫn
+    return out.replace("@check_icon", _check_icon(tokens["on_accent"]))
 
 
 _DARK_QSS = """

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from PySide6.QtWidgets import QApplication
 
@@ -9,6 +10,7 @@ from qtpdfpro.core.converter import _splice_overlapping_stamped_text
 from qtpdfpro.core.settings import AppSettings
 from qtpdfpro.ui.convert_dialog import ConvertToDocxDialog
 from qtpdfpro.ui.main_window import MainWindow
+from qtpdfpro.ui.theme import get_stylesheet
 
 
 def test_main_window_open_pdf_search_and_layout_overlay(sample_vietnamese_pdf: Path) -> None:
@@ -241,3 +243,15 @@ def test_convert_dialog_initial_mode_and_nd30_policy(sample_vietnamese_pdf: Path
     assert dlg.policy_combo.isEnabled() is True
     assert dlg.policy_combo.currentData() == "faithful"
     dlg.close()
+
+
+def test_theme_styles_radio_and_checkbox_indicators(isolated_app_data: Path) -> None:
+    """Radio/checkbox đang chọn phải có kiểu QSS riêng (kiểu `windows11` + QSS không vẽ chấm radio)."""
+    for theme in ("dark", "light"):
+        qss = get_stylesheet(theme)
+        assert "QRadioButton::indicator:checked" in qss
+        assert "QCheckBox::indicator:checked" in qss
+        assert re.search(r"@[a-z_]+", qss) is None  # mọi khoá màu đã được thay
+    icon = isolated_app_data / "theme" / "check_ffffff.svg"
+    assert icon.exists()
+    assert f'url("{icon.as_posix()}")' in get_stylesheet("dark")
