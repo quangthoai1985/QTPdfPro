@@ -39,6 +39,20 @@ from qtpdfpro.core.settings import AppSettings
 from qtpdfpro.core.word_com_bridge import is_ms_word_available
 from qtpdfpro.ui.nd30_dialog import layout_check_html
 
+# Danh sách chế độ engine & chính sách NĐ30 dùng chung cho hộp thoại chuyển 1 tệp và chuyển hàng loạt
+MODE_CHOICES: list[tuple[str, str]] = [
+    ("Tự động — văn bản hành chính dùng chuẩn NĐ30, tài liệu khác chọn engine phù hợp (Khuyên dùng)", "auto"),
+    ("Chuẩn thể thức NĐ30 — Văn bản hành chính (bảng không viền, lề & giãn dòng chuẩn)", "nd30"),
+    ("Dòng chảy cấu trúc (Hybrid pdf2docx + OpenXML Fixer) — tài liệu thông thường", "hybrid"),
+    ("Giữ nguyên vị trí tuyệt đối 1:1 (Exact Frame — Biểu mẫu / Hoá đơn / Bằng cấp)", "exact"),
+    ("Microsoft Word Native Reflow + Bộ tinh chỉnh OpenXML", "word_com"),
+]
+
+POLICY_CHOICES: list[tuple[str, str]] = [
+    ("Giữ đúng bố cục PDF — chỉ ước lượng về giá trị chuẩn khi sai số đo nhỏ (khuyên dùng)", "faithful"),
+    ("Ép chuẩn hoá theo NĐ30 — lề, cỡ chữ, giãn dòng, cách đoạn ≥ 6pt (có thể đổi dàn trang)", "nd30"),
+]
+
 
 class _ConversionWorker(QThread):
     """Luồng nền thực thi chuyển đổi PDF sang DOCX không làm đơ giao diện."""
@@ -121,26 +135,8 @@ class ConvertToDocxDialog(QDialog):
         mode_form = QFormLayout(mode_group)
 
         self.mode_combo = QComboBox()
-        self.mode_combo.addItem(
-            "Tự động — văn bản hành chính dùng chuẩn NĐ30, tài liệu khác chọn engine phù hợp (Khuyên dùng)",
-            userData="auto",
-        )
-        self.mode_combo.addItem(
-            "Chuẩn thể thức NĐ30 — Văn bản hành chính (bảng không viền, lề & giãn dòng chuẩn)",
-            userData="nd30",
-        )
-        self.mode_combo.addItem(
-            "Dòng chảy cấu trúc (Hybrid pdf2docx + OpenXML Fixer) — tài liệu thông thường",
-            userData="hybrid",
-        )
-        self.mode_combo.addItem(
-            "Giữ nguyên vị trí tuyệt đối 1:1 (Exact Frame — Biểu mẫu / Hoá đơn / Bằng cấp)",
-            userData="exact",
-        )
-        self.mode_combo.addItem(
-            "Microsoft Word Native Reflow + Bộ tinh chỉnh OpenXML",
-            userData="word_com",
-        )
+        for label, key in MODE_CHOICES:
+            self.mode_combo.addItem(label, userData=key)
         idx_mode = self.mode_combo.findData(initial_mode or self.settings.default_convert_mode)
         if idx_mode >= 0:
             self.mode_combo.setCurrentIndex(idx_mode)
@@ -148,14 +144,8 @@ class ConvertToDocxDialog(QDialog):
 
         # Chính sách NĐ30: giữ đúng PDF hay ép chuẩn
         self.policy_combo = QComboBox()
-        self.policy_combo.addItem(
-            "Giữ đúng bố cục PDF — chỉ ước lượng về giá trị chuẩn khi sai số đo nhỏ (khuyên dùng)",
-            userData="faithful",
-        )
-        self.policy_combo.addItem(
-            "Ép chuẩn hoá theo NĐ30 — lề, cỡ chữ, giãn dòng, cách đoạn ≥ 6pt (có thể đổi dàn trang)",
-            userData="nd30",
-        )
+        for label, key in POLICY_CHOICES:
+            self.policy_combo.addItem(label, userData=key)
         idx_pol = self.policy_combo.findData(self.settings.nd30_policy)
         self.policy_combo.setCurrentIndex(max(0, idx_pol))
         mode_form.addRow("Thể thức NĐ30:", self.policy_combo)

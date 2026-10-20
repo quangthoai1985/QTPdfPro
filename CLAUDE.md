@@ -15,7 +15,8 @@
 - **Giấy phép**: Mã nguồn mở **MIT License** ([LICENSE](LICENSE)).
 - **Kho GitHub**: `https://github.com/quangthoai1985/QTPdfPro`
 
-### Trạng thái hiện tại (`v0.3.0` — 2026-10-20):
+### Trạng thái hiện tại (`v0.3.0` + chưa phát hành — 2026-10-20):
+- **Mới sau v0.3.0 (chưa phát hành, mốc v0.4)**: **Chuyển đổi hàng loạt** — `core/batch.py` (`convert_batch`, mặc định `auto` → `nd30`/`faithful`, không kiểm chứng Word), lệnh `cli batch`, hộp thoại «Chuyển đổi hàng loạt» (kéo thả nhiều PDF/thư mục, bảng điểm chuẩn xác & thể thức NĐ30 từng tệp, báo cáo CSV/JSON, Ctrl+Shift+B).
 - **Mới ở v0.3.0**:
   1. **Chế độ chuyển đổi `nd30`** (mặc định qua `auto` khi phát hiện Quốc hiệu – Tiêu ngữ): tái dựng văn bản hành chính như người soạn trong Word — lề / cỡ chữ / giãn dòng / cách đoạn / thụt đầu dòng **đo trên PDF rồi ước lượng về giá trị gốc**, phần đầu & khối ký trong **bảng 2 cột không viền**, đường kẻ là viền dưới đoạn văn đúng toạ độ PDF, số trang là trường `PAGE`. Chính sách `faithful` (mặc định, giữ đúng bố cục PDF) hoặc `nd30` (ép chuẩn hoá).
   2. **Đối chiếu thể thức NĐ30** 26 hạng mục (`cli nd30`, hộp thoại «Kiểm tra thể thức NĐ30») và **Kiểm chứng bố cục bằng Microsoft Word** (`--verify-layout`, `verify --render`): đã đạt 100% dòng khớp, lệch ≤ 0,84 pt trên 3 văn bản mẫu `samples/nd30/`.
@@ -32,7 +33,7 @@
      - `word_com`: Cầu nối Microsoft Word Native Reflow qua COM + hậu xử lý OpenXML.
      - `auto`: Tự động chọn `hybrid` hoặc `exact` dựa trên phân tích bố cục trang.
      - Kèm **Bộ Kiểm định Độ chính xác (`core/fidelity.py`)** chấm điểm bảo toàn từ vựng, ký tự, bảng biểu, hình ảnh ngay sau khi chuyển đổi.
-- **Tất cả 29/29 bài kiểm thử tự động (`tests/`) đã chạy qua 100%** (bài kiểm chứng bằng MS Word tự bỏ qua nếu máy không có Word).
+- **Tất cả 39/39 bài kiểm thử tự động (`tests/`) đã chạy qua 100%** (bài kiểm chứng bằng MS Word tự bỏ qua nếu máy không có Word).
 
 ---
 
@@ -70,6 +71,7 @@ python -m qtpdfpro.cli convert in.pdf -o out_1to1.docx --mode exact --pages 1-2
 python -m qtpdfpro.cli inspect in.pdf --json
 python -m qtpdfpro.cli verify in.pdf out.docx --json
 python -m qtpdfpro.cli verify in.pdf out.docx --render   # dựng DOCX bằng MS Word, so vị trí từng dòng
+python -m qtpdfpro.cli batch thu_muc_pdf a.pdf -o thu_muc_docx [--verify-layout] [--report bc.csv] [--json]
 
 # 4. Chạy toàn bộ kiểm thử tự động (bắt buộc qua 100% trước khi commit)
 python -m pytest -q tests
@@ -85,7 +87,7 @@ cmd.exe /c ".\build.bat"                    # Xuất ra dist\QTPdfPro\QTPdfPro.e
 | Tệp | Vai trò | Điểm kỹ thuật quan trọng cần nhớ |
 |---|---|---|
 | `qtpdfpro/__init__.py` | Metadata & Phiên bản | Định nghĩa `__version__`, `__app_name__`, `__github_repo__`. Đổi phiên bản tại đây phải cập nhật `CHANGELOG.md` |
-| `qtpdfpro/cli.py` | Giao diện dòng lệnh | Lệnh `convert`, `inspect`, `verify` hỗ trợ cờ `--json` để script/Agent kiểm tra tự động |
+| `qtpdfpro/cli.py` | Giao diện dòng lệnh | Lệnh `convert`, `inspect`, `nd30`, `verify`, `batch` hỗ trợ cờ `--json` để script/Agent kiểm tra tự động; `batch` thoát mã 1 nếu có tệp lỗi |
 | `qtpdfpro/core/settings.py` | Cấu hình & Tệp gần đây | Lưu tại `%LOCALAPPDATA%\QTPdfPro\settings.json`; đọc bằng `utf-8-sig` (chịu BOM); hỗ trợ `QT_PDF_PRO_DATA` |
 | `qtpdfpro/core/font_resolver.py` | Chuẩn hoá phông & Tiếng Việt | Gỡ tiền tố subset `^[A-Z]{6}\+`; ánh xạ tên phông PostScript (`TimesNewRomanPSMT` → `Times New Roman`, v.v.); gộp dấu rời NFD → NFC; chuyển mã TCVN3 (`.Vn*`) sang Unicode |
 | `qtpdfpro/core/layout_analyzer.py` | Phân tích cấu trúc trang | Trích xuất `LayoutElement` (`text`, `table`, `image`, `signature`, `vector`), đếm thành phần (`signature_count`), gợi ý `recommended_mode` (`hybrid` vs `exact`) |
@@ -99,12 +101,14 @@ cmd.exe /c ".\build.bat"                    # Xuất ra dist\QTPdfPro\QTPdfPro.e
 | `qtpdfpro/core/nd30_engine.py` | Dựng DOCX chuẩn NĐ30 | `convert_pdf_nd30`: `compatibilityMode=15`, bảng không viền + thụt lề căn tâm theo PDF, đường kẻ = `w:pBdr/w:bottom`, bảng dữ liệu (`trHeight atLeast` trừ nét viền), ảnh neo `relativeFrom=paragraph`, header `PAGE` + `titlePg` |
 | `qtpdfpro/core/layout_verify.py` | Kiểm chứng bằng MS Word | `verify_docx_layout` (Word xuất PDF qua PowerShell COM) + `compare_pdf_layouts` (difflib theo dòng, lệch dọc/ngang pt) |
 | `qtpdfpro/core/converter.py` | Điều phối chuyển đổi | Hàm chính `convert_pdf_to_docx`, kèm bộ bản vá `_install_pdf2docx_patches()` xử lý số văn bản đóng dấu đè, trích xuất chữ ký số/con dấu đỏ (`_extract_widget_overlays`), và đường kẻ chân Quốc hiệu (`_extract_standalone_horizontal_rules`) |
+| `qtpdfpro/core/batch.py` | Chuyển đổi hàng loạt | `convert_batch` tuần tự (bộ vá `pdf2docx` dùng biến toàn cục → không chạy song song trong 1 tiến trình), lỗi 1 tệp không dừng cả lượt, `should_cancel`; sự kiện `BatchProgress` mang **bản sao** `BatchItemResult`; `collect_pdf_paths`, `plan_output_paths` (hậu tố `_2` khi trùng tên), `write_batch_report` (.csv UTF-8 BOM / .json) |
 | `qtpdfpro/core/fidelity.py` | Kiểm định độ chính xác | So sánh từ vựng/ký tự (Multiset Bag-of-Words), cỡ trang, số bảng/khung/ảnh giữa PDF và DOCX, chấm điểm `overall_score` (thang 100) |
 | `qtpdfpro/ui/pdf_canvas.py` | Khung vẽ & Cuộn PDF | `PDFScrollViewer`: kết xuất theo vùng nhìn (lazy viewport), đổi màu nền Sáng/Tối (`set_canvas_theme`), vẽ tô sáng tìm kiếm và khung `Layout Inspector Overlay` (gồm cả `signature` màu đỏ hồng `#E11D48`) |
-| `qtpdfpro/ui/convert_dialog.py` | Hộp thoại chuyển đổi | Chạy `_ConversionWorker(QThread)`, thanh tiến trình, hiển thị báo cáo `FidelityReport` và nút mở tệp Word ngay |
+| `qtpdfpro/ui/convert_dialog.py` | Hộp thoại chuyển đổi | Chạy `_ConversionWorker(QThread)`, thanh tiến trình, hiển thị báo cáo `FidelityReport` và nút mở tệp Word ngay; `MODE_CHOICES`/`POLICY_CHOICES` dùng chung |
+| `qtpdfpro/ui/batch_dialog.py` | Hộp thoại hàng loạt | `BatchConvertDialog`: kéo thả PDF/thư mục, `_BatchWorker(QThread)` + cờ `_running` (đợi luồng thoát trong `_on_finished` để không huỷ QThread đang chạy), bảng điểm từng tệp, «Dừng», mở thư mục kết quả, lưu báo cáo; nơi lưu chọn bằng `QComboBox` (radio đang chọn không hiện chấm với theme hiện tại) |
 | `qtpdfpro/ui/main_window.py` | Cửa sổ chính đa tab | Header 2 tầng kiểu PdfCraft (`doc_tab_bar` ở dải tiêu đề đồng bộ với `doc_tabs` ẩn thanh tab; thanh chế độ `mode_buttons` lọc công cụ; menu nằm trong nút «☰ Menu» nên mọi `QAction` phải `self.addActions` để phím tắt chạy); `run_tool(key)` điều phối công cụ; khung tài liệu 3 cột (`tools_panel`, `viewer` + `signature_banner`, `sidebar_tabs` + `right_rail`) |
 | `qtpdfpro/ui/home_page.py` | Trang chủ PdfCraft | `ToolCatalogPanel` (cột «Tất cả công cụ»), `ToolCard` (công cụ đề xuất), `OpenFileCard`, `RecentRow`; lưới thẻ tự đổi số cột theo chiều rộng |
-| `qtpdfpro/ui/tool_catalog.py` | Danh mục công cụ | `TOOLS` (35 công cụ, `ready=False` → «Coming Soon» + `milestone`), `RECOMMENDED`, tìm không dấu `tools_for()` |
+| `qtpdfpro/ui/tool_catalog.py` | Danh mục công cụ | `TOOLS` (35 công cụ — 15 dùng được, `ready=False` → «Coming Soon» + `milestone`), `RECOMMENDED`, tìm không dấu `tools_for()` |
 | `qtpdfpro/ui/command_palette.py`, `nd30_dialog.py` | Ctrl+K & NĐ30 | Bảng lệnh; hộp thoại báo cáo NĐ30 & kiểm chứng DOCX (chạy `QThread`) |
 
 ---
@@ -125,6 +129,8 @@ cmd.exe /c ".\build.bat"                    # Xuất ra dist\QTPdfPro\QTPdfPro.e
 | Đường kẻ dưới Quốc hiệu không được nhận | Word xuất viền bảng / đường kẻ dạng hình chữ nhật mảnh `re`, không phải nét `l`; nét dọc có hình bao rộng 0 nên `Rect.intersects` luôn sai | `admin_layout.extract_rules` nhận cả `re`/`qu` mảnh, nới hình bao nét dọc 0,5 pt |
 | Bảng dữ liệu cao dần mỗi hàng ~0,5 pt | Word cộng độ dày nét viền vào chiều cao hàng `atLeast` | `trHeight` = khoảng cách 2 viền trên PDF − 0,5 pt; khoảng trống trước bảng chuyển thành `space_after` của đoạn trước |
 | Chế độ `word_com` luôn lùi về `hybrid` | Script PowerShell đặt `param(...)` sau `$ErrorActionPreference` | `param` phải là câu lệnh đầu tiên; ghi script UTF-8 có BOM |
+| Nút `QRadioButton` đang chọn không hiện chấm tròn | Kiểu `windows11` của Qt 6 + QSS của `theme.py` không vẽ indicator khi đã chọn (lỗi có sẵn) | Hộp thoại mới dùng `QComboBox` thay radio; sửa triệt để cần thêm `QRadioButton::indicator` vào theme (việc §6) |
+| Python ghi tệp bằng `Path.write_text` trên Windows đổi xuống dòng sang CRLF | Chế độ văn bản dịch `\n` → `os.linesep`; kho dùng `eol=lf` (`.gitattributes`) | Ghi bằng `write_text(..., newline="\n")` hoặc công cụ Write/Edit |
 | Trang PDF 3 trang khi sang Word bị tràn vài dòng sang trang thứ 4 | Word mặc định cộng dồn khoảng cách dòng lớn hơn PDF | Đặt `<w:snapToGrid w:val="0"/>`, `w:header="0" w:footer="0"` và nhân hệ số `line_spacing_factor = 0.93` trong `openxml_fixer.py` để giữ nguyên đúng 3 trang như PDF gốc |
 
 ---
@@ -132,8 +138,9 @@ cmd.exe /c ".\build.bat"                    # Xuất ra dist\QTPdfPro\QTPdfPro.e
 ## 6. Việc cần làm tiếp theo (Theo thứ tự ưu tiên cho Agent phiên sau)
 
 1. **Kiểm thử engine `nd30` trên văn bản hành chính thật** (PDF ký số VGCA có số/ngày đóng dấu đè, PDF từ phần mềm quản lý văn bản, PDF in từ LibreOffice, văn bản nhiều phụ lục khổ ngang). Quy trình: `python -m qtpdfpro.cli convert <tệp> --mode nd30 --verify-layout`; mọi kết quả «Lệch nhỏ» phải truy nguyên bằng `compare_pdf_layouts` và bổ sung test. Văn bản chỉ dùng nội bộ, **không** đưa vào `samples/` nếu có thông tin thật.
-2. **Hiện thực các công cụ đang «Coming Soon»** theo `docs/DE_XUAT_TINH_NANG.md` — mỗi công cụ xong thì đặt `ready=True` trong `qtpdfpro/ui/tool_catalog.py` và thêm nhánh xử lý trong `MainWindow.run_tool`. Ưu tiên: Chuyển đổi hàng loạt (v0.4), Xem 2 trang (v0.4), OCR tiếng Việt (v1.1).
-3. **Phát hành bản v0.3.0**: chạy `build.bat`, đóng gói `QTPdfPro-v0.3.0-win64.zip`, tạo GitHub Release (bản trước: [v0.2.0](https://github.com/quangthoai1985/QTPdfPro/releases/tag/v0.2.0)).
+2. **Hiện thực các công cụ đang «Coming Soon»** theo `docs/DE_XUAT_TINH_NANG.md` — mỗi công cụ xong thì đặt `ready=True` trong `qtpdfpro/ui/tool_catalog.py` và thêm nhánh xử lý trong `MainWindow.run_tool`. Ưu tiên: Xem 2 trang (v0.4), OCR tiếng Việt (v1.1). (Chuyển đổi hàng loạt đã xong.)
+3. **Sửa theme**: thêm `QRadioButton::indicator` (Sáng/Tối) để radio đang chọn hiện chấm — hộp thoại chuyển 1 tệp («Phạm vi trang») đang bị.
+4. **Phát hành bản v0.3.0** (hoặc gộp thành v0.4.0 khi xong «Xem 2 trang»): chạy `build.bat`, đóng gói `QTPdfPro-v0.3.0-win64.zip`, tạo GitHub Release (bản trước: [v0.2.0](https://github.com/quangthoai1985/QTPdfPro/releases/tag/v0.2.0)).
 
 ---
 

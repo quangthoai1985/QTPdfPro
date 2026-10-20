@@ -6,6 +6,8 @@ Hỗ trợ:
   python -m qtpdfpro.cli inspect <input.pdf>
   python -m qtpdfpro.cli nd30 <input.pdf>            # Đối chiếu thể thức Nghị định 30/2020/NĐ-CP
   python -m qtpdfpro.cli verify <input.pdf> <output.docx> [--render]
+  python -m qtpdfpro.cli batch <thư mục | a.pdf b.pdf ...> [-o <thư mục ra>] [--mode auto] [--verify-layout]
+                               [--recursive] [--report bao_cao.csv] [--json]
 """
 
 from __future__ import annotations
@@ -17,6 +19,15 @@ from pathlib import Path
 from typing import List, Optional
 
 from qtpdfpro import __app_name__, __version__
+from qtpdfpro.core.batch import (
+    STATUS_FAILED,
+    STATUS_OK,
+    BatchItemResult,
+    BatchProgress,
+    collect_pdf_paths,
+    convert_batch,
+    write_batch_report,
+)
 from qtpdfpro.core.converter import (
     ConversionError,
     ConversionOptions,
@@ -129,7 +140,100 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_ver.add_argument("--json", action="store_true", help="In kết quả dạng JSON")
 
+    # Lệnh batch
+    p_bat = sub.add_parser("batch", help="Chuyển đổi hàng loạt nhiều tệp PDF sang Word (.docx)")
+    p_bat.add_argument("inputs", nargs="+", help="Các tệp PDF và/hoặc thư mục chứa tệp PDF")
+    p_bat.add_argument(
+        "-o",
+        "--output-dir",
+        help="Thư mục lưu các tệp DOCX (mặc định: cạnh từng tệp PDF gốc)",
+    )
+    p_bat.add_argument(
+        "-m",
+        "--mode",
+        choices=["auto", "nd30", "hybrid", "exact", "word_com"],
+        default="auto",
+        help="Chế độ chuyển đổi cho mọi tệp (mặc định auto — văn bản hành chính dùng nd30)",
+    )
+    p_bat.add_argument(
+        "--nd30-policy",
+        choices=["faithful", "nd30"],
+        default="faithful",
+        help="Chính sách engine nd30: faithful = giữ đúng bố cục PDF (mặc định), nd30 = ép chuẩn hoá",
+    )
+    p_bat.add_argument(
+        "--verify-layout",
+        action="store_true",
+        help="Kiểm chứng từng DOCX bằng Microsoft Word (chậm, cần MS Word)",
+    )
+    p_bat.add_argument("-r", "--recursive", action="store_true", help="Duyệt cả thư mục con")
+    p_bat.add_argument("--dpi", type=int, default=180, help="Độ phân giải lớp nền chế độ exact (mặc định 180)")
+    p_bat.add_argument("--report", help="Lưu báo cáo tổng hợp ra tệp .csv hoặc .json")
+    p_bat.add_argument("--json", action="store_true", help="In kết quả dạng JSON")
+
     return parser
+
+
+def _print_batch_item(item: BatchItemResult, total: int) -> None:
+    head = f"[{item.index + 1}/{total}] {Path(item.pdf_path).name}"
+    if not item.ok:
+        print(f"  ✘ {head} — {item.status_text}: {item.error}" if item.error else f"  – {head} — {item.status_text}")
+        return
+    line = f"  ✔ {head} → {Path(item.docx_path).name} | {item.mode_used} | chuẩn xác {item.fidelity_score:.1f}%"
+    if item.nd30_score is not None:
+        line += f" | thể thức NĐ30 {item.nd30_score:.1f}%"
+    if item.layout_verdict is not None:
+        line += f" | kiểm chứng Word: {item.layout_verdict_text}"
+    print(line + f" ({item.elapsed_seconds:.1f} giây)")
+
+
+def _run_batch(args: argparse.Namespace) -> int:
+    pdfs = collect_pdf_paths(args.inputs, recursive=args.recursive)
+    if not pdfs:
+        print("Lỗi: không tìm thấy tệp PDF nào trong các đường dẫn đã cho.", file=sys.stderr)
+        return 1
+    opts = ConversionOptions(
+        mode=args.mode,
+        exact_background_dpi=args.dpi,
+        nd30_policy=args.nd30_policy,
+        verify_layout=args.verify_layout,
+    )
+
+    def _on_progress(ev: BatchProgress) -> None:
+        # Chỉ in khi một tệp vừa kết thúc; chế độ --json giữ stdout sạch cho JSON
+        if not args.json and ev.item is not None and ev.item.status in (STATUS_OK, STATUS_FAILED):
+            _print_batch_item(ev.item, ev.total_files)
+
+    if not args.json:
+        dest = Path(args.output_dir).resolve() if args.output_dir else "cạnh từng tệp PDF gốc"
+        print(f"Chuyển đổi hàng loạt {len(pdfs)} tệp PDF (chế độ {args.mode}) → {dest}")
+    report = convert_batch(pdfs, args.output_dir, options=opts, progress_cb=_on_progress)
+
+    report_path: Optional[Path] = None
+    if args.report:
+        try:
+            report_path = write_batch_report(report, args.report)
+        except OSError as exc:
+            print(f"Lỗi: không lưu được báo cáo {args.report}: {exc}", file=sys.stderr)
+
+    if args.json:
+        payload = report.to_dict()
+        if report_path is not None:
+            payload["report_path"] = str(report_path)
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+    else:
+        summary = (
+            f"Kết quả: {report.ok_count}/{report.total} tệp thành công, {report.failed_count} thất bại "
+            f"({report.elapsed_seconds:.1f} giây)"
+        )
+        if report.average_fidelity is not None:
+            summary += f"; điểm chuẩn xác trung bình {report.average_fidelity:.1f}%"
+        if report.average_nd30 is not None:
+            summary += f"; thể thức NĐ30 trung bình {report.average_nd30:.1f}%"
+        print(summary)
+        if report_path is not None:
+            print(f"Đã lưu báo cáo tổng hợp: {report_path}")
+    return 0 if report.failed_count == 0 else 1
 
 
 def main(argv: Optional[List[str]] = None) -> int:
@@ -205,6 +309,9 @@ def main(argv: Optional[List[str]] = None) -> int:
             for note in res.notes:
                 print(f"  * {note}")
         return 0
+
+    if args.command == "batch":
+        return _run_batch(args)
 
     if args.command == "nd30":
         src = Path(args.input_pdf).resolve()

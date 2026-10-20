@@ -51,6 +51,7 @@ from qtpdfpro.core.converter import is_admin_document
 from qtpdfpro.core.reader import PDFDocumentReader, SearchHit
 from qtpdfpro.core.settings import AppSettings
 from qtpdfpro.core.word_com_bridge import is_ms_word_available
+from qtpdfpro.ui.batch_dialog import BatchConvertDialog
 from qtpdfpro.ui.command_palette import SEARCH_IN_DOCUMENT_KEY, CommandPaletteDialog
 from qtpdfpro.ui.convert_dialog import ConvertToDocxDialog
 from qtpdfpro.ui.dialogs import AboutDialog, DocumentInfoDialog, PageTextDialog
@@ -684,6 +685,11 @@ class MainWindow(QMainWindow):
         self.act_convert.triggered.connect(self.action_convert_to_docx)
         file_menu.addAction(self.act_convert)
 
+        self.act_batch_convert = QAction("Chuyển đổi hàng loạt PDF sang Word...", self)
+        self.act_batch_convert.setShortcut(QKeySequence("Ctrl+Shift+B"))
+        self.act_batch_convert.triggered.connect(lambda: self.run_tool("batch_convert"))
+        file_menu.addAction(self.act_batch_convert)
+
         self.recent_menu = QMenu("Tệp mở gần đây", self)
         file_menu.addMenu(self.recent_menu)
         self._refresh_recent_menu()
@@ -1200,6 +1206,7 @@ class MainWindow(QMainWindow):
             "pdf_to_word_flow": lambda: self.action_convert_to_docx_mode("hybrid"),
             "nd30_check": self.action_nd30_check,
             "verify_docx": self.action_verify_docx,
+            "batch_convert": self.action_batch_convert,
             "layout_inspect": lambda: self._open_inspector(True),
             "sig_inspect": lambda: self._open_inspector(True),
             "search": lambda: self._with_active_tab(lambda t: t.focus_search()),
@@ -1255,6 +1262,10 @@ class MainWindow(QMainWindow):
             )
             return
         LayoutVerifyDialog(pdf, docx, self).exec()
+
+    def action_batch_convert(self) -> None:
+        """Mở hộp thoại chuyển đổi hàng loạt nhiều tệp PDF sang Word."""
+        BatchConvertDialog(self.settings, parent=self).exec()
 
     def action_command_palette(self, query: str = "") -> None:
         dlg = CommandPaletteDialog(self, query=query, has_document=self.active_tab() is not None)

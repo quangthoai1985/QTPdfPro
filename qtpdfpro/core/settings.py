@@ -42,6 +42,7 @@ class AppSettings:
     exact_background_dpi: int = 180
     nd30_policy: str = "faithful"  # "faithful" (giữ đúng bố cục PDF) | "nd30" (ép chuẩn hoá NĐ30)
     verify_layout: bool = True  # Kiểm chứng DOCX bằng Microsoft Word sau khi chuyển (nếu máy có Word)
+    batch_output_dir: str = ""  # Thư mục lưu của «Chuyển đổi hàng loạt»; trống = lưu cạnh từng tệp PDF gốc
 
     @classmethod
     def settings_file(cls) -> Path:

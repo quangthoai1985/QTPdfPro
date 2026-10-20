@@ -147,7 +147,13 @@ def convert_pdf_to_docx(
     dst.parent.mkdir(parents=True, exist_ok=True)
 
     # 1. Kiểm tra tệp PDF và xác định danh sách trang cần chuyển
-    with fitz.open(str(src)) as doc:
+    try:
+        pdf_doc = fitz.open(str(src))
+    except Exception as exc:
+        raise ConversionError(
+            f"Không mở được tệp PDF (tệp hỏng hoặc không đúng định dạng PDF): {src.name}"
+        ) from exc
+    with pdf_doc as doc:
         if doc.needs_pass:
             if not opts.password or not doc.authenticate(opts.password):
                 raise ConversionError("Tệp PDF có mật khẩu bảo vệ. Vui lòng nhập đúng mật khẩu.")

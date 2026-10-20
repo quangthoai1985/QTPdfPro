@@ -7,10 +7,37 @@
 
 ## [Chưa phát hành]
 
+### 2026-10-20 — Chuyển đổi hàng loạt PDF sang Word (mốc v0.4)
+
+#### Thêm mới
+- **Engine chuyển đổi hàng loạt** `qtpdfpro/core/batch.py` (không phụ thuộc PySide6):
+  - `convert_batch(pdf_paths, out_dir, options, progress_cb, should_cancel)` chuyển lần lượt từng tệp bằng `convert_pdf_to_docx`; mặc định `default_batch_options()` = chế độ `auto` (văn bản hành chính tự dùng engine `nd30`, chính sách `faithful`), **không** kiểm chứng bằng MS Word (bật `verify_layout` nếu cần — chậm ~7 giây/tệp).
+  - Kết quả `BatchReport` gồm danh sách `BatchItemResult` từng tệp: trạng thái (Hoàn tất / Thất bại / Đã huỷ), chế độ thực thi, số trang, điểm chuẩn xác (fidelity), điểm thể thức NĐ30 (nếu là văn bản hành chính), kết luận kiểm chứng Word, lỗi, ghi chú; kèm số tệp đạt/lỗi và điểm trung bình.
+  - Một tệp lỗi (hỏng, có mật khẩu, không tìm thấy, DOCX đang mở trong Word…) chỉ đánh dấu tệp đó thất bại, không dừng cả lượt; `should_cancel` dừng trước tệp kế tiếp.
+  - `collect_pdf_paths` gom tệp từ đường dẫn tệp/thư mục (bỏ trùng không phân biệt hoa/thường, tuỳ chọn duyệt thư mục con); `plan_output_paths` đặt tên DOCX không ghi đè lẫn nhau khi hai PDF trùng tên (`_2`, `_3`…); `write_batch_report` lưu báo cáo `.csv` (UTF-8 có BOM, mở đúng tiếng Việt trong Excel) hoặc `.json`.
+- **Lệnh CLI** `python -m qtpdfpro.cli batch <thư mục | a.pdf b.pdf …> [-o <thư mục ra>] [--mode auto] [--nd30-policy faithful] [--verify-layout] [-r] [--report bao_cao.csv] [--json]`: in từng tệp khi xong và dòng tổng kết; mã thoát 1 nếu có tệp thất bại hoặc không tìm thấy PDF.
+- **Hộp thoại «Chuyển đổi hàng loạt»** `qtpdfpro/ui/batch_dialog.py` (`BatchConvertDialog`): kéo thả nhiều PDF hoặc cả thư mục, nút thêm tệp/thư mục, bỏ tệp chọn; lưu vào thư mục chọn (ghi nhớ trong `settings.batch_output_dir`) hoặc cạnh từng tệp gốc; hỏi trước khi ghi đè DOCX đã có; chạy nền bằng `QThread` với thanh tiến trình và bảng điểm từng tệp (trạng thái, chế độ, số trang, chuẩn xác, thể thức NĐ30, kiểm chứng Word, tệp Word/lỗi — tô màu theo điểm); nút «Dừng» (sau tệp hiện tại), «📂 Mở thư mục kết quả», «Lưu báo cáo (.csv)…»; nhấp đúp một dòng để mở tệp Word.
+- Công cụ `batch_convert` chuyển từ «Coming Soon» sang **dùng được** trên Trang chủ / bảng lệnh Ctrl+K; thêm mục menu «Tệp → Chuyển đổi hàng loạt PDF sang Word…» (**Ctrl+Shift+B**).
+
+#### Thay đổi
+- `convert_pdf_to_docx` báo lỗi tiếng Việt «Không mở được tệp PDF (tệp hỏng hoặc không đúng định dạng PDF)» thay cho thông báo tiếng Anh của PyMuPDF.
+- Danh sách chế độ engine / chính sách NĐ30 tách thành `MODE_CHOICES`, `POLICY_CHOICES` trong `convert_dialog.py`, dùng chung cho hộp thoại chuyển 1 tệp và hàng loạt.
+
+#### Kiểm thử
+- **39/39** bài test `pytest` vượt qua (thêm `tests/test_batch.py` 10 bài: gom tệp/đặt tên, chuyển 3 văn bản mẫu `samples/nd30` + `sample_vietnamese_pdf` + tệp hỏng, huỷ giữa chừng, báo cáo CSV/JSON, CLI `--json` & mã thoát, hộp thoại kéo thả → chuyển → bảng điểm, `MainWindow.run_tool("batch_convert")`).
+- `cli batch samples/nd30 --mode nd30 --verify-layout`: cả 3 văn bản mẫu «Trùng khớp PDF gốc» (chuẩn xác 99,9–100%, thể thức NĐ30 96,2–100%).
+- Đã chụp hộp thoại thật ở giao diện Sáng và Tối (tiếng Việt hiển thị đúng).
+
+#### Ghi chú kỹ thuật
+- Sự kiện tiến trình mang **bản sao** `BatchItemResult` tại thời điểm phát — trước đó tham chiếu chung khiến nơi nhận (luồng giao diện xử lý tín hiệu muộn) thấy trạng thái đã bị luồng nền ghi đè.
+- Chạy tuần tự trong một luồng: bộ vá `pdf2docx` dùng biến toàn cục theo trang nên không an toàn khi song song trong cùng tiến trình.
+- Kiểu `windows11` của Qt + QSS hiện tại **không vẽ chấm của `QRadioButton` đang chọn** (lỗi có sẵn, thấy ở «Phạm vi trang» của hộp thoại chuyển 1 tệp) → hộp thoại hàng loạt dùng `QComboBox` cho nơi lưu.
+
 ### Việc còn dở / Ưu tiên kế tiếp cho Agent phiên sau
-1. **Kiểm thử engine NĐ30 trên văn bản thật** (PDF ký số VGCA, PDF xuất từ phần mềm quản lý văn bản, PDF in từ LibreOffice): chạy `python -m qtpdfpro.cli convert <tệp> --mode nd30 --verify-layout` và xử lý các trường hợp «Lệch nhỏ».
-2. **Chuyển đổi hàng loạt (Batch PDF → DOCX)** — đang hiển thị «Coming Soon» trên Trang chủ.
-3. **Tích hợp OCR Tiếng Việt cho PDF ảnh quét** (`Tesseract vie+eng` / `VietOCR`) — đang «Coming Soon».
+1. **Kiểm thử engine NĐ30 trên văn bản thật** (PDF ký số VGCA, PDF xuất từ phần mềm quản lý văn bản, PDF in từ LibreOffice): chạy `python -m qtpdfpro.cli convert <tệp> --mode nd30 --verify-layout` (hoặc `cli batch <thư mục> --verify-layout`) và xử lý các trường hợp «Lệch nhỏ».
+2. **Sửa theme**: thêm kiểu `QRadioButton::indicator` cho giao diện Sáng/Tối để nút chọn đang bật hiện chấm (hộp thoại chuyển 1 tệp — «Phạm vi trang»).
+3. **Xem 2 trang song song** (v0.4) và **OCR Tiếng Việt cho PDF ảnh quét** (`Tesseract vie+eng` / `VietOCR`, v1.1) — đang «Coming Soon».
+4. Tuỳ chọn: chuyển hàng loạt song song bằng nhiều tiến trình (`ProcessPoolExecutor`, cần `multiprocessing.freeze_support()` cho bản PyInstaller).
 
 ---
 
