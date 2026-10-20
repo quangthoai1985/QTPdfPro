@@ -62,6 +62,7 @@ from qtpdfpro.ui.home_page import HomePage
 from qtpdfpro.ui.nd30_dialog import LayoutVerifyDialog, ND30ReportDialog
 from qtpdfpro.ui.organizer_dialog import PageOrganizerDialog
 from qtpdfpro.ui.pdf_canvas import PDFScrollViewer
+from qtpdfpro.ui.print_dialog import PrintDialog
 from qtpdfpro.ui.theme import get_stylesheet
 from qtpdfpro.ui.tool_catalog import CATEGORIES, COMING_SOON_LABEL, TOOLS, get_tool
 
@@ -361,6 +362,7 @@ class PDFDocumentTab(QWidget):
         self.tool_btn_fit_width = self._make_tool_card("↔ Phóng vừa khít chiều ngang", category="read")
         self.tool_btn_fit_page = self._make_tool_card("📄 Thu phóng vừa trọn trang", category="read")
         self.tool_btn_doc_info = self._make_tool_card("ℹ️ Thông tin && Metadata tài liệu", category="read")
+        self.tool_btn_print = self._make_tool_card("🖨 In tài liệu (Ctrl+P)\nXem trước, khổ giấy, 2 mặt", category="read")
 
         self.tool_btn_rot_left.clicked.connect(lambda: self.viewer.rotate_current_page(-90))
         self.tool_btn_rot_right.clicked.connect(lambda: self.viewer.rotate_current_page(90))
@@ -376,6 +378,7 @@ class PDFDocumentTab(QWidget):
         body_layout.addWidget(self.tool_btn_fit_width)
         body_layout.addWidget(self.tool_btn_fit_page)
         body_layout.addWidget(self.tool_btn_doc_info)
+        body_layout.addWidget(self.tool_btn_print)
 
         self.tool_btn_all_tools = self._make_tool_card(
             "🧰 Xem tất cả công cụ… (Ctrl+K)\nKể cả các công cụ " + COMING_SOON_LABEL, category="*"
@@ -845,6 +848,11 @@ class MainWindow(QMainWindow):
         self._refresh_recent_menu()
 
         file_menu.addSeparator()
+        self.act_print = QAction("In...", self)
+        self.act_print.setShortcut(QKeySequence("Ctrl+P"))
+        self.act_print.triggered.connect(lambda: self.run_tool("print"))
+        file_menu.addAction(self.act_print)
+
         self.act_doc_info = QAction("Thông tin tài liệu (Metadata)...", self)
         self.act_doc_info.setShortcut(QKeySequence("Ctrl+I"))
         self.act_doc_info.triggered.connect(self.action_show_doc_info)
@@ -1314,6 +1322,7 @@ class MainWindow(QMainWindow):
         tab.tool_btn_convert_dialog.clicked.connect(self.action_convert_to_docx)
         tab.tool_btn_extract_text.clicked.connect(self.action_extract_current_page_text)
         tab.tool_btn_doc_info.clicked.connect(self.action_show_doc_info)
+        tab.tool_btn_print.clicked.connect(lambda: self.run_tool("print"))
         tab.tool_btn_all_tools.clicked.connect(lambda: self.action_command_palette(""))
         tab.tool_btn_organize.clicked.connect(lambda: self.run_tool("organize"))
         tab.tool_btn_save.clicked.connect(self.action_save)
@@ -1421,6 +1430,7 @@ class MainWindow(QMainWindow):
             "read_mode": self.action_read_mode,
             "rotate_view": lambda: self._with_active_tab(lambda t: t.viewer.rotate_current_page(90)),
             "doc_info": self.action_show_doc_info,
+            "print": self.action_print,
             "edit_pdf": lambda: self._with_active_tab(lambda t: t.toggle_edit_mode()),
             "highlight_text": lambda: self._with_active_tab(lambda t: t.enter_edit_mode("highlight")),
             "draw_shapes": lambda: self._with_active_tab(lambda t: t.enter_edit_mode("pen")),
@@ -1851,6 +1861,26 @@ class MainWindow(QMainWindow):
     def action_toggle_theme(self) -> None:
         self._apply_theme("light" if self.settings.theme == "dark" else "dark")
         self.settings.save()
+
+    def action_print(self) -> None:
+        """Hộp thoại «In tài liệu» cho tab đang mở (in cả chú thích chưa lưu)."""
+        tab = self.active_tab()
+        if tab is None:
+            return
+        dlg = PrintDialog(
+            tab.reader.doc,
+            self.settings,
+            doc_name=tab.reader.path.name,
+            doc_path=str(tab.reader.path),
+            current_page=tab.viewer.current_page,
+            theme=self.settings.theme,
+            parent=self,
+        )
+        try:
+            if dlg.exec() and dlg.result_message:
+                self._show_toast(dlg.result_message)
+        finally:
+            dlg.deleteLater()  # không giữ bản chụp tài liệu & ảnh xem trước sau khi đóng
 
     def action_show_doc_info(self) -> None:
         tab = self.active_tab()

@@ -10,7 +10,7 @@ import json
 import os
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import List
+from typing import Any, Dict, List
 
 
 def get_data_dir() -> Path:
@@ -44,6 +44,7 @@ class AppSettings:
     verify_layout: bool = True  # Kiểm chứng DOCX bằng Microsoft Word sau khi chuyển (nếu máy có Word)
     batch_output_dir: str = ""  # Thư mục lưu của «Chuyển đổi hàng loạt»; trống = lưu cạnh từng tệp PDF gốc
     annot_author: str = ""  # Tên người chú thích ghi vào PDF; trống = tên đăng nhập Windows
+    print_settings: Dict[str, Any] = field(default_factory=dict)  # Thiết lập in lần trước (PrintOptions.to_settings)
 
     @classmethod
     def settings_file(cls) -> Path:

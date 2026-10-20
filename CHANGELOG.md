@@ -7,6 +7,34 @@
 
 ## [Chưa phát hành]
 
+### 2026-10-20 — Chức năng «In tài liệu» (Ctrl+P) — mục A1 của lộ trình v0.5
+Trước đây ứng dụng chưa có chức năng in. Học ý tưởng hộp thoại in của cit-pdf (không chép mã — AGPL-3.0).
+
+#### Thêm mới — Engine (`qtpdfpro/core/printing.py`, không phụ thuộc PySide6)
+- **Khoảng trang** `parse_print_range`: cú pháp của `cli extract` (`1-3,5`, `end`, `le`/`chan`) cộng khoảng mở `8-` (từ trang 8 tới hết) và `-3`; giữ thứ tự nhập, bỏ trùng; chịu gạch ngang dài «–» khi dán từ Word. `resolve_print_pages` cho «Tất cả / Trang hiện tại / Tuỳ chọn»; `apply_subset` lọc trang lẻ / chẵn (theo số trang) và in ngược thứ tự — dùng để **in 2 mặt thủ công** trên máy in không có in 2 mặt tự động.
+- **Kế hoạch in** `plan_print` / `plan_document` → `PrintPlan` gồm các `PrintSheet` (trang, góc xoay thêm, khung đặt ảnh trên tờ, tỷ lệ, cờ mất mép): khổ A4 / A5 / A3 / Letter / Legal; hướng giấy «Tự động theo trang» (theo đa số trang được in) / Dọc / Ngang; **tự xoay** trang khác hướng giấy (trang ngang trên giấy dọc xoay ngược chiều kim đồng hồ — đầu trang về mép gáy; trang dọc trên giấy ngang xoay thuận chiều); tỷ lệ «Vừa khổ giấy» (căn giữa vùng in được, tránh lề phần cứng của máy in) / «Cỡ thật (100%)» (căn giữa tờ giấy, báo mất mép) / «Chỉ thu nhỏ trang quá khổ». `job_sheets` nhân bản (trọn bộ hoặc 1-1, 2-2…) và chèn tờ trắng giữa các bộ khi in 2 mặt để bộ sau bắt đầu ở mặt trước.
+- **Kết xuất** `render_sheet` / `render_sheet_pixmap`: PyMuPDF dựng ảnh đúng cỡ khung ở DPI máy in (`clamp_print_dpi` giới hạn 300–600 dpi; trang quá khổ như A0 tự hạ DPI để một ảnh ≤ 48 triệu điểm ảnh), **đen trắng = pixmap xám 1 kênh** (dữ liệu gửi máy in nhỏ hơn 3 lần), in kèm chú thích / con dấu / chữ ký (`annots=True`, tắt được).
+- `PrintOptions` (chuẩn hoá giá trị lạ, `to_settings`/`from_settings` — nhớ máy in, khổ giấy, hướng, tỷ lệ, 2 mặt, màu, chất lượng; **không** nhớ số bản và khoảng trang); `printing_allowed` (tôn trọng cờ cấm in của PDF mã hoá); `snapshot_pdf_bytes` (bản chụp tài liệu kèm chú thích chưa lưu cho luồng in); `print_to_pdf` dựng «bản in» thành PDF chỉ bằng PyMuPDF.
+- `settings.py`: trường mới `print_settings`.
+
+#### Thêm mới — Giao diện
+- **`ui/print_job.py`**: gửi lệnh in bằng `QPrinter` độ phân giải cao — `setFullPage(True)` (gốc toạ độ = góc tờ giấy), khổ / hướng / màu / 2 mặt, đọc lề phần cứng của máy in; để trình điều khiển tự in nhiều bản khi hỗ trợ (`supportsMultipleCopies`), ngược lại nhân bản trong lệnh in; dừng giữa chừng gọi `printer.abort()` và xoá tệp dở. Máy in ảo «Microsoft Print to PDF» / «XPS Document Writer» được hỏi nơi lưu trước (tránh hộp thoại của trình điều khiển bật lên trong luồng nền).
+- **Hộp thoại «In tài liệu»** (`ui/print_dialog.py`): chọn máy in (mặc định của Windows, kèm mục «💾 Lưu bản in thành tệp PDF…»), hiện khả năng máy in (in 2 mặt tự động, máy in màu / đen trắng — mục không hỗ trợ bị làm mờ kèm gợi ý in 2 mặt thủ công), số bản + «In trọn từng bộ», trang in (Tất cả / Trang hiện tại / Tuỳ chọn + báo lỗi khoảng trang ngay khi gõ), lọc trang lẻ / chẵn, in ngược, khổ giấy, hướng, tỷ lệ, tự xoay, in 2 mặt, màu / đen trắng, chất lượng (theo máy in tối đa 600 dpi / nhanh 300 dpi), in kèm chú thích. **Xem trước từng tờ** đúng như sẽ in (tờ giấy, viền vùng in được, ảnh trang đặt theo kế hoạch, đen trắng), ◀ ▶ / PgUp PgDn, dòng tóm tắt. In trong `QThread` (luồng in mở bản chụp tài liệu riêng — PyMuPDF không dùng chung tài liệu giữa các luồng) có thanh tiến trình và nút «Dừng in»; nhớ thiết lập lần trước trong `settings.json`.
+- `MainWindow`: menu «Tệp → In…» **Ctrl+P**, thẻ «🖨 In tài liệu» ở cột «Tất cả công cụ» của tab, công cụ «In tài liệu» (`print`, nhóm Đọc) trong danh mục / Ctrl+K; báo «🖨 Đã gửi n tờ tới …» / «💾 Đã lưu bản in …».
+- CLI `print`: `--to-pdf` (dựng bản in ra PDF, không cần máy in), `--printer TÊN|mac-dinh`, `--plan` (xem hướng / tỷ lệ / xoay từng tờ), `--list-printers`; `--paper --orientation --scale --no-auto-rotate --grayscale --duplex --copies --no-collate --subset --reverse --no-annots --dpi --json`. Bắt buộc chọn đích — không bao giờ tự in ra máy in mặc định.
+
+#### Kiểm thử
+- `tests/test_printing.py` (12 bài): khoảng trang, tự xoay & hướng giấy, tỷ lệ & lề máy in, nhân bản / tờ trắng khi in 2 mặt, chuẩn hoá & nhớ thiết lập, DPI, ảnh xám / xoay / chú thích, `print_to_pdf`, cờ cấm in, `cli print`.
+- `tests/test_print_ui.py` (5 bài): in bằng `QPrinter` `PdfFormat` ra tệp tạm (số trang, hướng, ảnh `DeviceGray`, dừng giữa chừng), hộp thoại in (khoảng trang sai, in «2-» ra PDF, nhớ thiết lập), điều hướng xem trước, Ctrl+P / thẻ công cụ / `run_tool("print")` (giả lập `exec`, không mở hộp thoại modal). Bài in qua trình điều khiển Windows («Microsoft Print to PDF» ghi ra tệp) chỉ chạy khi đặt `QTPDFPRO_NATIVE_PRINT_TEST=1`.
+- Đã chạy tay: in qua trình điều khiển «Microsoft Print to PDF» trong `QThread` (3 tờ × 2 bản do trình điều khiển nhân → 6 trang, chú thích & trang xoay đúng); chụp hộp thoại Sáng / Tối kiểm tra tiếng Việt. **Chưa in thử ra giấy** trên máy in thật (cần người dùng đồng ý).
+- **78/78** `pytest` đạt (+1 bài in qua trình điều khiển bỏ qua mặc định).
+
+#### Rào cản kỹ thuật đã gặp (ghi vào CLAUDE.md mục 5)
+- In qua hàng đợi in của Windows khi bật «Để Windows quản lý máy in mặc định» (`LegacyDefaultPrinterMode = 0`) làm Windows **đổi máy in mặc định** sang máy in vừa dùng — lần chạy thử với «Microsoft Print to PDF» đã đổi máy in mặc định của máy dev → bài test in qua trình điều khiển chuyển sang tuỳ chọn bật bằng biến môi trường.
+- Bộ in Windows của Qt (`QAlphaPaintEngine`) ghi lại lệnh vẽ cả trang rồi phát lại khi `newPage()`/`end()`, còn `QImage` dựng từ bộ đệm PyMuPDF chỉ trỏ vào bộ nhớ → giữ ảnh của trang đang vẽ tới sau khi sang trang.
+- `QPageLayout.minimumMargins()` trả cùng một bộ lề cho cả hướng dọc và ngang → dùng lề lớn nhất cho cả 4 cạnh.
+- `QPrinter.setPrinterName` mất 0,2–1 giây (lần đầu với «Microsoft Print to PDF» ~1 giây) → hộp thoại lưu đệm lề theo máy in & khổ giấy và chỉ đọc sau khi đã hiện.
+
 ### 2026-10-20 — Lộ trình v0.5 → v2.0 sau khi khảo sát cit-pdf (chỉ tài liệu)
 - Khảo sát [cit-pdf](https://github.com/Cuongyd196/cit-pdf) (bản desktop Electron của BentoPDF, AGPL-3.0): chuyển PDF → Word của ta vượt xa (họ dùng PyMuPDF/pdf2docx mặc định, không có tuỳ chọn); giữ nguyên công nghệ Python + PySide6 + PyMuPDF native (nhanh, nhẹ hơn Electron + WASM). Chỉ học ý tưởng, không chép mã AGPL.
 - `docs/DE_XUAT_TINH_NANG.md`: thêm mục **«Lộ trình gần»** — bảng mốc v0.5 / v0.6 / v0.7 / v0.8 / v1.1 / v2.0 và 14 mục có mã: nhóm **A** công cụ văn phòng (A1 In PDF — hiện chưa có chức năng in, A2 Nén, A3 Dấu nước / Đánh số trang / Đầu – chân trang / Bates, A4 Mật khẩu – metadata – làm sạch, A5 Chèn ảnh chữ ký / con dấu), nhóm **B** (B1 áp công cụ ngay trên tab có Hoàn tác, B2 So sánh 2 PDF, B3 OCR → DOCX NĐ30, B4 ký số USB token & xác thực đầy đủ), **vỏ ứng dụng** (V1 một cửa sổ duy nhất, V2 thông báo «Đã lưu», V3 bộ cài + «Mở bằng», V4 kiểm tra cập nhật, V5 tải mô-đun khi cần). Ghi rõ **không làm** nhóm tiện ích scan (người dùng đã có app scan riêng). Giai đoạn 2/4 trỏ tới B3/B4; «Chuyển đổi hàng loạt» đánh dấu đã xong (v0.3.0); «Đặt mật khẩu» dời lên v0.6.
@@ -15,7 +43,7 @@
 
 ### Việc còn dở / Ưu tiên kế tiếp cho Agent phiên sau
 1. **Kiểm thử engine NĐ30 trên văn bản thật** (PDF ký số VGCA, PDF xuất từ phần mềm quản lý văn bản, PDF in từ LibreOffice): chạy `python -m qtpdfpro.cli convert <tệp> --mode nd30 --verify-layout` (hoặc `cli batch <thư mục> --verify-layout`) và xử lý các trường hợp «Lệch nhỏ».
-2. **v0.5** theo «Lộ trình gần» (`docs/DE_XUAT_TINH_NANG.md`): **Xem 2 trang song song**, **A1** In PDF, **V1** một cửa sổ duy nhất, **V2** thông báo «Đã lưu»; sau đó v0.6 (A2–A5), v0.7 (B1, B2), v0.8 (V3–V5), **OCR Tiếng Việt** (B3, v1.1).
+2. **v0.5** theo «Lộ trình gần» (`docs/DE_XUAT_TINH_NANG.md`): **Xem 2 trang song song**, ~~A1 In PDF~~ (đã xong — còn in thử 1 trang ra giấy khi người dùng đồng ý), **V1** một cửa sổ duy nhất, **V2** thông báo «Đã lưu»; sau đó v0.6 (A2–A5), v0.7 (B1, B2), v0.8 (V3–V5), **OCR Tiếng Việt** (B3, v1.1).
    - «Chỉnh sửa PDF» mở rộng: đổi cỡ hộp chữ/hình bằng tay nắm, sửa kiểu dáng chú thích đã có, che thông tin (redaction), dấu đóng có ảnh chữ ký.
 3. Tuỳ chọn: chuyển hàng loạt song song bằng nhiều tiến trình (`ProcessPoolExecutor`, cần `multiprocessing.freeze_support()` cho bản PyInstaller).
 

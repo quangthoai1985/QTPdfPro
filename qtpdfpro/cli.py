@@ -17,6 +17,12 @@ Chỉnh sửa PDF (tổ chức trang & chú thích):
   python -m qtpdfpro.cli annotate in.pdf [-o out.pdf] [--highlight "cụm từ"] [--underline ...] [--strikeout ...]
                                   [--color vang] [--stamp "ĐÃ DUYỆT" --stamp-date] [--ops thao_tac.json] [--flatten]
   python -m qtpdfpro.cli annots in.pdf [--json]
+
+In tài liệu:
+  python -m qtpdfpro.cli print in.pdf --pages "1-3,5,8-" --to-pdf ban_in.pdf     # dựng bản in ra PDF, không cần máy in
+  python -m qtpdfpro.cli print in.pdf --printer "Canon LBP2900" [--copies 2] [--duplex long] [--grayscale]
+  python -m qtpdfpro.cli print in.pdf --plan [--paper A4 --orientation auto --scale fit] [--json]
+  python -m qtpdfpro.cli print --list-printers
 """
 
 from __future__ import annotations
@@ -30,6 +36,7 @@ from typing import List, Optional
 from qtpdfpro import __app_name__, __version__
 from qtpdfpro.core import annotations as annots_mod
 from qtpdfpro.core import page_ops
+from qtpdfpro.core import printing
 from qtpdfpro.core.batch import (
     STATUS_FAILED,
     STATUS_OK,
@@ -183,7 +190,43 @@ def build_parser() -> argparse.ArgumentParser:
     p_bat.add_argument("--json", action="store_true", help="In kết quả dạng JSON")
 
     _add_edit_commands(sub)
+    _add_print_command(sub)
     return parser
+
+
+def _add_print_command(sub) -> None:
+    """Lệnh «In tài liệu»: ra tệp PDF bản in (kiểm tra không cần máy in) hoặc gửi tới máy in."""
+    p = sub.add_parser(
+        "print",
+        help="In tài liệu PDF ra máy in, hoặc dựng bản in thành tệp PDF",
+        description=(
+            "Khoảng trang (số trang tính từ 1): '1-3,5', '8-' (từ trang 8 tới hết), '-3', 'end', 'le'/'chan'. "
+            "Phải chọn một đích: --to-pdf, --printer, --plan hoặc --list-printers (không tự in ra máy in mặc định)."
+        ),
+    )
+    p.add_argument("input_pdf", nargs="?", help="Tệp PDF cần in")
+    p.add_argument("-p", "--pages", default="", help="Khoảng trang cần in (bỏ trống = tất cả)")
+    dest = p.add_mutually_exclusive_group(required=True)
+    dest.add_argument("--to-pdf", metavar="OUT.pdf", help="Dựng bản in (ảnh trang đã dàn khổ giấy) thành tệp PDF")
+    dest.add_argument("--printer", metavar="TÊN", help="Gửi tới máy in (dùng 'mac-dinh' cho máy in mặc định của Windows)")
+    dest.add_argument("--plan", action="store_true", help="Chỉ xem kế hoạch in (hướng, tỷ lệ, xoay từng tờ)")
+    dest.add_argument("--list-printers", action="store_true", help="Liệt kê máy in đã cài")
+    p.add_argument("--paper", choices=list(printing.PAPER_SIZES), default="A4", help="Khổ giấy (mặc định A4)")
+    p.add_argument("--orientation", choices=list(printing.ORIENTATIONS), default="auto",
+                   help="Hướng giấy: auto = theo đa số trang (mặc định)")
+    p.add_argument("--scale", choices=list(printing.SCALE_MODES), default="fit",
+                   help="fit = vừa khổ giấy (mặc định), actual = cỡ thật, shrink = chỉ thu nhỏ trang quá khổ")
+    p.add_argument("--no-auto-rotate", action="store_true", help="Không xoay trang khác hướng giấy")
+    p.add_argument("--grayscale", action="store_true", help="In đen trắng (thang xám)")
+    p.add_argument("--duplex", choices=list(printing.DUPLEX_MODES), default="none",
+                   help="In 2 mặt: long = lật cạnh dài, short = lật cạnh ngắn")
+    p.add_argument("--copies", type=int, default=1, help="Số bản (mặc định 1)")
+    p.add_argument("--no-collate", action="store_true", help="Không in trọn từng bộ (1-1, 2-2…)")
+    p.add_argument("--subset", choices=list(printing.SUBSETS), default="all", help="Chỉ trang lẻ / chẵn")
+    p.add_argument("--reverse", action="store_true", help="In ngược thứ tự")
+    p.add_argument("--no-annots", action="store_true", help="Không in chú thích, con dấu, chữ ký")
+    p.add_argument("--dpi", type=int, help="DPI ảnh trang (--to-pdf mặc định 300; máy in: trần 300–600, mặc định 600)")
+    p.add_argument("--json", action="store_true", help="In kết quả dạng JSON")
 
 
 def _add_edit_commands(sub) -> None:
@@ -419,6 +462,90 @@ def _run_batch(args: argparse.Namespace) -> int:
     return 0 if report.failed_count == 0 else 1
 
 
+def _qt_app():
+    """QApplication tối thiểu cho QPrinter khi chạy từ dòng lệnh."""
+    from PySide6.QtWidgets import QApplication
+
+    return QApplication.instance() or QApplication(["qtpdfpro-print"])
+
+
+def _run_print(args: argparse.Namespace) -> int:
+    """Lệnh `print`: liệt kê máy in, xem kế hoạch, in ra PDF hoặc gửi máy in."""
+    import fitz
+
+    if args.list_printers:
+        from qtpdfpro.ui import print_job  # cần Qt — chỉ nạp khi dùng tới máy in
+
+        _app = _qt_app()
+        names, default = print_job.available_printers(), print_job.default_printer_name()
+        if args.json:
+            print(json.dumps({"printers": names, "default": default}, ensure_ascii=False, indent=2))
+        else:
+            for n in names:
+                print(f"  {'*' if n == default else ' '} {n}")
+            print("(* = máy in mặc định)")
+        return 0
+    if not args.input_pdf:
+        print("Lỗi: thiếu tệp PDF cần in.", file=sys.stderr)
+        return 2
+
+    src = Path(args.input_pdf).resolve()
+    opts = printing.PrintOptions(
+        copies=args.copies, collate=not args.no_collate, paper=args.paper, orientation=args.orientation,
+        scale=args.scale, auto_rotate=not args.no_auto_rotate, duplex=args.duplex, grayscale=args.grayscale,
+        annotations=not args.no_annots, subset=args.subset, reverse=args.reverse,
+        max_dpi=args.dpi if (args.printer and args.dpi) else printing.MAX_PRINT_DPI,
+    ).normalized()
+    try:
+        doc = fitz.open(str(src))
+    except Exception as exc:
+        print(f"Lỗi: không mở được {src}: {exc}", file=sys.stderr)
+        return 1
+    try:
+        if doc.needs_pass:
+            raise printing.PrintError("Tệp PDF có mật khẩu — hãy mở bằng giao diện để in.")
+        if not printing.printing_allowed(doc):
+            raise printing.PrintError("Tài liệu không cho phép in (chủ sở hữu đã tắt quyền in).")
+        pages = printing.parse_print_range(args.pages, doc.page_count)
+        payload: dict = {"input": str(src), "pages": [i + 1 for i in pages]}
+
+        if args.plan or args.to_pdf:
+            plan = printing.plan_document(doc, pages, opts)
+            payload["plan"] = plan.to_dict()
+            if args.plan:
+                if args.json:
+                    print(json.dumps(payload, ensure_ascii=False, indent=2))
+                else:
+                    print(f"{src.name}: {plan.summary()} (chưa tính lề không in được của máy in)")
+                    for k, sh in enumerate(plan.sheets, 1):
+                        rot = f", xoay {sh.rotate}°" if sh.rotate else ""
+                        cut = " — mất mép (lớn hơn khổ giấy)" if sh.clipped else ""
+                        print(f"  Tờ {k}: trang {sh.page_index + 1}, tỷ lệ {sh.scale * 100:.1f}%{rot}{cut}")
+                return 0
+            res = printing.print_to_pdf(doc, plan, args.to_pdf, dpi=args.dpi or printing.MIN_PRINT_DPI)
+        else:
+            from qtpdfpro.ui import print_job  # cần Qt — chỉ nạp khi dùng tới máy in
+
+            _app = _qt_app()
+            name = "" if args.printer.strip().lower() in ("mac-dinh", "macdinh", "default", "") else args.printer
+            printer = print_job.create_printer(name)
+            res = print_job.print_document(printer, doc, pages, opts, doc_name=src.name)
+    except (printing.PrintError, OSError) as exc:
+        print(f"Lỗi: {exc}", file=sys.stderr)
+        return 1
+    finally:
+        doc.close()
+
+    payload["result"] = res.to_dict()
+    if args.json:
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+    elif res.output_path:
+        print(f"Đã dựng bản in {res.sheets_printed} tờ ({res.dpi} dpi) → {res.output_path}")
+    else:
+        print(f"Đã gửi {res.sheets_printed} tờ tới máy in «{res.printer}» ({res.dpi} dpi)")
+    return 0
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     _ensure_utf8_console()
     parser = build_parser()
@@ -495,6 +622,9 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     if args.command == "batch":
         return _run_batch(args)
+
+    if args.command == "print":
+        return _run_print(args)
 
     if args.command in ("merge", "split", "organize", "extract", "annotate", "annots"):
         return _run_edit_command(args)
