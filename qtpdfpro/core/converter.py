@@ -1,14 +1,17 @@
 """Bộ Điều phối Chuyển đổi PDF sang DOCX Đa Chế độ (Multi-Engine PDF-to-DOCX Orchestrator).
 
-Hỗ trợ 4 chế độ chuyển đổi:
-- `hybrid` (Mặc định khuyên dùng): Kết hợp `pdf2docx` tái tạo cấu trúc (đoạn văn, bảng biểu,
+Hỗ trợ 5 chế độ chuyển đổi:
+- `nd30` (Văn bản hành chính): Tái dựng văn bản đúng thể thức Nghị định 30/2020/NĐ-CP — lề trang,
+  giãn dòng, cách đoạn đo trên PDF rồi ước lượng về giá trị gốc; phần đầu & khối ký trong bảng
+  không viền; đường kẻ giữ đúng toạ độ PDF; số trang là trường PAGE (`nd30_engine.py`).
+- `hybrid`: Kết hợp `pdf2docx` tái tạo cấu trúc (đoạn văn, bảng biểu,
   cột, hình ảnh, màu sắc) + Bộ Hậu xử lý Chuẩn xác OpenXML (`openxml_fixer.py`).
 - `exact` (Giữ nguyên vị trí 1:1): Đặt từng dòng chữ vào khung toạ độ tuyệt đối `<w:framePr>`
   kết hợp lớp đồ hoạ nền vector/ảnh phía sau (`exact_layout_engine.py`).
 - `word_com` (Microsoft Word Reflow): Gọi engine chuyển đổi gốc của MS Word qua COM rồi
   chạy Bộ Hậu xử lý Chuẩn xác OpenXML (`word_com_bridge.py`).
-- `auto` (Tự động thông minh): Phân tích bố cục trang PDF trước, tự chọn `hybrid` hoặc `exact`
-  tuỳ theo độ phức tạp đồ hoạ vector của tài liệu.
+- `auto` (Tự động thông minh): Văn bản hành chính (có Quốc hiệu – Tiêu ngữ) → `nd30`; còn lại
+  phân tích bố cục trang PDF để chọn `hybrid` hoặc `exact` tuỳ độ phức tạp đồ hoạ vector.
 """
 
 from __future__ import annotations
@@ -23,8 +26,16 @@ from pdf2docx import Converter as Pdf2DocxConverter
 
 from qtpdfpro.core.exact_layout_engine import convert_pdf_exact_layout
 from qtpdfpro.core.fidelity import FidelityReport, evaluate_conversion_fidelity
+from qtpdfpro.core.admin_layout import analyze_admin_document
 from qtpdfpro.core.layout_analyzer import analyze_page_layout
+from qtpdfpro.core.layout_verify import LayoutVerifyReport, verify_docx_layout
+from qtpdfpro.core.nd30_engine import convert_pdf_nd30
+from qtpdfpro.core.nd30_standard import DocxLayoutPlan, ND30Report
 from qtpdfpro.core.openxml_fixer import OpenXMLFixReport, fix_docx_package
+from qtpdfpro.core.pdf_primitives import (
+    extract_widget_overlays as _extract_widget_overlays,
+    splice_overlapping_stamped_text as _splice_overlapping_stamped_text,
+)
 from qtpdfpro.core.word_com_bridge import convert_via_ms_word_com, is_ms_word_available
 
 ProgressCallback = Optional[Callable[[int, int, str], None]]
@@ -38,7 +49,7 @@ class ConversionError(Exception):
 class ConversionOptions:
     """Tuỳ chọn cấu hình cho một lượt chuyển đổi PDF sang DOCX."""
 
-    mode: str = "hybrid"  # "auto" | "hybrid" | "exact" | "word_com"
+    mode: str = "hybrid"  # "auto" | "nd30" | "hybrid" | "exact" | "word_com"
     pages: Optional[List[int]] = None  # Danh sách trang 0-based; None = tất cả trang
     default_font: str = "Times New Roman"
     normalize_vietnamese: bool = True
@@ -46,6 +57,10 @@ class ConversionOptions:
     prevent_line_overflow: bool = True
     exact_background_dpi: int = 180
     password: Optional[str] = None
+    # Chế độ nd30: "faithful" = giữ đúng bố cục PDF (mặc định), "nd30" = ép chuẩn hoá theo NĐ30
+    nd30_policy: str = "faithful"
+    # Dựng lại DOCX bằng Microsoft Word và so vị trí từng dòng với PDF (chậm hơn, cần MS Word)
+    verify_layout: bool = False
 
 
 @dataclass
@@ -59,6 +74,19 @@ class ConversionResult:
     elapsed_seconds: float
     fix_report: OpenXMLFixReport = field(default_factory=OpenXMLFixReport)
     fidelity: FidelityReport = field(default_factory=FidelityReport)
+    nd30_report: Optional[ND30Report] = None
+    nd30_plan: Optional[DocxLayoutPlan] = None
+    layout_check: Optional[LayoutVerifyReport] = None
+    notes: List[str] = field(default_factory=list)
+
+
+def is_admin_document(pdf_doc: fitz.Document, page_index: int = 0) -> bool:
+    """Nhận diện văn bản hành chính: trang đầu có khối Quốc hiệu – Tiêu ngữ 2 cột."""
+    try:
+        ad = analyze_admin_document(pdf_doc, [page_index])
+        return ad.header is not None and not ad.is_scanned
+    except Exception:
+        return False
 
 
 def parse_page_range(spec: str, total_pages: int) -> List[int]:
@@ -137,6 +165,8 @@ def convert_pdf_to_docx(
 
         # Xác định chế độ thực tế nếu người dùng chọn "auto"
         actual_mode = opts.mode.lower().strip()
+        if actual_mode == "auto" and is_admin_document(doc, target_pages[0]):
+            actual_mode = "nd30"
         if actual_mode == "auto":
             sample_pages = target_pages[: min(3, len(target_pages))]
             summaries = [analyze_page_layout(doc[p], include_vectors=False) for p in sample_pages]
@@ -150,6 +180,25 @@ def convert_pdf_to_docx(
         progress_cb(0, total_target, f"Khởi động engine chuyển đổi ({actual_mode})...")
 
     # 2. Chạy Engine chuyển đổi chính
+    notes: List[str] = []
+    nd30_report: Optional[ND30Report] = None
+    nd30_plan: Optional[DocxLayoutPlan] = None
+    if actual_mode == "nd30":
+        try:
+            info = convert_pdf_nd30(
+                src,
+                dst,
+                pages=target_pages,
+                policy=opts.nd30_policy,
+                password=opts.password,
+                progress_cb=progress_cb,
+            )
+            nd30_report, nd30_plan = info.report, info.plan
+            notes.extend(info.notes)
+        except Exception as exc:
+            notes.append(f"Engine NĐ30 không xử lý được tệp này ({exc}); đã chuyển sang chế độ hybrid.")
+            actual_mode = "hybrid"
+
     if actual_mode == "word_com":
         if is_ms_word_available():
             if progress_cb:
@@ -196,8 +245,10 @@ def convert_pdf_to_docx(
         docx_path=dst,
         default_font=opts.default_font,
         normalize_vietnamese=opts.normalize_vietnamese,
-        fix_table_padding=(opts.fix_table_padding and actual_mode != "exact"),
-        prevent_line_overflow=(opts.prevent_line_overflow and actual_mode != "exact"),
+        fix_table_padding=(opts.fix_table_padding and actual_mode not in ("exact", "nd30")),
+        prevent_line_overflow=(opts.prevent_line_overflow and actual_mode not in ("exact", "nd30")),
+        # Engine NĐ30 đã đặt lề trang / khoảng cách đầu trang chuẩn → không tinh chỉnh lại
+        tune_page_margins=(actual_mode != "nd30"),
     )
 
     # 4. Đánh giá độ chính xác (Fidelity Inspector)
@@ -205,6 +256,12 @@ def convert_pdf_to_docx(
         progress_cb(total_target, total_target, "Đang kiểm định độ chính xác tài liệu...")
 
     fidelity = evaluate_conversion_fidelity(src, dst, pages=target_pages)
+
+    layout_check: Optional[LayoutVerifyReport] = None
+    if opts.verify_layout:
+        if progress_cb:
+            progress_cb(total_target, total_target, "Đang kiểm chứng bố cục bằng Microsoft Word...")
+        layout_check = verify_docx_layout(src, dst, pages=target_pages)
     elapsed = round(time.perf_counter() - t0, 3)
 
     return ConversionResult(
@@ -215,156 +272,16 @@ def convert_pdf_to_docx(
         elapsed_seconds=elapsed,
         fix_report=fix_report,
         fidelity=fidelity,
+        nd30_report=nd30_report,
+        nd30_plan=nd30_plan,
+        layout_check=layout_check,
+        notes=notes,
     )
 
 
 _PDF2DOCX_PATCHED = False
 _ACTIVE_PAGE_OVERLAYS: dict[int, list[tuple[bytes, float, float, float, bool]]] = {}
 _ACTIVE_RULE_RECTS: dict[int, list[fitz.Rect]] = {}
-
-
-def _splice_overlapping_stamped_text(text_blocks: list[dict]) -> list[dict]:
-    """Ghép các dòng văn bản đóng dấu đè lên khoảng trắng (như Số văn bản '3865', Ngày '14'
-    trong văn bản hành chính ký số VGCA/iOffice) trực tiếp vào khoảng trắng của dòng chủ.
-
-    Nhờ đó `pdf2docx` không loại bỏ nhầm dòng đóng dấu khi chạy `_remove_overlapped_lines`.
-    """
-    line_refs: list[tuple[dict, dict, str, tuple[float, float, float, float]]] = []
-    for blk in text_blocks:
-        if blk.get("type", 0) != 0:
-            continue
-        for ln in blk.get("lines", []):
-            txt = "".join(
-                c.get("c", "") for sp in ln.get("spans", []) for c in sp.get("chars", [])
-            )
-            bbox = tuple(ln.get("bbox", (0.0, 0.0, 0.0, 0.0)))
-            line_refs.append((blk, ln, txt, bbox))
-
-    lines_to_remove: set[int] = set()
-
-    for s_blk, s_ln, s_txt, s_bbox in line_refs:
-        s_clean = s_txt.strip()
-        if not s_clean or len(s_clean) > 30:
-            continue
-        sx0, sy0, sx1, sy1 = s_bbox
-        sw = sx1 - sx0
-        sh = sy1 - sy0
-        if sw <= 0 or sh <= 0:
-            continue
-
-        # Tìm dòng chủ (host line) rộng hơn và chứa dòng đóng dấu này
-        for h_blk, h_ln, h_txt, h_bbox in line_refs:
-            if h_ln is s_ln or id(h_ln) in lines_to_remove:
-                continue
-            hx0, hy0, hx1, hy1 = h_bbox
-            hw = hx1 - hx0
-            hh = hy1 - hy0
-            if hw <= sw * 1.25 or hh <= 0:
-                continue
-
-            # Kiểm tra giao nhau theo chiều dọc và nằm gọn theo chiều ngang
-            y_ov = min(sy1, hy1) - max(sy0, hy0)
-            if y_ov < 0.35 * min(sh, hh):
-                continue
-            if sx0 < hx0 - 4.0 or sx1 > hx1 + 4.0:
-                continue
-
-            # Tìm span trong dòng chủ có giao vùng ngang lớn nhất với [sx0, sx1]
-            best_span = None
-            best_x_ov = 0.0
-            for sp in h_ln.get("spans", []):
-                spx0, _, spx1, _ = sp.get("bbox", (0.0, 0.0, 0.0, 0.0))
-                x_ov = min(sx1, spx1) - max(sx0, spx0)
-                if x_ov > best_x_ov:
-                    best_x_ov = x_ov
-                    best_span = sp
-
-            if best_span is None:
-                continue
-
-            h_chars = best_span.get("chars", [])
-            if not h_chars:
-                continue
-
-            overlapped_indices = [
-                idx
-                for idx, ch in enumerate(h_chars)
-                if (sx0 - 1.5)
-                <= 0.5 * (ch["bbox"][0] + ch["bbox"][2])
-                <= (sx1 + 1.5)
-            ]
-            if not overlapped_indices:
-                continue
-
-            # Chỉ ghép nếu vùng bị đè trong dòng chủ là khoảng trắng
-            if not all(h_chars[i].get("c", "").strip() == "" for i in overlapped_indices):
-                continue
-
-            # Mở rộng ra toàn bộ dải khoảng trắng liên tiếp chứa vùng đóng dấu
-            ws_start = overlapped_indices[0]
-            while ws_start > 0 and h_chars[ws_start - 1].get("c", "").strip() == "":
-                ws_start -= 1
-            ws_end = overlapped_indices[-1]
-            while (
-                ws_end + 1 < len(h_chars)
-                and h_chars[ws_end + 1].get("c", "").strip() == ""
-            ):
-                ws_end += 1
-
-            # Lấy danh sách ký tự thực của dòng đóng dấu
-            s_chars = [
-                dict(c)
-                for sp in s_ln.get("spans", [])
-                for c in sp.get("chars", [])
-            ]
-            while s_chars and s_chars[0].get("c", "").strip() == "":
-                s_chars.pop(0)
-            while s_chars and s_chars[-1].get("c", "").strip() == "":
-                s_chars.pop()
-            if not s_chars:
-                continue
-
-            replacement: list[dict] = []
-            if ws_start > 0:
-                prev_ch = h_chars[ws_start - 1].get("c", "")
-                if prev_ch not in (" ", "/", "(", "["):
-                    sp_before = dict(h_chars[ws_start])
-                    sp_before["c"] = " "
-                    replacement.append(sp_before)
-
-            replacement.extend(s_chars)
-
-            if ws_end + 1 < len(h_chars):
-                next_ch = h_chars[ws_end + 1].get("c", "")
-                next_x0 = h_chars[ws_end + 1]["bbox"][0]
-                last_sx1 = s_chars[-1]["bbox"][2]
-                if next_ch == "/" and (next_x0 - last_sx1) >= 1.5:
-                    sp_after = dict(h_chars[ws_end])
-                    sp_after["c"] = " "
-                    replacement.append(sp_after)
-                elif next_ch not in (" ", "/", ",", ".", ";", ":", ")", "]"):
-                    sp_after = dict(h_chars[ws_end])
-                    sp_after["c"] = " "
-                    replacement.append(sp_after)
-
-            h_chars[ws_start : ws_end + 1] = replacement
-            lines_to_remove.add(id(s_ln))
-            break
-
-    if not lines_to_remove:
-        return text_blocks
-
-    cleaned_blocks: list[dict] = []
-    for blk in text_blocks:
-        if blk.get("type", 0) != 0:
-            cleaned_blocks.append(blk)
-            continue
-        kept_lines = [ln for ln in blk.get("lines", []) if id(ln) not in lines_to_remove]
-        if kept_lines:
-            blk = dict(blk)
-            blk["lines"] = kept_lines
-            cleaned_blocks.append(blk)
-    return cleaned_blocks
 
 
 def _make_horizontal_rule_png(
@@ -384,155 +301,6 @@ def _make_horizontal_rule_png(
     sub.set_rect(sub.irect, (r, g, b, 255))
     pix.copy(sub, sub.irect)
     return pix.tobytes("png")
-
-
-def _extract_widget_overlays(
-    page: fitz.Page,
-) -> list[tuple[bytes, float, float, float, bool]]:
-    """Trích xuất hình ảnh con dấu đỏ, chữ ký số và chữ ký nháy từ PDF Signature Widgets (`page.widgets()`).
-
-    Khôi phục kênh trong suốt Alpha (`/SMask`) gốc của XObject và tính chính xác toạ độ trang
-    từ ma trận biến đổi `cm` bên trong Form XObject `/AP /N`.
-    """
-    import re
-
-    doc = page.parent
-    if doc is None:
-        return []
-
-    overlays: list[tuple[bytes, float, float, float, bool]] = []
-    for w in page.widgets() or []:
-        if not w.xref:
-            continue
-        try:
-            w_obj = doc.xref_object(w.xref)
-        except Exception:
-            continue
-
-        ap_match = re.search(r"/AP\s*<<[^>]*?/N\s+(\d+)\s+0\s+R", w_obj, re.S)
-        if not ap_match:
-            continue
-
-        ap_xref = int(ap_match.group(1))
-        visited: set[int] = set()
-        queue: list[int] = [ap_xref]
-        found_in_widget = False
-
-        while queue and not found_in_widget:
-            cur_xref = queue.pop(0)
-            if cur_xref in visited:
-                continue
-            visited.add(cur_xref)
-            try:
-                obj_str = doc.xref_object(cur_xref)
-            except Exception:
-                continue
-
-            if "/Type /Page" in obj_str:
-                continue
-
-            # Kiểm tra nếu Form XObject hiện tại chứa lệnh vẽ ảnh `/img... Do`
-            if "/Subtype /Form" in obj_str and "/XObject" in obj_str:
-                try:
-                    stream_bytes = doc.xref_stream(cur_xref) or b""
-                    stream_txt = stream_bytes.decode("latin1", errors="ignore")
-                except Exception:
-                    stream_txt = ""
-
-                # Tìm tất cả XObject con được khai báo trong Form này
-                xobj_map: dict[str, int] = {}
-                for xm in re.finditer(r"/([A-Za-z0-9_.-]+)\s+(\d+)\s+0\s+R", obj_str):
-                    name, ref_id = xm.group(1), int(xm.group(2))
-                    try:
-                        if "/Subtype /Image" in doc.xref_object(ref_id):
-                            xobj_map[name] = ref_id
-                    except Exception:
-                        pass
-
-                if xobj_map:
-                    # Chọn ảnh chính (không phải SMask của ảnh khác trong cùng Form)
-                    smask_refs: set[int] = set()
-                    for img_ref in xobj_map.values():
-                        try:
-                            im_obj = doc.xref_object(img_ref)
-                            sm_m = re.search(r"/SMask\s+(\d+)\s+0\s+R", im_obj)
-                            if sm_m:
-                                smask_refs.add(int(sm_m.group(1)))
-                        except Exception:
-                            pass
-
-                    for img_name, img_xref in xobj_map.items():
-                        if img_xref in smask_refs and len(xobj_map) > 1:
-                            continue
-                        try:
-                            im_obj = doc.xref_object(img_xref)
-                            sm_m = re.search(r"/SMask\s+(\d+)\s+0\s+R", im_obj)
-                            smask_xref = int(sm_m.group(1)) if sm_m else None
-
-                            base_pix = fitz.Pixmap(doc, img_xref)
-                            if base_pix.colorspace is None or base_pix.colorspace.n != 3:
-                                base_pix = fitz.Pixmap(fitz.csRGB, base_pix)
-                            if smask_xref:
-                                mask_pix = fitz.Pixmap(doc, smask_xref)
-                                rgba_pix = fitz.Pixmap(base_pix, mask_pix)
-                            else:
-                                rgba_pix = base_pix
-                            png_bytes = rgba_pix.tobytes("png")
-                        except Exception:
-                            continue
-
-                        # Tính toạ độ hiển thị chính xác từ BBox và ma trận cm trong stream
-                        wx0, wy0, wx1, wy1 = w.rect
-                        w_width = max(1.0, wx1 - wx0)
-                        w_height = max(1.0, wy1 - wy0)
-
-                        bbox_m = re.search(
-                            r"/BBox\s*\[\s*([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)\s*\]",
-                            obj_str,
-                        )
-                        form_w = (
-                            max(1.0, float(bbox_m.group(3)) - float(bbox_m.group(1)))
-                            if bbox_m
-                            else w_width
-                        )
-                        form_h = (
-                            max(1.0, float(bbox_m.group(4)) - float(bbox_m.group(2)))
-                            if bbox_m
-                            else w_height
-                        )
-                        scale_x = w_width / form_w
-                        scale_y = w_height / form_h
-
-                        cm_m = re.search(
-                            rf"([-\d.]+)\s+[-\d.]+\s+[-\d.]+\s+([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)\s+cm\s+/{re.escape(img_name)}\s+Do",
-                            stream_txt,
-                        )
-                        if cm_m:
-                            a = abs(float(cm_m.group(1)))
-                            d = abs(float(cm_m.group(2)))
-                            e = float(cm_m.group(3))
-                            f = float(cm_m.group(4))
-                            disp_w = a * scale_x
-                            disp_h = d * scale_y
-                            pos_x = wx0 + e * scale_x
-                            pos_y = wy1 - (f + d) * scale_y
-                        else:
-                            aspect = rgba_pix.width / max(1, rgba_pix.height)
-                            disp_w = min(w_width, w_height * aspect)
-                            disp_h = disp_w / max(0.05, aspect)
-                            pos_x = wx0 + (w_width - disp_w) * 0.5
-                            pos_y = wy0 + (w_height - disp_h) * 0.5
-
-                        overlays.append((png_bytes, disp_w, pos_x, pos_y, False))
-                        found_in_widget = True
-                        break
-
-            for ref_m in re.finditer(r"(\d+)\s+0\s+R", obj_str):
-                ref_id = int(ref_m.group(1))
-                if ref_id not in visited:
-                    queue.append(ref_id)
-
-    return overlays
 
 
 def _extract_standalone_horizontal_rules(

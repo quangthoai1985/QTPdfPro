@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
     QProgressBar,
     QPushButton,
     QRadioButton,
+    QScrollArea,
     QSpinBox,
     QVBoxLayout,
     QWidget,
@@ -35,6 +36,8 @@ from qtpdfpro.core.converter import (
     parse_page_range,
 )
 from qtpdfpro.core.settings import AppSettings
+from qtpdfpro.core.word_com_bridge import is_ms_word_available
+from qtpdfpro.ui.nd30_dialog import layout_check_html
 
 
 class _ConversionWorker(QThread):
@@ -79,6 +82,7 @@ class ConvertToDocxDialog(QDialog):
         current_page: int,
         settings: AppSettings,
         parent: QWidget | None = None,
+        initial_mode: Optional[str] = None,
     ) -> None:
         super().__init__(parent)
         self.pdf_path = Path(pdf_path).resolve()
@@ -89,13 +93,13 @@ class ConvertToDocxDialog(QDialog):
         self._worker: Optional[_ConversionWorker] = None
 
         self.setWindowTitle(f"Chuyển PDF sang Word (.docx) — {self.pdf_path.name}")
-        self.resize(650, 560)
+        self.resize(700, 640)
 
         root_layout = QVBoxLayout(self)
         root_layout.setSpacing(10)
 
         # 1. Tệp đầu vào & đầu ra
-        io_group = QGroupBox("1. Tệp nguồn & Tệp Word đầu ra")
+        io_group = QGroupBox("1. Tệp nguồn && Tệp Word đầu ra")
         io_form = QFormLayout(io_group)
 
         src_lbl = QLabel(f"<b>{self.pdf_path}</b> ({self.total_pages} trang)")
@@ -113,12 +117,20 @@ class ConvertToDocxDialog(QDialog):
         root_layout.addWidget(io_group)
 
         # 2. Chế độ Engine chuyển đổi
-        mode_group = QGroupBox("2. Chế độ Engine Chuyển đổi & Tinh chỉnh")
+        mode_group = QGroupBox("2. Chế độ Engine Chuyển đổi && Tinh chỉnh")
         mode_form = QFormLayout(mode_group)
 
         self.mode_combo = QComboBox()
         self.mode_combo.addItem(
-            "Chuẩn cấu trúc thông minh (Hybrid Flow + OpenXML Fixer) — Khuyên dùng",
+            "Tự động — văn bản hành chính dùng chuẩn NĐ30, tài liệu khác chọn engine phù hợp (Khuyên dùng)",
+            userData="auto",
+        )
+        self.mode_combo.addItem(
+            "Chuẩn thể thức NĐ30 — Văn bản hành chính (bảng không viền, lề & giãn dòng chuẩn)",
+            userData="nd30",
+        )
+        self.mode_combo.addItem(
+            "Dòng chảy cấu trúc (Hybrid pdf2docx + OpenXML Fixer) — tài liệu thông thường",
             userData="hybrid",
         )
         self.mode_combo.addItem(
@@ -126,17 +138,28 @@ class ConvertToDocxDialog(QDialog):
             userData="exact",
         )
         self.mode_combo.addItem(
-            "Tự động phân tích & chọn chế độ tối ưu (Smart Auto)",
-            userData="auto",
-        )
-        self.mode_combo.addItem(
             "Microsoft Word Native Reflow + Bộ tinh chỉnh OpenXML",
             userData="word_com",
         )
-        idx_mode = self.mode_combo.findData(self.settings.default_convert_mode)
+        idx_mode = self.mode_combo.findData(initial_mode or self.settings.default_convert_mode)
         if idx_mode >= 0:
             self.mode_combo.setCurrentIndex(idx_mode)
         mode_form.addRow("Thuật toán:", self.mode_combo)
+
+        # Chính sách NĐ30: giữ đúng PDF hay ép chuẩn
+        self.policy_combo = QComboBox()
+        self.policy_combo.addItem(
+            "Giữ đúng bố cục PDF — chỉ ước lượng về giá trị chuẩn khi sai số đo nhỏ (khuyên dùng)",
+            userData="faithful",
+        )
+        self.policy_combo.addItem(
+            "Ép chuẩn hoá theo NĐ30 — lề, cỡ chữ, giãn dòng, cách đoạn ≥ 6pt (có thể đổi dàn trang)",
+            userData="nd30",
+        )
+        idx_pol = self.policy_combo.findData(self.settings.nd30_policy)
+        self.policy_combo.setCurrentIndex(max(0, idx_pol))
+        mode_form.addRow("Thể thức NĐ30:", self.policy_combo)
+        self.mode_combo.currentIndexChanged.connect(self._sync_mode_widgets)
 
         # Phạm vi trang
         range_box = QVBoxLayout()
@@ -158,17 +181,17 @@ class ConvertToDocxDialog(QDialog):
 
         # Tuỳ chọn chuẩn xác OpenXML
         self.chk_vn = QCheckBox(
-            "Chuẩn hoá phông chữ 4 thuộc tính & sửa lỗi tiếng Việt (Unicode NFC / TCVN3)"
+            "Chuẩn hoá phông chữ 4 thuộc tính && sửa lỗi tiếng Việt (Unicode NFC / TCVN3)"
         )
         self.chk_vn.setChecked(self.settings.normalize_vietnamese)
 
         self.chk_table = QCheckBox(
-            "Khoá độ rộng cột cố định & thu gọn lề ô bảng (chống ép rớt dòng trong bảng)"
+            "Khoá độ rộng cột cố định && thu gọn lề ô bảng (chống ép rớt dòng trong bảng)"
         )
         self.chk_table.setChecked(self.settings.fix_table_padding)
 
         self.chk_overflow = QCheckBox(
-            "Tắt bắt dính lưới dòng (SnapToGrid=0) & vi chỉnh khoảng cách chữ chống tràn trang"
+            "Tắt bắt dính lưới dòng (SnapToGrid=0) && vi chỉnh khoảng cách chữ chống tràn trang"
         )
         self.chk_overflow.setChecked(self.settings.prevent_line_overflow)
 
@@ -182,14 +205,25 @@ class ConvertToDocxDialog(QDialog):
         dpi_row.addWidget(QLabel("(Độ nét lớp đồ hoạ nền cho chế độ Vị trí tuyệt đối 1:1)"))
         dpi_row.addStretch(1)
 
+        self._word_available = is_ms_word_available()
+        self.chk_verify = QCheckBox(
+            "Kiểm chứng bằng Microsoft Word sau khi chuyển: dựng lại DOCX và so vị trí từng dòng với PDF"
+        )
+        self.chk_verify.setChecked(self.settings.verify_layout and self._word_available)
+        self.chk_verify.setEnabled(self._word_available)
+        if not self._word_available:
+            self.chk_verify.setToolTip("Máy chưa cài Microsoft Word nên không thể kiểm chứng bố cục.")
+
         mode_form.addRow("", self.chk_vn)
         mode_form.addRow("", self.chk_table)
         mode_form.addRow("", self.chk_overflow)
+        mode_form.addRow("", self.chk_verify)
         mode_form.addRow("Độ phân giải nền:", dpi_row)
         root_layout.addWidget(mode_group)
+        self._sync_mode_widgets()
 
         # 3. Tiến trình & Báo cáo Độ chính xác (Fidelity Report)
-        status_group = QGroupBox("3. Tiến trình & Kiểm định Độ chính xác (Fidelity Inspector)")
+        status_group = QGroupBox("3. Tiến trình && Kiểm định Độ chính xác (Fidelity Inspector)")
         status_layout = QVBoxLayout(status_group)
 
         self.progress_bar = QProgressBar()
@@ -201,11 +235,16 @@ class ConvertToDocxDialog(QDialog):
             "phông chữ) sẽ hiển thị tại đây ngay sau khi hoàn tất.</i>"
         )
         self.report_label.setWordWrap(True)
+        self.report_label.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
         self.report_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        report_scroll = QScrollArea()
+        report_scroll.setWidgetResizable(True)
+        report_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        report_scroll.setWidget(self.report_label)
 
         status_layout.addWidget(self.progress_bar)
         status_layout.addWidget(self.status_label)
-        status_layout.addWidget(self.report_label, 1)
+        status_layout.addWidget(report_scroll, 1)
         root_layout.addWidget(status_group, 1)
 
         # 4. Hàng nút điều khiển
@@ -231,6 +270,11 @@ class ConvertToDocxDialog(QDialog):
         btn_row.addWidget(self.convert_btn)
         btn_row.addWidget(self.close_btn)
         root_layout.addLayout(btn_row)
+
+    def _sync_mode_widgets(self) -> None:
+        mode = str(self.mode_combo.currentData() or "auto")
+        self.policy_combo.setEnabled(mode in ("auto", "nd30"))
+        self.dpi_spin.setEnabled(mode in ("auto", "exact"))
 
     def _browse_output(self) -> None:
         chosen, _ = QFileDialog.getSaveFileName(
@@ -267,8 +311,12 @@ class ConvertToDocxDialog(QDialog):
             QMessageBox.warning(self, "Phạm vi trang không hợp lệ", str(exc))
             return
 
-        mode = str(self.mode_combo.currentData() or "hybrid")
+        mode = str(self.mode_combo.currentData() or "auto")
+        policy = str(self.policy_combo.currentData() or "faithful")
         self.settings.default_convert_mode = mode
+        self.settings.nd30_policy = policy
+        if self._word_available:
+            self.settings.verify_layout = self.chk_verify.isChecked()
         self.settings.normalize_vietnamese = self.chk_vn.isChecked()
         self.settings.fix_table_padding = self.chk_table.isChecked()
         self.settings.prevent_line_overflow = self.chk_overflow.isChecked()
@@ -282,6 +330,8 @@ class ConvertToDocxDialog(QDialog):
             fix_table_padding=self.chk_table.isChecked(),
             prevent_line_overflow=self.chk_overflow.isChecked(),
             exact_background_dpi=self.dpi_spin.value(),
+            nd30_policy=policy,
+            verify_layout=self.chk_verify.isChecked() and self._word_available,
         )
 
         self.convert_btn.setEnabled(False)
@@ -319,7 +369,30 @@ class ConvertToDocxDialog(QDialog):
         fid = result.fidelity
         fix = result.fix_report
         fonts_txt = ", ".join(fid.docx_fonts[:6]) if fid.docx_fonts else "Times New Roman"
-        notes_html = "".join(f"<li>{n}</li>" for n in fid.notes)
+        notes_html = "".join(f"<li>{n}</li>" for n in list(result.notes) + list(fid.notes))
+        extra_html = ""
+        if result.nd30_report is not None:
+            rep = result.nd30_report
+            color = "#16A34A" if rep.score >= 90 else ("#D97706" if rep.score >= 70 else "#DC2626")
+            fails = [c.name for c in rep.checks if c.status == "fail"]
+            extra_html += (
+                f"• <b>Thể thức NĐ30 của PDF gốc</b>: <span style='color:{color};'><b>{rep.score:.1f}%</b></span> "
+                f"({rep.ok_count} đạt, {rep.warn_count} cần xem, {rep.fail_count} chưa đạt"
+                + (f": {', '.join(fails[:4])}" if fails else "")
+                + ")<br/>"
+            )
+        if result.nd30_plan is not None:
+            pl = result.nd30_plan
+            spacing = (
+                f"giãn dòng {pl.line_multiple:g} lines" if pl.line_exact_pt is None else f"giãn dòng Exactly {pl.line_exact_pt:g} pt"
+            )
+            extra_html += (
+                f"• <b>Trình bày Word</b>: lề {pl.margin_top_mm:g}/{pl.margin_bottom_mm:g}/{pl.margin_left_mm:g}/"
+                f"{pl.margin_right_mm:g} mm (trên/dưới/trái/phải), cỡ {pl.body_size:g} pt, {spacing}, "
+                f"cách đoạn {pl.para_spacing_pt:g} pt, thụt đầu dòng {pl.first_indent_mm:g} mm<br/>"
+            ).replace(".", ",")
+        if result.layout_check is not None:
+            extra_html += layout_check_html(result.layout_check) + "<br/>"
 
         self.report_label.setText(
             f"<b>Điểm chuẩn xác tổng hợp: <span style='color:#22C55E;'>{fid.overall_score:.1f}%</span></b> "
@@ -330,7 +403,8 @@ class ConvertToDocxDialog(QDialog):
             f"• <b>Cấu trúc DOCX</b>: {fid.docx_sections} phân đoạn, {fid.docx_paragraphs} đoạn văn, "
             f"{fid.docx_tables} bảng biểu, {fid.docx_frames} khung 1:1, {fid.docx_images} hình ảnh<br/>"
             f"• <b>Tinh chỉnh OpenXML</b>: Đã chuẩn hoá {fix.fonts_normalized} lượt phông chữ "
-            f"(<code>{fonts_txt}</code>), {fix.tables_tuned} bảng, {fix.paragraphs_tuned} đoạn văn"
+            f"(<code>{fonts_txt}</code>), {fix.tables_tuned} bảng, {fix.paragraphs_tuned} đoạn văn<br/>"
+            f"{extra_html}"
             f"<ul>{notes_html}</ul>"
         )
 

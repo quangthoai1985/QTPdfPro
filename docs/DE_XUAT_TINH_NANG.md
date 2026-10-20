@@ -18,6 +18,16 @@
   - **Chế độ 3 (`MS Word Native Reflow Bridge`)**: Tích hợp bộ chuyển đổi của Microsoft Word (khi máy có cài Office) + hậu xử lý OpenXML.
   - **Bộ Kiểm định Độ chính xác (`Fidelity Inspector`)**: Chấm điểm độ chính xác sau khi chuyển đổi (tỷ lệ giữ chữ, số trang, bảng biểu, hình ảnh, phông chữ).
 
+- [x] **Chuẩn thể thức Nghị định 30/2020/NĐ-CP (`v0.3.0`)**: chế độ `nd30` tái dựng văn bản hành chính giữ đúng bố cục PDF, đối chiếu thể thức 26 hạng mục, kiểm chứng bố cục bằng Microsoft Word.
+- [x] **Trang chủ kiểu PdfCraft (`v0.3.0`)**: danh mục «Tất cả công cụ» + bảng lệnh `Ctrl+K`; mọi công cụ dưới đây đã hiển thị trên giao diện với nhãn **«Coming Soon»** (xem `qtpdfpro/ui/tool_catalog.py`, trường `milestone`).
+
+| Công cụ «Coming Soon» | Mốc dự kiến |
+|---|---|
+| Chuyển đổi hàng loạt, Xem 2 trang song song | v0.4 |
+| Scan & OCR tiếng Việt | v1.1 |
+| PDF sang Excel / ảnh / PowerPoint, Tạo PDF từ Word / ảnh, Sắp xếp / Ghép / Tách / Trích trang, Chỉnh sửa PDF, Chú thích, Đóng dấu, Điền biểu mẫu, Nén PDF | v1.2 |
+| Ký số PDF, Xác thực chữ ký số, Đặt mật khẩu, Xoá thông tin nhạy cảm, So sánh 2 tệp PDF | v2.0 |
+
 ---
 
 ## Giai đoạn 2 (v1.1.0): OCR Tiếng Việt cho PDF Scan & Công thức Toán học

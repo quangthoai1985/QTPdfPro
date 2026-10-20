@@ -55,8 +55,9 @@ def convert_via_ms_word_com(
 
         ps_script = tmp_dir / "convert_word.ps1"
         ps_code = (
-            "$ErrorActionPreference = 'Stop'\n"
+            # `param(...)` bắt buộc là câu lệnh đầu tiên của script PowerShell
             "param([string]$PdfFile, [string]$DocxFile)\n"
+            "$ErrorActionPreference = 'Stop'\n"
             "$word = $null\n"
             "$doc = $null\n"
             "try {\n"
@@ -75,7 +76,8 @@ def convert_via_ms_word_com(
             "    exit 1\n"
             "}\n"
         )
-        ps_script.write_text(ps_code, encoding="utf-8")
+        # BOM UTF-8 để Windows PowerShell 5.1 đọc đúng đường dẫn tiếng Việt
+        ps_script.write_text(ps_code, encoding="utf-8-sig")
 
         proc = subprocess.run(
             [

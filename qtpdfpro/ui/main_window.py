@@ -5,9 +5,10 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Callable, List, Optional
 
-from PySide6.QtCore import QSize, Qt
+from PySide6.QtCore import QSize, Qt, QTimer, QUrl
 from PySide6.QtGui import (
     QAction,
+    QDesktopServices,
     QDragEnterEvent,
     QDropEvent,
     QIcon,
@@ -16,8 +17,10 @@ from PySide6.QtGui import (
     QPixmap,
 )
 from PySide6.QtWidgets import (
+    QButtonGroup,
     QCheckBox,
     QComboBox,
+    QCompleter,
     QFileDialog,
     QFrame,
     QHBoxLayout,
@@ -35,21 +38,27 @@ from PySide6.QtWidgets import (
     QSplitter,
     QStackedWidget,
     QStatusBar,
+    QTabBar,
     QTabWidget,
-    QToolBar,
     QTreeWidget,
     QTreeWidgetItem,
     QVBoxLayout,
     QWidget,
 )
 
-from qtpdfpro import __app_name__, __version__
+from qtpdfpro import __app_name__, __github_repo__, __version__
+from qtpdfpro.core.converter import is_admin_document
 from qtpdfpro.core.reader import PDFDocumentReader, SearchHit
 from qtpdfpro.core.settings import AppSettings
+from qtpdfpro.core.word_com_bridge import is_ms_word_available
+from qtpdfpro.ui.command_palette import SEARCH_IN_DOCUMENT_KEY, CommandPaletteDialog
 from qtpdfpro.ui.convert_dialog import ConvertToDocxDialog
 from qtpdfpro.ui.dialogs import AboutDialog, DocumentInfoDialog, PageTextDialog
+from qtpdfpro.ui.home_page import HomePage
+from qtpdfpro.ui.nd30_dialog import LayoutVerifyDialog, ND30ReportDialog
 from qtpdfpro.ui.pdf_canvas import PDFScrollViewer
 from qtpdfpro.ui.theme import get_stylesheet
+from qtpdfpro.ui.tool_catalog import CATEGORIES, COMING_SOON_LABEL, TOOLS, get_tool
 
 
 class PDFDocumentTab(QWidget):
@@ -69,7 +78,10 @@ class PDFDocumentTab(QWidget):
         self.reader = reader
         self.settings = settings
         self._search_hits: List[SearchHit] = []
-        self._tool_buttons: List[tuple[str, QPushButton]] = []
+        self._tool_buttons: List[tuple[str, str, QPushButton]] = []
+        self._tool_sections: List[tuple[str, QLabel]] = []
+        self._tool_category = "all"
+        self.is_admin_document = False
 
         root_layout = QHBoxLayout(self)
         root_layout.setContentsMargins(0, 0, 0, 0)
@@ -207,8 +219,8 @@ class PDFDocumentTab(QWidget):
     def _build_left_tools_panel(self) -> QFrame:
         panel = QFrame()
         panel.setObjectName("leftToolsPanel")
-        panel.setMinimumWidth(245)
-        panel.setMaximumWidth(295)
+        panel.setMinimumWidth(255)
+        panel.setMaximumWidth(300)
 
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(10, 10, 10, 10)
@@ -238,47 +250,63 @@ class PDFDocumentTab(QWidget):
         body_layout.setContentsMargins(0, 4, 4, 4)
         body_layout.setSpacing(6)
 
-        lbl_conv = QLabel("<span style='font-size:11px;font-weight:700;color:#64748B;'>CHUYỂN ĐỔI SANG WORD</span>")
+        lbl_conv = self._make_section_label("CHUYỂN ĐỔI SANG WORD", "convert")
         body_layout.addWidget(lbl_conv)
 
-        self.tool_btn_convert_hybrid = self._make_tool_card(
-            "📝 Xuất Word — Chuẩn hành chính\nGiữ con dấu, chữ ký, bảng && dòng chảy",
+        self.tool_btn_convert_nd30 = self._make_tool_card(
+            "🏛️ Xuất Word chuẩn NĐ30\nVăn bản hành chính, giữ đúng PDF",
             primary=True,
+            category="convert",
+        )
+        self.tool_btn_nd30_check = self._make_tool_card(
+            "✅ Kiểm tra thể thức NĐ30\nLề, giãn dòng, cách đoạn, thành phần",
+            category="convert",
         )
         self.tool_btn_convert_exact = self._make_tool_card(
-            "📐 Xuất Word — Giữ vị trí 1:1\nĐặt khung văn bản theo toạ độ tuyệt đối"
+            "📐 Xuất Word giữ vị trí 1:1\nKhung chữ theo toạ độ tuyệt đối",
+            category="convert",
+        )
+        self.tool_btn_convert_hybrid = self._make_tool_card(
+            "📝 Xuất Word dạng dòng chảy\nTài liệu thường (pdf2docx)",
+            category="convert",
         )
         self.tool_btn_convert_dialog = self._make_tool_card(
-            "⚙️ Tuỳ chỉnh xuất DOCX nâng cao...\nChọn trang, DPI ảnh && chế độ hậu xử lý"
+            "⚙️ Tuỳ chỉnh xuất DOCX…\nTrang, chính sách NĐ30, kiểm chứng",
+            category="convert",
         )
-        body_layout.addWidget(self.tool_btn_convert_hybrid)
-        body_layout.addWidget(self.tool_btn_convert_exact)
-        body_layout.addWidget(self.tool_btn_convert_dialog)
+        for b in (
+            self.tool_btn_convert_nd30,
+            self.tool_btn_nd30_check,
+            self.tool_btn_convert_exact,
+            self.tool_btn_convert_hybrid,
+            self.tool_btn_convert_dialog,
+        ):
+            body_layout.addWidget(b)
 
-        lbl_inspect = QLabel("<span style='font-size:11px;font-weight:700;color:#64748B;'>SOI BỐ CỤC &amp; VĂN BẢN</span>")
+        lbl_inspect = self._make_section_label("SOI BỐ CỤC & VĂN BẢN", "read")
         body_layout.addWidget(lbl_inspect)
 
         self.tool_btn_overlay = self._make_tool_card(
-            "🔍 Bật/Tắt khung soi bố cục (F8)\nNhận diện Văn bản, Bảng, Con dấu, Vector"
+            "🔍 Soi khung bố cục (F8)\nChữ, bảng, con dấu, vector", category="read"
         )
         self.tool_btn_extract_text = self._make_tool_card(
-            "📋 Trích xuất văn bản trang này\nXem && sao chép nhanh nội dung Unicode"
+            "📋 Trích xuất văn bản\nXem && sao chép trang hiện tại", category="read"
         )
         self.tool_btn_search = self._make_tool_card(
-            "🔎 Tìm kiếm toàn văn (Ctrl+F)\nTô sáng trực tiếp mọi vị trí khớp trên PDF"
+            "🔎 Tìm kiếm toàn văn (Ctrl+F)\nTô sáng mọi vị trí khớp", category="read"
         )
         body_layout.addWidget(self.tool_btn_overlay)
         body_layout.addWidget(self.tool_btn_extract_text)
         body_layout.addWidget(self.tool_btn_search)
 
-        lbl_page = QLabel("<span style='font-size:11px;font-weight:700;color:#64748B;'>THAO TÁC TRANG &amp; TÀI LIỆU</span>")
+        lbl_page = self._make_section_label("THAO TÁC TRANG & TÀI LIỆU", "read")
         body_layout.addWidget(lbl_page)
 
-        self.tool_btn_rot_left = self._make_tool_card("↺ Xoay trang sang trái 90°")
-        self.tool_btn_rot_right = self._make_tool_card("↻ Xoay trang sang phải 90°")
-        self.tool_btn_fit_width = self._make_tool_card("↔ Phóng vừa khít chiều ngang")
-        self.tool_btn_fit_page = self._make_tool_card("📄 Thu phóng vừa trọn trang")
-        self.tool_btn_doc_info = self._make_tool_card("ℹ️ Thông tin && Metadata tài liệu")
+        self.tool_btn_rot_left = self._make_tool_card("↺ Xoay trang sang trái 90°", category="read")
+        self.tool_btn_rot_right = self._make_tool_card("↻ Xoay trang sang phải 90°", category="read")
+        self.tool_btn_fit_width = self._make_tool_card("↔ Phóng vừa khít chiều ngang", category="read")
+        self.tool_btn_fit_page = self._make_tool_card("📄 Thu phóng vừa trọn trang", category="read")
+        self.tool_btn_doc_info = self._make_tool_card("ℹ️ Thông tin && Metadata tài liệu", category="read")
 
         self.tool_btn_rot_left.clicked.connect(lambda: self.viewer.rotate_current_page(-90))
         self.tool_btn_rot_right.clicked.connect(lambda: self.viewer.rotate_current_page(90))
@@ -294,23 +322,47 @@ class PDFDocumentTab(QWidget):
         body_layout.addWidget(self.tool_btn_fit_width)
         body_layout.addWidget(self.tool_btn_fit_page)
         body_layout.addWidget(self.tool_btn_doc_info)
+
+        self.tool_btn_all_tools = self._make_tool_card(
+            "🧰 Xem tất cả công cụ… (Ctrl+K)\nKể cả các công cụ " + COMING_SOON_LABEL, category="*"
+        )
+        body_layout.addWidget(self.tool_btn_all_tools)
         body_layout.addStretch(1)
 
         scroll.setWidget(tools_body)
         layout.addWidget(scroll, 1)
         return panel
 
-    def _make_tool_card(self, text: str, primary: bool = False) -> QPushButton:
+    def _make_section_label(self, text: str, category: str) -> QLabel:
+        lbl = QLabel(text)
+        lbl.setObjectName("catalogSection")
+        self._tool_sections.append((category, lbl))
+        return lbl
+
+    def _make_tool_card(self, text: str, primary: bool = False, category: str = "read") -> QPushButton:
         btn = QPushButton(text)
         btn.setObjectName("toolCardPrimaryBtn" if primary else "toolCardBtn")
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._tool_buttons.append((text.lower(), btn))
+        self._tool_buttons.append((text.lower(), category, btn))
         return btn
+
+    def set_tool_category(self, category: str) -> None:
+        """Lọc thẻ công cụ theo chế độ chọn trên thanh chế độ (all/read/convert/edit/sign)."""
+        self._tool_category = category or "all"
+        self._filter_left_tools(self.tool_filter_input.text())
 
     def _filter_left_tools(self, query: str) -> None:
         q = query.strip().lower()
-        for label_text, btn in self._tool_buttons:
-            btn.setVisible(not q or q in label_text)
+        cat = self._tool_category
+        shown: set[str] = set()
+        for label_text, btn_cat, btn in self._tool_buttons:
+            in_cat = cat == "all" or btn_cat in (cat, "*")
+            vis = in_cat and (not q or q in label_text)
+            btn.setVisible(vis)
+            if vis:
+                shown.add(btn_cat)
+        for sec_cat, lbl in self._tool_sections:
+            lbl.setVisible(sec_cat in shown)
 
     def _build_right_rail(self) -> QFrame:
         rail = QFrame()
@@ -429,7 +481,20 @@ class PDFDocumentTab(QWidget):
             total_sigs += ly.signature_count
             total_tables += ly.table_count
 
-        if total_sigs > 0:
+        try:
+            self.is_admin_document = self.reader.page_count > 0 and is_admin_document(self.reader.doc, 0)
+        except Exception:
+            self.is_admin_document = False
+
+        if self.is_admin_document:
+            sig_txt = f" có {total_sigs} chữ ký số / con dấu" if total_sigs else ""
+            self.banner_info_lbl.setText(
+                f"🏛️ <b>Văn bản hành chính{sig_txt}</b> — Xuất Word chuẩn thể thức NĐ30: giữ đúng lề, giãn dòng, "
+                "Quốc hiệu – Tiêu ngữ &amp; khối ký trong bảng không viền, đường kẻ và con dấu như PDF gốc."
+            )
+            self.banner_convert_btn.setText("⚡ Xuất Word chuẩn NĐ30 ngay")
+            self.signature_banner.setVisible(True)
+        elif total_sigs > 0:
             self.banner_info_lbl.setText(
                 f"🛡️ <b>Văn bản hành chính có {total_sigs} chữ ký số / con dấu</b> — "
                 "QT PDF Pro tự động trích xuất con dấu đỏ trong suốt, chữ ký nháy &amp; số hiệu đóng dấu đè để giữ nguyên 100% khi sang Word."
@@ -571,28 +636,44 @@ class PDFDocumentTab(QWidget):
 
 
 class MainWindow(QMainWindow):
-    """Cửa sổ chính của ứng dụng QT PDF Pro (Giao diện Sáng/Tối 1 chạm & Bố cục PdfCraft)."""
+    """Cửa sổ chính QT PDF Pro theo bố cục PdfCraft.
+
+    - Tầng 1 (dải tiêu đề): nút Trang chủ, các tab tài liệu, «＋ Mở», Trợ giúp, nút Sáng/Tối.
+    - Tầng 2 (thanh chế độ): «☰ Menu», các chế độ Tất cả công cụ · Đọc · Chuyển đổi · Chỉnh sửa ·
+      Ký số & Bảo mật, điều hướng trang/thu phóng (khi mở tài liệu), ô tìm công cụ (Ctrl+K), xuất Word.
+    - Thân: Trang chủ (`HomePage`) hoặc vùng tài liệu (`PDFDocumentTab`).
+    """
 
     def __init__(self, settings: Optional[AppSettings] = None) -> None:
         super().__init__()
         self.settings = settings or AppSettings.load()
-        self.setWindowTitle(
-            f"{__app_name__} v{__version__} — Đọc PDF & Chuyển PDF sang DOCX Chuẩn xác"
-        )
-        self.resize(1360, 860)
+        self.setWindowTitle(f"{__app_name__} v{__version__} — Đọc PDF & Chuyển PDF sang Word chuẩn NĐ30")
+        self.resize(1400, 880)
         self.setAcceptDrops(True)
+        self._mode_category = "all"
+        self._toast: Optional[QLabel] = None
 
         self._build_actions_and_menus()
-        self._build_toolbar()
+        central = QWidget()
+        central.setObjectName("appRoot")
+        root = QVBoxLayout(central)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+        root.addWidget(self._build_title_strip())
+        root.addWidget(self._build_mode_bar())
         self._build_central_area()
+        root.addWidget(self.stack, 1)
+        self.setCentralWidget(central)
         self._build_statusbar()
         self._apply_theme(self.settings.theme)
+        self._show_home()
+
+    # ─── Hành động & Menu (gắn vào nút «☰ Menu») ───────────────────────────
 
     def _build_actions_and_menus(self) -> None:
-        menubar = self.menuBar()
+        self.main_menu = QMenu(self)
 
-        # Menu Tệp
-        file_menu = menubar.addMenu("&Tệp")
+        file_menu = self.main_menu.addMenu("Tệp")
         self.act_open = QAction("Mở tệp PDF...", self)
         self.act_open.setShortcut(QKeySequence.StandardKey.Open)
         self.act_open.triggered.connect(self.action_open_pdf)
@@ -624,261 +705,271 @@ class MainWindow(QMainWindow):
         act_exit.triggered.connect(self.close)
         file_menu.addAction(act_exit)
 
-        # Menu Xem
-        view_menu = menubar.addMenu("&Xem")
+        view_menu = self.main_menu.addMenu("Xem")
+        self.act_home = QAction("Trang chủ", self)
+        self.act_home.setShortcut(QKeySequence("Alt+Home"))
+        self.act_home.triggered.connect(self.action_go_home)
+        view_menu.addAction(self.act_home)
         self.act_zoom_in = QAction("Phóng to", self)
         self.act_zoom_in.setShortcut(QKeySequence.StandardKey.ZoomIn)
         self.act_zoom_in.triggered.connect(lambda: self._with_active_tab(lambda t: t.viewer.zoom_in()))
         view_menu.addAction(self.act_zoom_in)
-
         self.act_zoom_out = QAction("Thu nhỏ", self)
         self.act_zoom_out.setShortcut(QKeySequence.StandardKey.ZoomOut)
         self.act_zoom_out.triggered.connect(lambda: self._with_active_tab(lambda t: t.viewer.zoom_out()))
         view_menu.addAction(self.act_zoom_out)
-
         act_fit_width = QAction("Vừa chiều ngang", self)
         act_fit_width.setShortcut(QKeySequence("Ctrl+1"))
-        act_fit_width.triggered.connect(
-            lambda: self._with_active_tab(lambda t: t.viewer.set_zoom_mode("fit_width"))
-        )
+        act_fit_width.triggered.connect(lambda: self._with_active_tab(lambda t: t.viewer.set_zoom_mode("fit_width")))
         view_menu.addAction(act_fit_width)
-
         act_fit_page = QAction("Vừa trang", self)
         act_fit_page.setShortcut(QKeySequence("Ctrl+0"))
-        act_fit_page.triggered.connect(
-            lambda: self._with_active_tab(lambda t: t.viewer.set_zoom_mode("fit_page"))
-        )
+        act_fit_page.triggered.connect(lambda: self._with_active_tab(lambda t: t.viewer.set_zoom_mode("fit_page")))
         view_menu.addAction(act_fit_page)
-
         view_menu.addSeparator()
         self.act_toggle_tools_panel = QAction("Ẩn/Hiện bảng Tất cả công cụ (bên trái)", self)
         self.act_toggle_tools_panel.setShortcut(QKeySequence("F3"))
         self.act_toggle_tools_panel.triggered.connect(self.action_toggle_left_tools)
         view_menu.addAction(self.act_toggle_tools_panel)
-
         self.act_toggle_sidebar = QAction("Ẩn/Hiện ngăn thông tin (bên phải)", self)
         self.act_toggle_sidebar.setShortcut(QKeySequence("F4"))
         self.act_toggle_sidebar.triggered.connect(self.action_toggle_sidebar)
         view_menu.addAction(self.act_toggle_sidebar)
-
-        self.act_toggle_overlay = QAction("Soi khung bố cục & chữ ký trên trang PDF", self)
+        self.act_toggle_overlay = QAction("Soi khung bố cục && chữ ký trên trang PDF", self)
         self.act_toggle_overlay.setCheckable(True)
         self.act_toggle_overlay.setChecked(self.settings.show_layout_overlay)
         self.act_toggle_overlay.setShortcut(QKeySequence("F8"))
         self.act_toggle_overlay.toggled.connect(self.action_toggle_layout_overlay)
         view_menu.addAction(self.act_toggle_overlay)
-
+        self.act_read_mode = QAction("Chế độ đọc tập trung (toàn màn hình)", self)
+        self.act_read_mode.setShortcut(QKeySequence("F11"))
+        self.act_read_mode.triggered.connect(self.action_read_mode)
+        view_menu.addAction(self.act_read_mode)
         view_menu.addSeparator()
         self.act_toggle_theme = QAction("Đổi giao diện Sáng / Tối", self)
         self.act_toggle_theme.setShortcut(QKeySequence("Ctrl+Shift+T"))
         self.act_toggle_theme.triggered.connect(self.action_toggle_theme)
         view_menu.addAction(self.act_toggle_theme)
 
-        # Menu Công cụ & Chuyển đổi
-        tools_menu = menubar.addMenu("&Công cụ && Chuyển đổi")
+        tools_menu = self.main_menu.addMenu("Công cụ && Chuyển đổi")
+        self.act_palette = QAction("Tìm công cụ và lệnh...", self)
+        self.act_palette.setShortcut(QKeySequence("Ctrl+K"))
+        self.act_palette.triggered.connect(lambda: self.action_command_palette(""))
+        tools_menu.addAction(self.act_palette)
         act_find = QAction("Tìm kiếm trong PDF...", self)
         act_find.setShortcut(QKeySequence.StandardKey.Find)
         act_find.triggered.connect(lambda: self._with_active_tab(lambda t: t.focus_search()))
         tools_menu.addAction(act_find)
-
         act_extract_txt = QAction("Trích xuất văn bản trang hiện tại...", self)
         act_extract_txt.setShortcut(QKeySequence("Ctrl+T"))
         act_extract_txt.triggered.connect(self.action_extract_current_page_text)
         tools_menu.addAction(act_extract_txt)
-
         tools_menu.addSeparator()
+        self.act_nd30_check = QAction("Kiểm tra thể thức Nghị định 30...", self)
+        self.act_nd30_check.setShortcut(QKeySequence("Ctrl+Shift+N"))
+        self.act_nd30_check.triggered.connect(lambda: self.run_tool("nd30_check"))
+        tools_menu.addAction(self.act_nd30_check)
+        act_nd30_convert = QAction("Chuyển sang Word chuẩn NĐ30...", self)
+        act_nd30_convert.triggered.connect(lambda: self.run_tool("pdf_to_word_nd30"))
+        tools_menu.addAction(act_nd30_convert)
+        act_verify = QAction("Kiểm chứng DOCX với PDF (MS Word)...", self)
+        act_verify.triggered.connect(lambda: self.run_tool("verify_docx"))
+        tools_menu.addAction(act_verify)
         tools_menu.addAction(self.act_convert)
 
-        # Menu Trợ giúp
-        help_menu = menubar.addMenu("Trợ &giúp")
+        help_menu = self.main_menu.addMenu("Trợ giúp")
         act_about = QAction(f"Giới thiệu {__app_name__}...", self)
         act_about.triggered.connect(self.action_show_about)
         help_menu.addAction(act_about)
 
-    def _build_toolbar(self) -> None:
-        tb = QToolBar("Thanh công cụ chính", self)
-        tb.setMovable(False)
-        self.addToolBar(tb)
+        # Menu nằm trong nút «☰ Menu» nên phải gắn hành động vào cửa sổ để phím tắt hoạt động
+        for menu in (file_menu, view_menu, tools_menu, help_menu):
+            self.addActions([a for a in menu.actions() if not a.isSeparator() and a.menu() is None])
+        self.menuBar().setVisible(False)
 
-        header_bar = QWidget(tb)
-        h_layout = QHBoxLayout(header_bar)
-        h_layout.setContentsMargins(4, 2, 4, 2)
-        h_layout.setSpacing(6)
+    # ─── Tầng 1: Dải tiêu đề & tab tài liệu ────────────────────────────────
 
-        self.btn_home = QPushButton("🏠 Trang chủ")
-        self.btn_home.setToolTip("Quay về màn hình Trang chủ / Danh sách công cụ")
+    def _build_title_strip(self) -> QFrame:
+        strip = QFrame()
+        strip.setObjectName("titleStrip")
+        lay = QHBoxLayout(strip)
+        lay.setContentsMargins(8, 4, 10, 0)
+        lay.setSpacing(4)
+
+        self.btn_home = QPushButton("⌂")
+        self.btn_home.setObjectName("homeTabBtn")
+        self.btn_home.setCheckable(True)
+        self.btn_home.setToolTip("Trang chủ (Alt+Home)")
+        self.btn_home.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_home.clicked.connect(self.action_go_home)
-        h_layout.addWidget(self.btn_home)
+        lay.addWidget(self.btn_home)
 
-        btn_open = QPushButton("📂 Mở PDF")
-        btn_open.setToolTip("Mở tệp tài liệu PDF (Ctrl+O)")
+        self.doc_tab_bar = QTabBar()
+        self.doc_tab_bar.setObjectName("docTabBar")
+        self.doc_tab_bar.setTabsClosable(True)
+        self.doc_tab_bar.setMovable(True)
+        self.doc_tab_bar.setDocumentMode(True)
+        self.doc_tab_bar.setExpanding(False)
+        self.doc_tab_bar.setElideMode(Qt.TextElideMode.ElideMiddle)
+        self.doc_tab_bar.setDrawBase(False)
+        self.doc_tab_bar.tabBarClicked.connect(self._on_header_tab_clicked)
+        self.doc_tab_bar.currentChanged.connect(self._on_header_tab_changed)
+        self.doc_tab_bar.tabCloseRequested.connect(self.close_tab_at)
+        self.doc_tab_bar.tabMoved.connect(self._on_header_tab_moved)
+        lay.addWidget(self.doc_tab_bar, 0, Qt.AlignmentFlag.AlignBottom)
+
+        btn_open = QPushButton("＋  Mở")
+        btn_open.setObjectName("ghostBtn")
+        btn_open.setToolTip("Mở tệp PDF (Ctrl+O)")
+        btn_open.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_open.clicked.connect(self.action_open_pdf)
-        h_layout.addWidget(btn_open)
+        lay.addWidget(btn_open)
+        lay.addStretch(1)
 
-        # Cụm nút chế độ kiểu PdfCraft (Tất cả công cụ | Soi bố cục)
-        self.btn_mode_tools = QPushButton("🛠️ Tất cả công cụ")
-        self.btn_mode_tools.setObjectName("modePillBtn")
-        self.btn_mode_tools.setCheckable(True)
-        self.btn_mode_tools.setChecked(True)
-        self.btn_mode_tools.setToolTip("Hiện/Ẩn cột Tất cả công cụ bên trái (F3)")
-        self.btn_mode_tools.clicked.connect(self.action_toggle_left_tools)
-        h_layout.addWidget(self.btn_mode_tools)
+        btn_github = QPushButton("⟨/⟩ GitHub")
+        btn_github.setObjectName("ghostBtn")
+        btn_github.setToolTip("Mã nguồn, báo lỗi & góp ý trên GitHub")
+        btn_github.clicked.connect(lambda: self._open_link(f"https://github.com/{__github_repo__}"))
+        lay.addWidget(btn_github)
 
-        self.btn_mode_inspect = QPushButton("📐 Soi bố cục && Chữ ký")
-        self.btn_mode_inspect.setObjectName("modePillBtn")
+        btn_help = QPushButton("？")
+        btn_help.setObjectName("ghostIconBtn")
+        btn_help.setToolTip(f"Giới thiệu {__app_name__}")
+        btn_help.clicked.connect(self.action_show_about)
+        lay.addWidget(btn_help)
+
+        self.btn_theme_toggle = QPushButton("☀️ Giao diện Sáng")
+        self.btn_theme_toggle.setObjectName("themeToggleBtn")
+        self.btn_theme_toggle.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_theme_toggle.clicked.connect(self.action_toggle_theme)
+        lay.addWidget(self.btn_theme_toggle)
+        return strip
+
+    # ─── Tầng 2: Thanh chế độ ──────────────────────────────────────────────
+
+    def _build_mode_bar(self) -> QFrame:
+        bar = QFrame()
+        bar.setObjectName("modeBar")
+        lay = QHBoxLayout(bar)
+        lay.setContentsMargins(10, 6, 10, 6)
+        lay.setSpacing(4)
+
+        btn_menu = QPushButton("☰  Menu")
+        btn_menu.setObjectName("ghostBtn")
+        btn_menu.setMenu(self.main_menu)
+        lay.addWidget(btn_menu)
+        lay.addSpacing(10)
+
+        self.mode_buttons: dict[str, QPushButton] = {}
+        group = QButtonGroup(self)
+        group.setExclusive(True)
+        for key, label in CATEGORIES:
+            b = QPushButton(label)
+            b.setObjectName("modeTabBtn")
+            b.setCheckable(True)
+            b.setCursor(Qt.CursorShape.PointingHandCursor)
+            b.clicked.connect(lambda _c=False, k=key: self.set_mode_category(k))
+            group.addButton(b)
+            lay.addWidget(b)
+            self.mode_buttons[key] = b
+        self.mode_buttons["all"].setChecked(True)
+        # Giữ tên cũ cho các thành phần khác tham chiếu
+        self.btn_mode_tools = self.mode_buttons["all"]
+        self.btn_mode_tools.setToolTip("Hiện bảng Tất cả công cụ (F3)")
+        lay.addStretch(1)
+
+        # Cụm điều khiển tài liệu (chỉ hiện khi đang xem PDF)
+        self.doc_controls = QWidget()
+        dc = QHBoxLayout(self.doc_controls)
+        dc.setContentsMargins(0, 0, 0, 0)
+        dc.setSpacing(4)
+        self.btn_mode_inspect = QPushButton("📐 Soi bố cục")
+        self.btn_mode_inspect.setMinimumWidth(0)
+        self.btn_mode_inspect.setObjectName("pillToggleBtn")
         self.btn_mode_inspect.setCheckable(True)
         self.btn_mode_inspect.setChecked(self.settings.show_layout_overlay)
         self.btn_mode_inspect.setToolTip("Bật/Tắt lớp phủ soi khung bố cục & chữ ký số trên trang PDF (F8)")
         self.btn_mode_inspect.toggled.connect(self.action_toggle_layout_overlay)
-        h_layout.addWidget(self.btn_mode_inspect)
-
-        # Điều hướng trang & Thu phóng
+        dc.addWidget(self.btn_mode_inspect)
         self.btn_prev_page = QPushButton("◀")
-        self.btn_prev_page.setFixedWidth(28)
+        self.btn_prev_page.setObjectName("ghostIconBtn")
         self.btn_prev_page.setToolTip("Trang trước")
         self.btn_prev_page.clicked.connect(self.action_prev_page)
-        h_layout.addWidget(self.btn_prev_page)
-
+        dc.addWidget(self.btn_prev_page)
         self.page_spin = QSpinBox()
         self.page_spin.setMinimum(1)
         self.page_spin.setMaximum(1)
-        self.page_spin.setPrefix("Trang ")
+        self.page_spin.setToolTip("Đi tới trang")
         self.page_spin.valueChanged.connect(self._on_spin_page_changed)
-        h_layout.addWidget(self.page_spin)
-
+        dc.addWidget(self.page_spin)
         self.total_page_lbl = QLabel("/ 0")
-        h_layout.addWidget(self.total_page_lbl)
-
+        dc.addWidget(self.total_page_lbl)
         self.btn_next_page = QPushButton("▶")
-        self.btn_next_page.setFixedWidth(28)
+        self.btn_next_page.setObjectName("ghostIconBtn")
         self.btn_next_page.setToolTip("Trang sau")
         self.btn_next_page.clicked.connect(self.action_next_page)
-        h_layout.addWidget(self.btn_next_page)
-
-        btn_zoom_out = QPushButton("−")
-        btn_zoom_out.setFixedWidth(28)
-        btn_zoom_out.setToolTip("Thu nhỏ (Ctrl+-)")
-        btn_zoom_out.clicked.connect(lambda: self._with_active_tab(lambda t: t.viewer.zoom_out()))
-        h_layout.addWidget(btn_zoom_out)
-
+        dc.addWidget(self.btn_next_page)
+        # Thu phóng: chọn nhanh mức hiển thị (nút +/− nằm ở thanh dọc bên phải như PdfCraft)
         self.zoom_combo = QComboBox()
-        self.zoom_combo.setMinimumWidth(115)
-        self.zoom_combo.addItem("Vừa chiều ngang", ("fit_width", 100))
+        self.zoom_combo.setToolTip("Mức thu phóng")
+        self.zoom_combo.addItem("Vừa ngang", ("fit_width", 100))
         self.zoom_combo.addItem("Vừa trang", ("fit_page", 100))
         for pct in (50, 75, 100, 125, 150, 200, 300):
             self.zoom_combo.addItem(f"{pct}%", ("percent", pct))
         self.zoom_combo.activated.connect(self._on_zoom_combo_activated)
-        h_layout.addWidget(self.zoom_combo)
+        dc.addWidget(self.zoom_combo)
+        lay.addWidget(self.doc_controls)
+        lay.addSpacing(8)
 
-        btn_zoom_in = QPushButton("+")
-        btn_zoom_in.setFixedWidth(28)
-        btn_zoom_in.setToolTip("Phóng to (Ctrl++)")
-        btn_zoom_in.clicked.connect(lambda: self._with_active_tab(lambda t: t.viewer.zoom_in()))
-        h_layout.addWidget(btn_zoom_in)
-
-        # Ô tìm kiếm nhanh ngay trên thanh Header giống PdfCraft
         self.toolbar_search_input = QLineEdit()
-        self.toolbar_search_input.setPlaceholderText("🔍 Tìm nhanh trong PDF...")
-        self.toolbar_search_input.setMinimumWidth(135)
-        self.toolbar_search_input.setMaximumWidth(190)
+        self.toolbar_search_input.setObjectName("commandSearch")
+        self.toolbar_search_input.setPlaceholderText("🔍 Tìm công cụ & lệnh…  Ctrl+K")
+        self.toolbar_search_input.setMinimumWidth(180)
+        self.toolbar_search_input.setMaximumWidth(300)
         self.toolbar_search_input.returnPressed.connect(self._on_toolbar_quick_search)
-        h_layout.addWidget(self.toolbar_search_input, 1)
+        completer = QCompleter([t.name for t in TOOLS], self.toolbar_search_input)
+        completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+        completer.setFilterMode(Qt.MatchFlag.MatchContains)
+        completer.activated.connect(self._on_completer_activated)
+        self.toolbar_search_input.setCompleter(completer)
+        lay.addWidget(self.toolbar_search_input)
 
-        h_layout.addStretch(1)
+        btn_info = QPushButton("ℹ")
+        btn_info.setObjectName("ghostIconBtn")
+        btn_info.setToolTip("Thuộc tính tài liệu (Ctrl+I)")
+        btn_info.clicked.connect(self.action_show_doc_info)
+        lay.addWidget(btn_info)
 
-        self.btn_convert_docx = QPushButton("📄 Chuyển sang Word (.docx)")
+        self.btn_convert_docx = QPushButton("📄 Xuất Word")
         self.btn_convert_docx.setObjectName("primaryConvertBtn")
-        self.btn_convert_docx.setToolTip(
-            "Chuyển đổi PDF sang DOCX chuẩn xác từng thành phần (Ctrl+Shift+W)"
-        )
+        self.btn_convert_docx.setToolTip("Chuyển PDF sang Word (.docx) — văn bản hành chính tự dùng chuẩn NĐ30 (Ctrl+Shift+W)")
         self.btn_convert_docx.clicked.connect(self.action_convert_to_docx)
-        h_layout.addWidget(self.btn_convert_docx)
+        lay.addWidget(self.btn_convert_docx)
+        return bar
 
-        # Nút bật/tắt nhanh Giao diện Sáng / Tối ngay trên góc phải Header
-        self.btn_theme_toggle = QPushButton("☀️ Giao diện Sáng")
-        self.btn_theme_toggle.setObjectName("themeToggleBtn")
-        self.btn_theme_toggle.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_theme_toggle.setToolTip("Bật/Tắt nhanh giữa Giao diện Sáng và Giao diện Tối (Ctrl+Shift+T)")
-        self.btn_theme_toggle.clicked.connect(self.action_toggle_theme)
-        h_layout.addWidget(self.btn_theme_toggle)
-
-        tb.addWidget(header_bar)
+    # ─── Thân cửa sổ ───────────────────────────────────────────────────────
 
     def _build_central_area(self) -> None:
         self.stack = QStackedWidget(self)
-        self.setCentralWidget(self.stack)
+        self.home_page = HomePage()
+        self.home_page.toolActivated.connect(self.run_tool)
+        self.home_page.openRequested.connect(self.action_open_pdf)
+        self.home_page.recentActivated.connect(lambda p: self.open_pdf_path(p))
+        self.home_page.resumeRequested.connect(self._show_documents)
+        self.home_page.linkRequested.connect(self._open_link)
+        self.home_page.filesDropped.connect(lambda files: [self.open_pdf_path(f) for f in files])
+        self.stack.addWidget(self.home_page)
+        # Giữ tên cũ: danh sách gần đây của trang chủ
+        self.welcome_recent_list = self.home_page.recent_box
+        self.btn_resume_tabs = self.home_page.btn_resume
 
-        # Trang chào mừng / Dashboard kiểu PdfCraft
-        welcome = QWidget()
-        w_layout = QVBoxLayout(welcome)
-        w_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
-        card = QFrame()
-        card.setObjectName("welcomeCard")
-        card.setMaximumWidth(720)
-        card_layout = QVBoxLayout(card)
-        card_layout.setSpacing(14)
-
-        title_lbl = QLabel(
-            f"<h1 style='margin-bottom:4px;'>{__app_name__} v{__version__}</h1>"
-            "<p style='font-size:14px;color:#64748B;'>"
-            "Không gian làm việc PDF chuyên nghiệp — Đọc PDF tốc độ cao &amp; Chuyển đổi PDF sang Word (.docx) "
-            "bảo toàn 100% con dấu đỏ, chữ ký số, số hiệu đóng dấu và bảng biểu hành chính Việt Nam."
-            "</p>"
-        )
-        title_lbl.setWordWrap(True)
-        card_layout.addWidget(title_lbl)
-
-        features_lbl = QLabel(
-            "<b>Điểm nổi bật trong phiên bản v0.2.0:</b>"
-            "<ul>"
-            "<li><b>Bố cục 3 cột hiện đại (PdfCraft Workbench)</b>: Cột Tất cả công cụ bên trái, Khung đọc PDF tốc độ cao ở giữa, "
-            "Ngăn Soi bố cục &amp; Thanh điều khiển thu phóng dọc bên phải.</li>"
-            "<li><b>Giao diện Sáng / Tối 1 chạm</b>: Chuyển đổi tức thì bằng nút <b>☀️ Sáng / 🌙 Tối</b> trên góc phải thanh công cụ.</li>"
-            "<li><b>Chuyển đổi văn bản hành chính Việt Nam chuẩn 100%</b>: Giữ nguyên số văn bản đóng dấu đè (<i>Số: 3865/QĐ-UBND</i>), "
-            "con dấu đỏ UBND trong suốt, chữ ký số, chữ ký nháy và bố cục 2 cột Quốc hiệu / Tiêu ngữ.</li>"
-            "</ul>"
-        )
-        features_lbl.setWordWrap(True)
-        card_layout.addWidget(features_lbl)
-
-        btn_row = QHBoxLayout()
-        open_welcome_btn = QPushButton("📂 Mở tệp PDF để đọc & soi bố cục...")
-        open_welcome_btn.setMinimumHeight(40)
-        open_welcome_btn.clicked.connect(self.action_open_pdf)
-
-        conv_welcome_btn = QPushButton("📄 Chọn tệp PDF chuyển ngay sang Word (.docx)...")
-        conv_welcome_btn.setObjectName("primaryConvertBtn")
-        conv_welcome_btn.setMinimumHeight(40)
-        conv_welcome_btn.clicked.connect(self.action_convert_to_docx)
-
-        self.btn_resume_tabs = QPushButton("↩ Quay lại tài liệu đang mở")
-        self.btn_resume_tabs.setMinimumHeight(40)
-        self.btn_resume_tabs.setVisible(False)
-        self.btn_resume_tabs.clicked.connect(lambda: self.stack.setCurrentWidget(self.doc_tabs))
-
-        btn_row.addWidget(open_welcome_btn)
-        btn_row.addWidget(conv_welcome_btn)
-        btn_row.addWidget(self.btn_resume_tabs)
-        card_layout.addLayout(btn_row)
-
-        card_layout.addWidget(QLabel("<b>Tệp mở gần đây (nhấp đúp để mở ngay):</b>"))
-        self.welcome_recent_list = QListWidget()
-        self.welcome_recent_list.setMaximumHeight(175)
-        self.welcome_recent_list.itemDoubleClicked.connect(self._on_welcome_recent_activated)
-        card_layout.addWidget(self.welcome_recent_list)
-        self._refresh_welcome_recent_list()
-
-        w_layout.addWidget(card)
-        self.stack.addWidget(welcome)
-
-        # Khung chứa đa tab tài liệu PDF
         self.doc_tabs = QTabWidget()
-        self.doc_tabs.setTabsClosable(True)
-        self.doc_tabs.setMovable(True)
-        self.doc_tabs.tabCloseRequested.connect(self.close_tab_at)
+        self.doc_tabs.setObjectName("docTabs")
+        self.doc_tabs.tabBar().hide()  # tab hiển thị ở dải tiêu đề (doc_tab_bar)
+        self.doc_tabs.setDocumentMode(True)
         self.doc_tabs.currentChanged.connect(self._on_active_doc_tab_changed)
         self.stack.addWidget(self.doc_tabs)
+        self._refresh_welcome_recent_list()
 
     def _build_statusbar(self) -> None:
         sb = QStatusBar(self)
@@ -894,30 +985,58 @@ class MainWindow(QMainWindow):
         normalized = "light" if theme == "light" else "dark"
         self.settings.theme = normalized
         self.setStyleSheet(get_stylesheet(normalized))
-
-        # Cập nhật nhãn nút chuyển Sáng/Tối trên thanh công cụ
         if hasattr(self, "btn_theme_toggle"):
             if normalized == "dark":
                 self.btn_theme_toggle.setText("☀️ Giao diện Sáng")
-                self.btn_theme_toggle.setToolTip(
-                    "Đang ở Giao diện Tối — Bấm để chuyển sang Giao diện Sáng (Ctrl+Shift+T)"
-                )
+                self.btn_theme_toggle.setToolTip("Đang ở Giao diện Tối — Bấm để chuyển sang Giao diện Sáng (Ctrl+Shift+T)")
             else:
                 self.btn_theme_toggle.setText("🌙 Giao diện Tối")
-                self.btn_theme_toggle.setToolTip(
-                    "Đang ở Giao diện Sáng — Bấm để chuyển sang Giao diện Tối (Ctrl+Shift+T)"
-                )
-
+                self.btn_theme_toggle.setToolTip("Đang ở Giao diện Sáng — Bấm để chuyển sang Giao diện Tối (Ctrl+Shift+T)")
         if hasattr(self, "status_theme_lbl"):
             mode_txt = "Sáng (Light)" if normalized == "light" else "Tối (Dark)"
             self.status_theme_lbl.setText(f"Giao diện: {mode_txt}  |  ")
-
-        # Đồng bộ màu nền vùng vẽ PDF của tất cả các tab đang mở
         if hasattr(self, "doc_tabs"):
             for i in range(self.doc_tabs.count()):
                 w = self.doc_tabs.widget(i)
                 if isinstance(w, PDFDocumentTab):
                     w.viewer.set_canvas_theme(normalized)
+
+    # ─── Điều hướng Trang chủ / Tài liệu ───────────────────────────────────
+
+    def _show_home(self) -> None:
+        self.stack.setCurrentWidget(self.home_page)
+        self.btn_home.setChecked(True)
+        self.doc_controls.setVisible(False)
+        self._refresh_welcome_recent_list()
+        self.status_doc_lbl.setText(
+            f"Trang chủ — {self.doc_tabs.count()} tài liệu đang mở." if self.doc_tabs.count() else
+            "Sẵn sàng — Kéo thả tệp PDF vào cửa sổ hoặc bấm Ctrl+O để mở."
+        )
+
+    def _show_documents(self) -> None:
+        if self.doc_tabs.count() == 0:
+            self._show_home()
+            return
+        self.stack.setCurrentWidget(self.doc_tabs)
+        self.btn_home.setChecked(False)
+        self.doc_controls.setVisible(True)
+        self._sync_toolbar_with_active_tab()
+
+    def set_mode_category(self, category: str) -> None:
+        """Chọn chế độ (nhóm công cụ) trên thanh chế độ — lọc bảng công cụ ở Trang chủ & tài liệu."""
+        self._mode_category = category
+        btn = self.mode_buttons.get(category)
+        if btn is not None and not btn.isChecked():
+            btn.setChecked(True)
+        self.home_page.catalog.set_category(category)
+        self.home_page.catalog.setVisible(True)
+        for i in range(self.doc_tabs.count()):
+            w = self.doc_tabs.widget(i)
+            if isinstance(w, PDFDocumentTab):
+                w.set_tool_category(category)
+        tab = self.active_tab()
+        if tab is not None and self.stack.currentWidget() is self.doc_tabs:
+            tab.tools_panel.setVisible(True)
 
     def active_tab(self) -> Optional[PDFDocumentTab]:
         if self.doc_tabs.count() == 0:
@@ -930,7 +1049,19 @@ class MainWindow(QMainWindow):
         if tab is not None:
             fn(tab)
 
-    # ─── Mở & Quản lý Tab PDF ───────────────────────────────────────────
+    def _on_header_tab_clicked(self, index: int) -> None:
+        if 0 <= index < self.doc_tabs.count():
+            self.doc_tabs.setCurrentIndex(index)
+            self._show_documents()
+
+    def _on_header_tab_changed(self, index: int) -> None:
+        if 0 <= index < self.doc_tabs.count() and self.doc_tabs.currentIndex() != index:
+            self.doc_tabs.setCurrentIndex(index)
+
+    def _on_header_tab_moved(self, from_idx: int, to_idx: int) -> None:
+        self.doc_tabs.tabBar().moveTab(from_idx, to_idx)
+
+    # ─── Mở & Quản lý tài liệu ─────────────────────────────────────────────
 
     def open_pdf_path(self, pdf_path: str | Path, password: Optional[str] = None) -> Optional[PDFDocumentTab]:
         """Mở một tệp PDF vào tab mới (hoặc chuyển tới tab đang mở tệp đó)."""
@@ -939,23 +1070,18 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Không tìm thấy tệp", f"Tệp không tồn tại:\n{path}")
             return None
 
-        # Nếu tệp đã mở ở một tab, chuyển sang tab đó
         for i in range(self.doc_tabs.count()):
             w = self.doc_tabs.widget(i)
             if isinstance(w, PDFDocumentTab) and w.reader.path == path:
                 self.doc_tabs.setCurrentIndex(i)
-                self.stack.setCurrentWidget(self.doc_tabs)
-                self.btn_resume_tabs.setVisible(True)
+                self._show_documents()
                 return w
 
         try:
             reader = PDFDocumentReader(path, password=password)
         except PermissionError:
             pwd, ok = QInputDialog.getText(
-                self,
-                "Tệp PDF có mật khẩu",
-                f"Nhập mật khẩu để mở '{path.name}':",
-                QLineEdit.EchoMode.Password,
+                self, "Tệp PDF có mật khẩu", f"Nhập mật khẩu để mở '{path.name}':", QLineEdit.EchoMode.Password
             )
             if not ok or not pwd:
                 return None
@@ -969,29 +1095,32 @@ class MainWindow(QMainWindow):
             return None
 
         tab = PDFDocumentTab(reader, self.settings, self)
+        tab.set_tool_category(self._mode_category)
         tab.viewer.pageChanged.connect(lambda _p: self._sync_toolbar_with_active_tab())
         tab.viewer.zoomChanged.connect(lambda _z: self._sync_toolbar_with_active_tab())
         tab.extract_page_text_btn.clicked.connect(self.action_extract_current_page_text)
         tab.sidebar_convert_btn.clicked.connect(self.action_convert_to_docx)
-        tab.banner_convert_btn.clicked.connect(lambda: self.action_convert_to_docx_mode("hybrid"))
-
-        # Kết nối các nút ở bảng "Tất cả công cụ" bên trái
-        tab.tool_btn_convert_hybrid.clicked.connect(
-            lambda: self.action_convert_to_docx_mode("hybrid")
+        tab.banner_convert_btn.clicked.connect(
+            lambda: self.action_convert_to_docx_mode("nd30" if tab.is_admin_document else "auto")
         )
-        tab.tool_btn_convert_exact.clicked.connect(
-            lambda: self.action_convert_to_docx_mode("exact")
-        )
+        tab.tool_btn_convert_nd30.clicked.connect(lambda: self.action_convert_to_docx_mode("nd30"))
+        tab.tool_btn_nd30_check.clicked.connect(lambda: self.run_tool("nd30_check"))
+        tab.tool_btn_convert_hybrid.clicked.connect(lambda: self.action_convert_to_docx_mode("hybrid"))
+        tab.tool_btn_convert_exact.clicked.connect(lambda: self.action_convert_to_docx_mode("exact"))
         tab.tool_btn_convert_dialog.clicked.connect(self.action_convert_to_docx)
         tab.tool_btn_extract_text.clicked.connect(self.action_extract_current_page_text)
         tab.tool_btn_doc_info.clicked.connect(self.action_show_doc_info)
+        tab.tool_btn_all_tools.clicked.connect(lambda: self.action_command_palette(""))
 
         safe_tab_title = path.name.replace("&", "&&")
         idx = self.doc_tabs.addTab(tab, safe_tab_title)
+        self.doc_tab_bar.blockSignals(True)
+        self.doc_tab_bar.insertTab(idx, f"📄 {safe_tab_title}")
+        self.doc_tab_bar.setTabToolTip(idx, str(path))
+        self.doc_tab_bar.blockSignals(False)
         self.doc_tabs.setTabToolTip(idx, str(path))
         self.doc_tabs.setCurrentIndex(idx)
-        self.stack.setCurrentWidget(self.doc_tabs)
-        self.btn_resume_tabs.setVisible(True)
+        self._show_documents()
 
         self.settings.add_recent_file(path)
         self._refresh_recent_menu()
@@ -1000,17 +1129,28 @@ class MainWindow(QMainWindow):
         return tab
 
     def close_tab_at(self, index: int) -> None:
+        if not 0 <= index < self.doc_tabs.count():
+            return
         w = self.doc_tabs.widget(index)
         self.doc_tabs.removeTab(index)
+        self.doc_tab_bar.blockSignals(True)
+        self.doc_tab_bar.removeTab(index)
+        self.doc_tab_bar.blockSignals(False)
         if isinstance(w, PDFDocumentTab):
             w.close_document()
             w.deleteLater()
         if self.doc_tabs.count() == 0:
-            self.stack.setCurrentIndex(0)
-            self.btn_resume_tabs.setVisible(False)
+            self._show_home()
+        else:
+            self.doc_tab_bar.setCurrentIndex(self.doc_tabs.currentIndex())
+        self._refresh_welcome_recent_list()
         self._sync_toolbar_with_active_tab()
 
-    def _on_active_doc_tab_changed(self, _index: int) -> None:
+    def _on_active_doc_tab_changed(self, index: int) -> None:
+        if 0 <= index < self.doc_tab_bar.count() and self.doc_tab_bar.currentIndex() != index:
+            self.doc_tab_bar.blockSignals(True)
+            self.doc_tab_bar.setCurrentIndex(index)
+            self.doc_tab_bar.blockSignals(False)
         self._sync_toolbar_with_active_tab()
 
     def _sync_toolbar_with_active_tab(self) -> None:
@@ -1021,10 +1161,8 @@ class MainWindow(QMainWindow):
             self.page_spin.setValue(1)
             self.page_spin.blockSignals(False)
             self.total_page_lbl.setText("/ 0 ")
-            self.status_doc_lbl.setText("Chưa mở tài liệu nào.")
             self.status_zoom_lbl.setText("Thu phóng: --")
             return
-
         total = tab.reader.page_count
         cur = tab.viewer.current_page
         self.page_spin.blockSignals(True)
@@ -1032,61 +1170,170 @@ class MainWindow(QMainWindow):
         self.page_spin.setValue(cur + 1)
         self.page_spin.blockSignals(False)
         self.total_page_lbl.setText(f"/ {total} ")
-
-        self.btn_mode_tools.blockSignals(True)
-        self.btn_mode_tools.setChecked(tab.tools_panel.isVisible())
-        self.btn_mode_tools.blockSignals(False)
-
-        pw, ph = tab.reader.get_page_size(cur)
-        self.status_doc_lbl.setText(
-            f"{tab.reader.path.name} — Trang {cur + 1}/{total} ({pw:.0f}×{ph:.0f} pt)"
-        )
+        if self.stack.currentWidget() is self.doc_tabs:
+            pw, ph = tab.reader.get_page_size(cur)
+            self.status_doc_lbl.setText(f"{tab.reader.path.name} — Trang {cur + 1}/{total} ({pw:.0f}×{ph:.0f} pt)")
         self.status_zoom_lbl.setText(f"Thu phóng: {tab.viewer.zoom_percent}%")
 
-    # ─── Các hành động trên Menu & Toolbar ──────────────────────────────
+    # ─── Công cụ ───────────────────────────────────────────────────────────
+
+    def run_tool(self, key: str) -> None:
+        """Chạy một công cụ trong danh mục; công cụ chưa có hiển thị thông báo Coming Soon."""
+        tool = get_tool(key)
+        if tool is None:
+            return
+        if not tool.ready:
+            self._show_toast(f"⏳ {tool.name} — {COMING_SOON_LABEL} (dự kiến {tool.milestone}). Theo dõi tiến độ trên GitHub.")
+            return
+        if tool.needs_document and self.active_tab() is None:
+            self._show_toast(f"Hãy mở một tệp PDF trước khi dùng «{tool.name}».")
+            self.action_open_pdf()
+            if self.active_tab() is None:
+                return
+        if self.active_tab() is not None and tool.needs_document:
+            self._show_documents()
+
+        handlers: dict[str, Callable[[], None]] = {
+            "open": self.action_open_pdf,
+            "pdf_to_word_nd30": lambda: self.action_convert_to_docx_mode("nd30"),
+            "pdf_to_word_exact": lambda: self.action_convert_to_docx_mode("exact"),
+            "pdf_to_word_flow": lambda: self.action_convert_to_docx_mode("hybrid"),
+            "nd30_check": self.action_nd30_check,
+            "verify_docx": self.action_verify_docx,
+            "layout_inspect": lambda: self._open_inspector(True),
+            "sig_inspect": lambda: self._open_inspector(True),
+            "search": lambda: self._with_active_tab(lambda t: t.focus_search()),
+            "extract_text": self.action_extract_current_page_text,
+            "bookmarks": lambda: self._with_active_tab(lambda t: t._on_rail_tab_clicked(1)),
+            "read_mode": self.action_read_mode,
+            "rotate_view": lambda: self._with_active_tab(lambda t: t.viewer.rotate_current_page(90)),
+            "doc_info": self.action_show_doc_info,
+        }
+        fn = handlers.get(key)
+        if fn is not None:
+            fn()
+
+    def _open_inspector(self, overlay: bool) -> None:
+        tab = self.active_tab()
+        if tab is None:
+            return
+        self.action_toggle_layout_overlay(overlay)
+        tab.sidebar_tabs.setVisible(True)
+        tab.sidebar_tabs.setCurrentIndex(3)
+        tab._sync_rail_buttons()
+
+    def _pick_pdf_for_tool(self, title: str) -> Optional[Path]:
+        tab = self.active_tab()
+        if tab is not None:
+            return tab.reader.path
+        chosen, _ = QFileDialog.getOpenFileName(self, title, "", "Tài liệu PDF (*.pdf)")
+        return Path(chosen) if chosen else None
+
+    def action_nd30_check(self) -> None:
+        pdf = self._pick_pdf_for_tool("Chọn văn bản PDF cần kiểm tra thể thức NĐ30")
+        if pdf is None:
+            return
+        dlg = ND30ReportDialog(pdf, parent=self)
+        dlg.convertRequested.connect(lambda: self._convert_path_with_mode(pdf, "nd30"))
+        dlg.exec()
+
+    def action_verify_docx(self) -> None:
+        pdf = self._pick_pdf_for_tool("Chọn tệp PDF gốc")
+        if pdf is None:
+            return
+        default_docx = str(pdf.with_suffix(".docx"))
+        docx, _ = QFileDialog.getOpenFileName(
+            self, "Chọn tệp Word (.docx) cần kiểm chứng với PDF", default_docx, "Tài liệu Word (*.docx)"
+        )
+        if not docx:
+            return
+        if not is_ms_word_available():
+            QMessageBox.information(
+                self,
+                "Cần Microsoft Word",
+                "Kiểm chứng bố cục cần Microsoft Word để dựng lại tệp DOCX đúng như khi mở trong Word.",
+            )
+            return
+        LayoutVerifyDialog(pdf, docx, self).exec()
+
+    def action_command_palette(self, query: str = "") -> None:
+        dlg = CommandPaletteDialog(self, query=query, has_document=self.active_tab() is not None)
+        geo = self.geometry()
+        dlg.move(geo.x() + (geo.width() - dlg.width()) // 2, geo.y() + 90)
+        if dlg.exec() and dlg.selected_key:
+            if dlg.selected_key == SEARCH_IN_DOCUMENT_KEY:
+                self.toolbar_search_input.setText(dlg.search_text)
+                self._on_toolbar_quick_search()
+            else:
+                self.run_tool(dlg.selected_key)
+
+    def _on_completer_activated(self, text: str) -> None:
+        for t in TOOLS:
+            if t.name == text:
+                QTimer.singleShot(0, lambda: self.toolbar_search_input.clear())
+                self.run_tool(t.key)
+                return
+
+    def _show_toast(self, text: str, msec: int = 3200) -> None:
+        if self._toast is None:
+            self._toast = QLabel(self)
+            self._toast.setObjectName("toast")
+            self._toast.setWordWrap(True)
+            self._toast.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._toast.setText(text)
+        self._toast.setMaximumWidth(560)
+        self._toast.adjustSize()
+        w = min(560, max(320, self._toast.sizeHint().width() + 24))
+        self._toast.resize(w, self._toast.heightForWidth(w) + 20)
+        self._toast.move((self.width() - self._toast.width()) // 2, self.height() - self._toast.height() - 48)
+        self._toast.show()
+        self._toast.raise_()
+        self.statusBar().showMessage(text, msec)
+        QTimer.singleShot(msec, self._toast.hide)
+
+    def _open_link(self, url: str) -> None:
+        QDesktopServices.openUrl(QUrl(url))
+
+    # ─── Các hành động trên Menu & Thanh công cụ ───────────────────────────
 
     def action_go_home(self) -> None:
-        if self.stack.currentIndex() == 0 and self.doc_tabs.count() > 0:
-            self.stack.setCurrentWidget(self.doc_tabs)
+        if self.stack.currentWidget() is self.home_page and self.doc_tabs.count() > 0:
+            self._show_documents()
         else:
-            self.btn_resume_tabs.setVisible(self.doc_tabs.count() > 0)
-            self.stack.setCurrentIndex(0)
+            self._show_home()
 
     def action_open_pdf(self) -> None:
-        files, _ = QFileDialog.getOpenFileNames(
-            self,
-            "Chọn tệp PDF để mở",
-            "",
-            "Tài liệu PDF (*.pdf);;Tất cả các tệp (*.*)",
-        )
+        files, _ = QFileDialog.getOpenFileNames(self, "Chọn tệp PDF để mở", "", "Tài liệu PDF (*.pdf);;Tất cả các tệp (*.*)")
         for f in files:
             self.open_pdf_path(f)
 
-    def action_convert_to_docx_mode(self, mode: str = "hybrid") -> None:
-        self.settings.last_convert_mode = mode
-        self.action_convert_to_docx()
-
-    def action_convert_to_docx(self) -> None:
+    def action_convert_to_docx_mode(self, mode: str = "auto") -> None:
         tab = self.active_tab()
         if tab is None:
-            chosen, _ = QFileDialog.getOpenFileName(
-                self,
-                "Chọn tệp PDF cần chuyển sang Word (.docx)",
-                "",
-                "Tài liệu PDF (*.pdf)",
-            )
+            chosen, _ = QFileDialog.getOpenFileName(self, "Chọn tệp PDF cần chuyển sang Word (.docx)", "", "Tài liệu PDF (*.pdf)")
             if not chosen:
                 return
             tab = self.open_pdf_path(chosen)
             if tab is None:
                 return
+        self._open_convert_dialog(tab, mode)
 
+    def _convert_path_with_mode(self, pdf: Path, mode: str) -> None:
+        tab = self.open_pdf_path(pdf)
+        if tab is not None:
+            self._open_convert_dialog(tab, mode)
+
+    def action_convert_to_docx(self) -> None:
+        self.action_convert_to_docx_mode(self.settings.default_convert_mode)
+
+    def _open_convert_dialog(self, tab: PDFDocumentTab, mode: Optional[str]) -> None:
         dlg = ConvertToDocxDialog(
             pdf_path=tab.reader.path,
             total_pages=tab.reader.page_count,
             current_page=tab.viewer.current_page,
             settings=self.settings,
             parent=self,
+            initial_mode=mode,
         )
         dlg.exec()
 
@@ -1114,30 +1361,52 @@ class MainWindow(QMainWindow):
 
     def _on_toolbar_quick_search(self) -> None:
         query = self.toolbar_search_input.text().strip()
+        if not query:
+            self.action_command_palette("")
+            return
+        for t in TOOLS:
+            if t.name.lower() == query.lower():
+                self.toolbar_search_input.clear()
+                self.run_tool(t.key)
+                return
         tab = self.active_tab()
-        if tab is not None and query:
-            self.stack.setCurrentWidget(self.doc_tabs)
+        if tab is not None:
+            self._show_documents()
             tab.sidebar_tabs.setVisible(True)
             tab.sidebar_tabs.setCurrentIndex(2)
             tab._sync_rail_buttons()
             tab.search_input.setText(query)
             tab.run_search()
+        else:
+            self.action_command_palette(query)
 
     def action_toggle_left_tools(self) -> None:
+        if self.stack.currentWidget() is self.home_page:
+            self.home_page.catalog.setVisible(not self.home_page.catalog.isVisible())
+            return
         tab = self.active_tab()
         if tab is not None:
-            vis = not tab.tools_panel.isVisible()
-            tab.tools_panel.setVisible(vis)
-            self.btn_mode_tools.blockSignals(True)
-            self.btn_mode_tools.setChecked(vis)
-            self.btn_mode_tools.blockSignals(False)
+            tab.tools_panel.setVisible(not tab.tools_panel.isVisible())
 
     def action_toggle_sidebar(self) -> None:
         tab = self.active_tab()
         if tab is not None:
-            vis = not tab.sidebar_tabs.isVisible()
-            tab.sidebar_tabs.setVisible(vis)
+            tab.sidebar_tabs.setVisible(not tab.sidebar_tabs.isVisible())
             tab._sync_rail_buttons()
+
+    def action_read_mode(self) -> None:
+        """Chế độ đọc tập trung: ẩn bảng phụ và bật/tắt toàn màn hình."""
+        tab = self.active_tab()
+        entering = not self.isFullScreen()
+        if tab is not None:
+            tab.tools_panel.setVisible(not entering)
+            tab.sidebar_tabs.setVisible(not entering)
+            tab._sync_rail_buttons()
+        if entering:
+            self.showFullScreen()
+            self._show_toast("Chế độ đọc tập trung — nhấn F11 để thoát.")
+        else:
+            self.showNormal()
 
     def action_toggle_layout_overlay(self, checked: bool) -> None:
         self.settings.show_layout_overlay = checked
@@ -1145,11 +1414,9 @@ class MainWindow(QMainWindow):
         self.act_toggle_overlay.blockSignals(True)
         self.act_toggle_overlay.setChecked(checked)
         self.act_toggle_overlay.blockSignals(False)
-        if hasattr(self, "btn_mode_inspect"):
-            self.btn_mode_inspect.blockSignals(True)
-            self.btn_mode_inspect.setChecked(checked)
-            self.btn_mode_inspect.blockSignals(False)
-
+        self.btn_mode_inspect.blockSignals(True)
+        self.btn_mode_inspect.setChecked(checked)
+        self.btn_mode_inspect.blockSignals(False)
         for i in range(self.doc_tabs.count()):
             w = self.doc_tabs.widget(i)
             if isinstance(w, PDFDocumentTab):
@@ -1159,16 +1426,15 @@ class MainWindow(QMainWindow):
                 w.viewer.set_show_layout_overlay(checked)
 
     def action_toggle_theme(self) -> None:
-        new_theme = "light" if self.settings.theme == "dark" else "dark"
-        self._apply_theme(new_theme)
+        self._apply_theme("light" if self.settings.theme == "dark" else "dark")
         self.settings.save()
 
     def action_show_doc_info(self) -> None:
         tab = self.active_tab()
         if tab is None:
+            self._show_toast("Hãy mở một tệp PDF để xem thuộc tính.")
             return
-        dlg = DocumentInfoDialog(tab.reader.get_info(), self)
-        dlg.exec()
+        DocumentInfoDialog(tab.reader.get_info(), self).exec()
 
     def action_extract_current_page_text(self) -> None:
         tab = self.active_tab()
@@ -1176,20 +1442,14 @@ class MainWindow(QMainWindow):
             return
         cur = tab.viewer.current_page
         txt = tab.reader.get_page_text(cur)
-        dlg = PageTextDialog(
-            f"Văn bản Trang {cur + 1}/{tab.reader.page_count} — {tab.reader.path.name}",
-            txt,
-            self,
-        )
-        dlg.exec()
+        PageTextDialog(f"Văn bản Trang {cur + 1}/{tab.reader.page_count} — {tab.reader.path.name}", txt, self).exec()
 
     def action_close_current_tab(self) -> None:
         if self.doc_tabs.count() > 0:
             self.close_tab_at(self.doc_tabs.currentIndex())
 
     def action_show_about(self) -> None:
-        dlg = AboutDialog(self)
-        dlg.exec()
+        AboutDialog(self).exec()
 
     def _refresh_recent_menu(self) -> None:
         self.recent_menu.clear()
@@ -1199,24 +1459,18 @@ class MainWindow(QMainWindow):
             empty_act.setEnabled(False)
             self.recent_menu.addAction(empty_act)
             return
-
         for p in existing:
             act = QAction(p.replace("&", "&&"), self)
             act.triggered.connect(lambda _chk=False, path=p: self.open_pdf_path(path))
             self.recent_menu.addAction(act)
 
     def _refresh_welcome_recent_list(self) -> None:
-        self.welcome_recent_list.clear()
-        for p in self.settings.recent_files:
-            if Path(p).exists():
-                self.welcome_recent_list.addItem(p)
+        if hasattr(self, "home_page"):
+            self.home_page.set_recent_files(self.settings.recent_files, has_open_docs=self.doc_tabs.count() > 0)
 
-    def _on_welcome_recent_activated(self, item: QListWidgetItem) -> None:
-        self.open_pdf_path(item.text())
+    # ─── Kéo thả tệp PDF vào cửa sổ ────────────────────────────────────────
 
-    # ─── Kéo thả tệp PDF vào cửa sổ ──────────────────────────────────────
-
-    def dragEnterEvent(self, event: QDragEnterEvent) -> None:
+    def dragEnterEvent(self, event: QDragEnterEvent) -> None:  # noqa: N802 - API Qt
         if event.mimeData().hasUrls():
             for url in event.mimeData().urls():
                 if url.toLocalFile().lower().endswith(".pdf"):
@@ -1224,7 +1478,7 @@ class MainWindow(QMainWindow):
                     return
         event.ignore()
 
-    def dropEvent(self, event: QDropEvent) -> None:
+    def dropEvent(self, event: QDropEvent) -> None:  # noqa: N802 - API Qt
         for url in event.mimeData().urls():
             local_file = url.toLocalFile()
             if local_file.lower().endswith(".pdf"):

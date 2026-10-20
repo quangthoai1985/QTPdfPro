@@ -31,7 +31,7 @@ class AppSettings:
 
     theme: str = "dark"  # "dark" | "light"
     recent_files: List[str] = field(default_factory=list)
-    default_convert_mode: str = "hybrid"  # "auto" | "hybrid" | "exact" | "word_com"
+    default_convert_mode: str = "auto"  # "auto" | "nd30" | "hybrid" | "exact" | "word_com"
     default_zoom_mode: str = "fit_width"  # "fit_width" | "fit_page" | "percent"
     default_zoom_percent: int = 100
     continuous_scroll: bool = True
@@ -40,6 +40,8 @@ class AppSettings:
     fix_table_padding: bool = True
     prevent_line_overflow: bool = True
     exact_background_dpi: int = 180
+    nd30_policy: str = "faithful"  # "faithful" (giữ đúng bố cục PDF) | "nd30" (ép chuẩn hoá NĐ30)
+    verify_layout: bool = True  # Kiểm chứng DOCX bằng Microsoft Word sau khi chuyển (nếu máy có Word)
 
     @classmethod
     def settings_file(cls) -> Path:

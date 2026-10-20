@@ -6,8 +6,150 @@ from __future__ import annotations
 def get_stylesheet(theme: str = "dark") -> str:
     """Trả về chuỗi QSS theo chủ đề `'dark'` hoặc `'light'`."""
     if theme == "light":
-        return _LIGHT_QSS
-    return _DARK_QSS
+        return _LIGHT_QSS + _shell_qss(_LIGHT_TOKENS)
+    return _DARK_QSS + _shell_qss(_DARK_TOKENS)
+
+
+# Bảng màu cho khung PdfCraft (dải tiêu đề, thanh chế độ, Trang chủ, danh mục công cụ)
+_LIGHT_TOKENS = {
+    "strip": "#E9EBEF", "bar": "#FFFFFF", "page": "#F3F4F6", "card": "#FFFFFF", "card_hover": "#F8FAFF",
+    "border": "#E2E5EA", "border_strong": "#CBD2DC", "text": "#0F172A", "muted": "#64748B", "faint": "#94A3B8",
+    "accent": "#2563EB", "accent_soft": "#E8F0FE", "accent_text": "#1D4ED8", "hover": "#EEF1F5",
+    "soon_bg": "#FEF3C7", "soon_text": "#92400E", "hero1": "#EEF4FF", "hero2": "#FFFFFF", "tab_sel": "#FFFFFF",
+    "toast_bg": "#0F172A", "toast_text": "#FFFFFF",
+}
+_DARK_TOKENS = {
+    "strip": "#0E1015", "bar": "#16181D", "page": "#111318", "card": "#1A1D24", "card_hover": "#1F2430",
+    "border": "#2A2F3A", "border_strong": "#3A4150", "text": "#E6E8EC", "muted": "#9CA3AF", "faint": "#6B7280",
+    "accent": "#3B82F6", "accent_soft": "#1E2A44", "accent_text": "#93C5FD", "hover": "#232833",
+    "soon_bg": "#3A2E12", "soon_text": "#FCD34D", "hero1": "#16233D", "hero2": "#1A1D24", "tab_sel": "#16181D",
+    "toast_bg": "#F8FAFC", "toast_text": "#0F172A",
+}
+
+_SHELL_TEMPLATE = """
+QWidget#appRoot, QWidget#homeContent, QScrollArea#homeScroll { background-color: @page; }
+QFrame#titleStrip { background-color: @strip; border: none; }
+QFrame#modeBar { background-color: @bar; border-bottom: 1px solid @border; }
+QPushButton#homeTabBtn {
+    background-color: transparent; color: @muted; border: none; border-radius: 6px;
+    font-size: 17px; padding: 2px 10px; min-width: 30px;
+}
+QPushButton#homeTabBtn:hover { background-color: @hover; color: @text; }
+QPushButton#homeTabBtn:checked { background-color: @tab_sel; color: @accent; }
+QTabBar#docTabBar { background: transparent; }
+QTabBar#docTabBar::tab {
+    background-color: transparent; color: @muted; border: none; border-top-left-radius: 8px;
+    border-top-right-radius: 8px; padding: 7px 12px; margin-right: 2px; min-width: 120px; max-width: 260px;
+}
+QTabBar#docTabBar::tab:hover { background-color: @hover; color: @text; }
+QTabBar#docTabBar::tab:selected { background-color: @tab_sel; color: @text; font-weight: 600; }
+QPushButton#ghostBtn, QPushButton#ghostIconBtn {
+    background-color: transparent; color: @text; border: 1px solid transparent; border-radius: 6px;
+    padding: 5px 10px; font-weight: 500;
+}
+QPushButton#ghostIconBtn { padding: 4px 8px; min-width: 18px; }
+QPushButton#ghostBtn:hover, QPushButton#ghostIconBtn:hover { background-color: @hover; border-color: @border; }
+QPushButton#ghostBtn::menu-indicator { image: none; width: 0px; }
+QPushButton#modeTabBtn {
+    background-color: transparent; color: @muted; border: none; border-bottom: 2px solid transparent;
+    border-radius: 0px; padding: 6px 12px; font-weight: 600;
+}
+QPushButton#modeTabBtn:hover { color: @text; }
+QPushButton#modeTabBtn:checked { color: @text; border-bottom: 2px solid @text; }
+QPushButton#pillToggleBtn, QPushButton#pillBtn {
+    background-color: @card; color: @text; border: 1px solid @border_strong; border-radius: 15px;
+    padding: 5px 14px; font-weight: 500;
+}
+QPushButton#pillToggleBtn:hover, QPushButton#pillBtn:hover { border-color: @accent; background-color: @card_hover; }
+QPushButton#pillToggleBtn:checked { background-color: @accent_soft; color: @accent_text; border-color: @accent; }
+QLineEdit#commandSearch {
+    background-color: @card; border: 1px solid @border_strong; border-radius: 16px; padding: 6px 14px; color: @text;
+}
+QLineEdit#commandSearch:focus { border-color: @accent; }
+QFrame#catalogPanel { background-color: @bar; border-right: 1px solid @border; }
+QWidget#catalogBody { background-color: @bar; }
+QLabel#panelTitle { font-size: 16px; font-weight: 700; color: @text; }
+QLabel#catalogSection { font-size: 11px; font-weight: 700; color: @faint; padding: 10px 6px 4px 6px; }
+QFrame#catalogRow, QFrame#catalogRowSoon { background-color: transparent; border: none; border-radius: 7px; }
+QFrame#catalogRow:hover, QFrame#catalogRowSoon:hover { background-color: @hover; }
+QLabel#catalogRowName { color: @text; font-size: 13px; font-weight: 500; }
+QLabel#catalogRowNameSoon { color: @faint; font-size: 13px; }
+QLabel#soonBadgeSmall {
+    font-size: 10px; font-weight: 700; color: @soon_text; background-color: @soon_bg;
+    border-radius: 7px; padding: 1px 6px;
+}
+QPushButton#catalogItemBtn, QPushButton#catalogItemSoonBtn {
+    background-color: transparent; border: none; border-radius: 7px; text-align: left; padding: 8px 8px;
+    font-size: 13px; font-weight: 500;
+}
+QPushButton#catalogItemBtn { color: @text; }
+QPushButton#catalogItemSoonBtn { color: @faint; }
+QPushButton#catalogItemBtn:hover, QPushButton#catalogItemSoonBtn:hover { background-color: @hover; }
+QLabel#homeTitle { font-size: 28px; font-weight: 700; color: @text; }
+QLabel#homeSubtitle { font-size: 14px; color: @muted; }
+QFrame#homeHero {
+    background-color: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 @hero1, stop:1 @hero2);
+    border: 1px solid @border; border-radius: 14px;
+}
+QLabel#heroIcon { font-size: 28px; padding-right: 6px; }
+QLabel#heroTitle { font-size: 16px; font-weight: 700; color: @text; }
+QLabel#heroDesc { font-size: 13px; color: @muted; }
+QFrame#sectionCard { background-color: @card; border: 1px solid @border; border-radius: 14px; }
+QLabel#sectionTitle { font-size: 17px; font-weight: 700; color: @text; }
+QFrame#toolCard, QFrame#toolCardSoon { background-color: @card; border: 1px solid @border; border-radius: 12px; }
+QFrame#toolCard:hover { border-color: @accent; background-color: @card_hover; }
+QFrame#toolCardSoon:hover { border-color: @border_strong; }
+QLabel#toolCardIcon { font-size: 20px; }
+QLabel#toolCardName { font-size: 14px; font-weight: 600; color: @text; }
+QLabel#toolCardSummary { font-size: 12px; color: @muted; }
+QLabel#toolCardAction { font-size: 12px; font-weight: 600; color: @accent; }
+QLabel#soonBadge {
+    font-size: 11px; font-weight: 700; color: @soon_text; background-color: @soon_bg;
+    border-radius: 9px; padding: 2px 9px;
+}
+QFrame#openFileCard { background-color: @page; border: 1px dashed @border_strong; border-radius: 12px; }
+QFrame#openFileCard:hover { border-color: @accent; background-color: @accent_soft; }
+QLabel#openFileIcon { font-size: 26px; }
+QFrame#recentBox { background-color: transparent; border: none; }
+QFrame#recentRow { background-color: transparent; border: 1px solid transparent; border-radius: 10px; }
+QFrame#recentRow:hover { background-color: @card; border-color: @border; }
+QLabel#recentIcon { font-size: 20px; }
+QLabel#recentName { font-size: 14px; font-weight: 600; color: @text; }
+QLabel#recentPath { font-size: 11px; color: @faint; }
+QLabel#recentMeta { font-size: 12px; color: @muted; }
+QLabel#privacyTitle { font-size: 11px; font-weight: 700; color: @faint; }
+QLabel#privacyText { font-size: 13px; color: @muted; }
+QLabel#mutedLabel { color: @muted; }
+QLabel#dialogHeadline { font-size: 14px; color: @text; }
+QLabel#toast {
+    background-color: @toast_bg; color: @toast_text; border-radius: 10px; padding: 10px 16px; font-weight: 600;
+}
+QDialog#commandPalette { background-color: @card; border: 1px solid @border_strong; border-radius: 12px; }
+QLineEdit#paletteInput { font-size: 15px; padding: 9px 12px; border-radius: 9px; }
+QListWidget#paletteList { border: none; font-size: 13px; background-color: @card; }
+QListWidget#paletteList::item { padding: 7px 8px; border-radius: 6px; }
+QListWidget#paletteList::item:selected { background-color: @accent_soft; color: @text; }
+QTableWidget { background-color: @card; gridline-color: @border; border: 1px solid @border; }
+QScrollBar:vertical { background: transparent; width: 10px; margin: 0px; }
+QScrollBar:horizontal { background: transparent; height: 10px; margin: 0px; }
+QScrollBar::handle:vertical { background: @border_strong; border-radius: 4px; min-height: 30px; margin: 2px; }
+QScrollBar::handle:horizontal { background: @border_strong; border-radius: 4px; min-width: 30px; margin: 2px; }
+QScrollBar::handle:hover { background: @faint; }
+QScrollBar::add-line, QScrollBar::sub-line { width: 0px; height: 0px; }
+QScrollBar::add-page, QScrollBar::sub-page { background: transparent; }
+QHeaderView::section {
+    background-color: @page; color: @muted; border: none; border-bottom: 1px solid @border;
+    padding: 6px; font-weight: 700;
+}
+"""
+
+
+def _shell_qss(tokens: dict) -> str:
+    """Điền bảng màu vào mẫu QSS (thay `@ten_mau`, khoá dài thay trước để không đè khoá ngắn)."""
+    out = _SHELL_TEMPLATE
+    for key in sorted(tokens, key=len, reverse=True):
+        out = out.replace("@" + key, tokens[key])
+    return out
 
 
 _DARK_QSS = """

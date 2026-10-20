@@ -48,8 +48,13 @@ def fix_docx_package(
     normalize_vietnamese: bool = True,
     fix_table_padding: bool = True,
     prevent_line_overflow: bool = True,
+    tune_page_margins: bool = True,
 ) -> OpenXMLFixReport:
-    """Tinh chỉnh gói `.docx` tại chỗ để đạt độ chính xác bố cục cao nhất trong Word."""
+    """Tinh chỉnh gói `.docx` tại chỗ để đạt độ chính xác bố cục cao nhất trong Word.
+
+    `tune_page_margins=False` giữ nguyên lề trang và khoảng cách đầu/chân trang (dùng cho engine
+    NĐ30 vốn đã đặt đúng giá trị chuẩn, có số trang ở đầu trang).
+    """
     path = Path(docx_path).resolve()
     report = OpenXMLFixReport()
 
@@ -75,6 +80,7 @@ def fix_docx_package(
                     normalize_vietnamese=normalize_vietnamese,
                     fix_table_padding=fix_table_padding,
                     prevent_line_overflow=prevent_line_overflow,
+                    tune_page_margins=tune_page_margins,
                 )
             else:
                 _tune_styles_xml(root=root, report=report, default_font=default_font)
@@ -126,6 +132,7 @@ def _tune_document_xml(
     normalize_vietnamese: bool,
     fix_table_padding: bool,
     prevent_line_overflow: bool,
+    tune_page_margins: bool = True,
 ) -> None:
     """Tinh chỉnh toàn diện `word/document.xml`: phông chữ, đoạn văn, bảng biểu và phân đoạn."""
     # 1. Xử lý tất cả các Run (<w:r>)
@@ -280,7 +287,7 @@ def _tune_document_xml(
     # 4. Tinh chỉnh Phân đoạn & Lề trang (<w:sectPr>)
     for sect_pr in root.iter(f"{W}sectPr"):
         pg_mar = sect_pr.find(f"{W}pgMar")
-        if pg_mar is not None:
+        if pg_mar is not None and tune_page_margins:
             # Đặt khoảng cách header/footer = 0 để không đẩy lề trên/dưới của trang
             pg_mar.set(f"{W}header", "0")
             pg_mar.set(f"{W}footer", "0")

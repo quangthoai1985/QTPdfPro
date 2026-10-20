@@ -10,7 +10,13 @@
 
 ---
 
-## 1. Tính năng cốt lõi (Giai đoạn 1 — `v0.1.0`)
+## 1. Tính năng cốt lõi
+
+### 1.0. Văn bản hành chính chuẩn Nghị định 30/2020/NĐ-CP (mới ở `v0.3.0`)
+- **Chế độ `nd30`** (chế độ `auto` tự chọn khi phát hiện Quốc hiệu – Tiêu ngữ): dựng DOCX như người soạn thảo trong Word — lề, cỡ chữ, khoảng cách dòng, khoảng cách đoạn, thụt đầu dòng được **đo trên PDF rồi ước lượng về giá trị gốc** (vd lề trái đo 29,98 mm → 30 mm, giãn dòng 24,13 pt ở cỡ 14 → 1,5 lines); phần đầu văn bản và khối ký đặt trong **bảng 2 cột không viền**; đường kẻ dưới tên cơ quan / Tiêu ngữ / trích yếu **giữ đúng toạ độ và độ dài như PDF**; số trang là trường `PAGE` ở đầu trang, không hiện ở trang 1.
+- **Giữ đúng bố cục PDF là ưu tiên số 1**: chính sách mặc định `faithful` chỉ làm tròn khi sai số đo nhỏ; chính sách `nd30` (tuỳ chọn) mới ép chuẩn hoá theo NĐ30.
+- **Đối chiếu thể thức** 26 hạng mục (lề, phông, cỡ chữ, giãn dòng, cách đoạn ≥ 6 pt, Quốc hiệu, Tiêu ngữ, đường kẻ, số ký hiệu, ngày tháng, Nơi nhận, «Lưu: VT», số trang…).
+- **Kiểm chứng bằng Microsoft Word**: dựng lại DOCX bằng Word và so vị trí từng dòng với PDF gốc (trên văn bản mẫu: 100% dòng khớp, lệch ≤ 0,84 pt ≈ 0,3 mm).
 
 ### 1.1. Chuyển đổi PDF sang Word (`.docx`) chuẩn xác (Chức năng chủ đạo)
 Khắc phục triệt để hiện tượng *vỡ khung, nhảy dòng, tràn trang, lỗi phông tiếng Việt* thường gặp ở các công cụ chuyển đổi thông thường nhờ **Kiến trúc Đa Chế độ + Bộ Hậu xử lý Chuẩn xác OpenXML (`lxml`)**:
@@ -29,7 +35,8 @@ Khắc phục triệt để hiện tượng *vỡ khung, nhảy dòng, tràn tra
 4. **Bộ Kiểm định Độ chính xác (`Fidelity Inspector`)**:
    - Tự động đối chiếu PDF gốc và DOCX đầu ra sau mỗi lần chuyển đổi, chấm **Điểm chuẩn xác (%)**, thống kê tỷ lệ bảo toàn từ vựng, số bảng biểu, hình ảnh và danh sách phông chữ.
 
-### 1.2. Trình đọc PDF chuyên nghiệp
+### 1.2. Trình đọc PDF chuyên nghiệp & Trang chủ kiểu PdfCraft
+- **Trang chủ theo [storytold/pdfcraft](https://github.com/storytold/pdfcraft)**: cột «Tất cả công cụ» (tìm không dấu, lọc theo chế độ Đọc · Chuyển đổi · Chỉnh sửa · Ký số & Bảo mật), «Công cụ đề xuất», thẻ «Mở tệp» (kéo thả), «Gần đây», bảng lệnh `Ctrl+K`. Công cụ đang phát triển hiển thị **«Coming Soon»**.
 - **Đa tab tài liệu**, hỗ trợ kéo-thả tệp `.pdf` trực tiếp vào cửa sổ.
 - **Kết xuất sắc nét tốc độ cao** qua `PyMuPDF` (`fitz`), hỗ trợ màn hình High-DPI, bộ nhớ đệm trang thông minh (`LRU Cache`).
 - **Chế độ xem linh hoạt**: Cuộn liên tục (`Continuous Scroll`), Từng trang (`Single Page`), Vừa chiều ngang (`Fit Width`), Vừa trang (`Fit Page`), thu phóng `25% – 400%` (`Ctrl + Cuộn chuột`), xoay trang `90°`.

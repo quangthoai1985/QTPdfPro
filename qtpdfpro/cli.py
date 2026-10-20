@@ -1,9 +1,11 @@
 """Giao diện dòng lệnh (CLI) cho QT PDF Pro.
 
 Hỗ trợ:
-  python -m qtpdfpro.cli convert <input.pdf> [-o <output.docx>] [--mode hybrid|exact|auto|word_com] [--pages 1-3,5]
+  python -m qtpdfpro.cli convert <input.pdf> [-o <output.docx>] [--mode auto|nd30|hybrid|exact|word_com]
+                                 [--pages 1-3,5] [--nd30-policy faithful|nd30] [--verify-layout]
   python -m qtpdfpro.cli inspect <input.pdf>
-  python -m qtpdfpro.cli verify <input.pdf> <output.docx>
+  python -m qtpdfpro.cli nd30 <input.pdf>            # Đối chiếu thể thức Nghị định 30/2020/NĐ-CP
+  python -m qtpdfpro.cli verify <input.pdf> <output.docx> [--render]
 """
 
 from __future__ import annotations
@@ -22,7 +24,26 @@ from qtpdfpro.core.converter import (
     parse_page_range,
 )
 from qtpdfpro.core.fidelity import evaluate_conversion_fidelity
+from qtpdfpro.core.layout_verify import LayoutVerifyReport, verify_docx_layout
+from qtpdfpro.core.nd30_engine import analyze_pdf_nd30
+from qtpdfpro.core.nd30_standard import build_docx_plan
 from qtpdfpro.core.reader import PDFDocumentReader
+
+_STATUS_ICON = {"ok": "✔", "warn": "!", "fail": "✘", "na": "–"}
+
+
+def _print_layout_check(lc: LayoutVerifyReport) -> None:
+    print(f"  - Kiểm chứng Word : {lc.verdict_text}", end="")
+    if lc.available:
+        print(
+            f" (điểm {lc.score:.1f}; {lc.docx_pages}/{lc.pdf_pages} trang; "
+            f"{lc.matched_lines}/{lc.pdf_lines} dòng khớp; lệch dọc tối đa {lc.max_dy_pt:.2f} pt, "
+            f"ngang {lc.max_dx_pt:.2f} pt)"
+        )
+        for smp in lc.samples[:5]:
+            print(f"      · {smp}")
+    else:
+        print(f" — {lc.note}")
 
 
 def _ensure_utf8_console() -> None:
@@ -51,9 +72,26 @@ def build_parser() -> argparse.ArgumentParser:
     p_conv.add_argument(
         "-m",
         "--mode",
-        choices=["auto", "hybrid", "exact", "word_com"],
+        choices=["auto", "nd30", "hybrid", "exact", "word_com"],
         default="hybrid",
-        help="Chế độ chuyển đổi: hybrid (cấu trúc chuẩn), exact (vị trí 1:1), auto, word_com",
+        help=(
+            "Chế độ chuyển đổi: nd30 (văn bản hành chính chuẩn NĐ30), hybrid (cấu trúc pdf2docx), "
+            "exact (vị trí 1:1), auto (tự chọn — văn bản hành chính dùng nd30), word_com"
+        ),
+    )
+    p_conv.add_argument(
+        "--nd30-policy",
+        choices=["faithful", "nd30"],
+        default="faithful",
+        help=(
+            "Chế độ nd30: faithful = giữ đúng bố cục PDF, chỉ ước lượng về giá trị chuẩn khi sai số đo nhỏ "
+            "(mặc định); nd30 = ép chuẩn hoá lề/cỡ chữ/giãn dòng/cách đoạn theo NĐ30 (có thể đổi dàn trang)"
+        ),
+    )
+    p_conv.add_argument(
+        "--verify-layout",
+        action="store_true",
+        help="Dựng lại DOCX bằng Microsoft Word và so vị trí từng dòng với PDF gốc",
     )
     p_conv.add_argument(
         "-p",
@@ -74,10 +112,21 @@ def build_parser() -> argparse.ArgumentParser:
     p_insp.add_argument("input_pdf", help="Đường dẫn tệp PDF cần phân tích")
     p_insp.add_argument("--json", action="store_true", help="In kết quả dạng JSON")
 
+    # Lệnh nd30
+    p_nd = sub.add_parser("nd30", help="Đối chiếu thể thức văn bản hành chính theo Nghị định 30/2020/NĐ-CP")
+    p_nd.add_argument("input_pdf", help="Đường dẫn tệp PDF cần đối chiếu")
+    p_nd.add_argument("-p", "--pages", default="", help="Phạm vi trang (1-based). Bỏ trống = tất cả trang.")
+    p_nd.add_argument("--json", action="store_true", help="In kết quả dạng JSON")
+
     # Lệnh verify
     p_ver = sub.add_parser("verify", help="Kiểm định độ chính xác giữa PDF gốc và DOCX")
     p_ver.add_argument("input_pdf", help="Đường dẫn tệp PDF gốc")
     p_ver.add_argument("output_docx", help="Đường dẫn tệp DOCX đã chuyển đổi")
+    p_ver.add_argument(
+        "--render",
+        action="store_true",
+        help="Dựng DOCX bằng Microsoft Word rồi so vị trí từng dòng với PDF (cần MS Word)",
+    )
     p_ver.add_argument("--json", action="store_true", help="In kết quả dạng JSON")
 
     return parser
@@ -102,6 +151,8 @@ def main(argv: Optional[List[str]] = None) -> int:
                 mode=args.mode,
                 pages=pages_list,
                 exact_background_dpi=args.dpi,
+                nd30_policy=args.nd30_policy,
+                verify_layout=args.verify_layout,
             )
             res = convert_pdf_to_docx(src, dst, options=opts)
         except (ConversionError, FileNotFoundError, PermissionError) as exc:
@@ -120,7 +171,15 @@ def main(argv: Optional[List[str]] = None) -> int:
                 "docx_tables": res.fidelity.docx_tables,
                 "docx_images": res.fidelity.docx_images,
                 "docx_fonts": res.fidelity.docx_fonts,
+                "notes": res.notes,
             }
+            if res.nd30_report is not None:
+                payload["nd30_score"] = res.nd30_report.score
+                payload["nd30_report"] = res.nd30_report.to_dict()
+            if res.nd30_plan is not None:
+                payload["nd30_plan"] = res.nd30_plan.to_dict()
+            if res.layout_check is not None:
+                payload["layout_check"] = res.layout_check.to_dict()
             print(json.dumps(payload, ensure_ascii=False, indent=2))
         else:
             print(f"Đã chuyển đổi thành công: {res.docx_path}")
@@ -129,6 +188,61 @@ def main(argv: Optional[List[str]] = None) -> int:
             print(f"  - Điểm chuẩn xác : {res.fidelity.overall_score:.1f}% "
                   f"(Giữ chữ: {res.fidelity.word_retention_ratio * 100:.1f}%)")
             print(f"  - Phông chữ DOCX : {', '.join(res.fidelity.docx_fonts) or 'Mặc định'}")
+            if res.nd30_report is not None:
+                print(
+                    f"  - Thể thức NĐ30  : {res.nd30_report.score:.1f}% "
+                    f"({res.nd30_report.ok_count} đạt, {res.nd30_report.warn_count} cần xem, "
+                    f"{res.nd30_report.fail_count} chưa đạt)"
+                )
+            if res.nd30_plan is not None:
+                pl = res.nd30_plan
+                print(
+                    f"  - Lề DOCX (mm)   : trên {pl.margin_top_mm:g}, dưới {pl.margin_bottom_mm:g}, "
+                    f"trái {pl.margin_left_mm:g}, phải {pl.margin_right_mm:g}"
+                )
+            if res.layout_check is not None:
+                _print_layout_check(res.layout_check)
+            for note in res.notes:
+                print(f"  * {note}")
+        return 0
+
+    if args.command == "nd30":
+        src = Path(args.input_pdf).resolve()
+        try:
+            with PDFDocumentReader(src) as reader:
+                total_pages = reader.page_count
+            pages_list = parse_page_range(args.pages, total_pages) if args.pages.strip() else None
+            ad, rep = analyze_pdf_nd30(src, pages=pages_list)
+        except (ConversionError, FileNotFoundError, PermissionError, ValueError) as exc:
+            print(f"Lỗi: {exc}", file=sys.stderr)
+            return 1
+        plan = build_docx_plan(ad, "faithful")
+        if args.json:
+            payload = rep.to_dict()
+            payload["docx_plan"] = plan.to_dict()
+            print(json.dumps(payload, ensure_ascii=False, indent=2))
+        else:
+            kind = "Văn bản hành chính" if rep.is_admin_document else "Không nhận ra văn bản hành chính"
+            print(f"Đối chiếu thể thức NĐ30: {src.name} — {kind}")
+            print(
+                f"Điểm thể thức: {rep.score:.1f}% ({rep.ok_count} đạt, {rep.warn_count} cần xem, "
+                f"{rep.fail_count} chưa đạt)"
+            )
+            for c in rep.checks:
+                line = f"  [{_STATUS_ICON.get(c.status, '?')}] {c.name}: {c.measured}  (quy định: {c.expected})"
+                if c.note:
+                    line += f" — {c.note}"
+                print(line)
+            print(
+                f"Thông số Word ước lượng: lề trên {plan.margin_top_mm:g} mm, dưới {plan.margin_bottom_mm:g} mm, "
+                f"trái {plan.margin_left_mm:g} mm, phải {plan.margin_right_mm:g} mm; cỡ chữ {plan.body_size:g} pt; "
+                + (
+                    f"giãn dòng {plan.line_multiple:g} lines; "
+                    if plan.line_exact_pt is None
+                    else f"giãn dòng Exactly {plan.line_exact_pt:g} pt; "
+                )
+                + f"cách đoạn {plan.para_spacing_pt:g} pt; thụt đầu dòng {plan.first_indent_mm:g} mm."
+            )
         return 0
 
     if args.command == "inspect":
@@ -174,6 +288,7 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     if args.command == "verify":
         rep = evaluate_conversion_fidelity(args.input_pdf, args.output_docx)
+        layout_check = verify_docx_layout(args.input_pdf, args.output_docx) if args.render else None
         if args.json:
             print(
                 json.dumps(
@@ -186,6 +301,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                         "docx_images": rep.docx_images,
                         "docx_fonts": rep.docx_fonts,
                         "notes": rep.notes,
+                        "layout_check": layout_check.to_dict() if layout_check else None,
                     },
                     ensure_ascii=False,
                     indent=2,
@@ -199,6 +315,8 @@ def main(argv: Optional[List[str]] = None) -> int:
             print(f"  - Bảng / Khung / Ảnh: {rep.docx_tables} bảng, {rep.docx_frames} khung, {rep.docx_images} ảnh")
             for note in rep.notes:
                 print(f"  * {note}")
+            if layout_check is not None:
+                _print_layout_check(layout_check)
         return 0
 
     return 0

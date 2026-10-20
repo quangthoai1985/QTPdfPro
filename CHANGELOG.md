@@ -8,10 +8,46 @@
 ## [Chưa phát hành]
 
 ### Việc còn dở / Ưu tiên kế tiếp cho Agent phiên sau
-1. **Tích hợp OCR Tiếng Việt cho PDF ảnh quét (Scanned PDF)**:
-   - Khi `PageLayoutSummary.is_scanned == True`, hiển thị gợi ý bật OCR (`Tesseract vie+eng` / `VietOCR`) để chuyển PDF scan sang DOCX chỉnh sửa được mà vẫn giữ nguyên con dấu đỏ và chữ ký.
-2. **Chuyển đổi hàng loạt (Batch PDF → DOCX)**:
-   - Thêm hộp thoại chuyển đổi hàng loạt nhiều công văn/quyết định PDF sang DOCX cùng lúc kèm bảng báo cáo điểm chuẩn xác (`FidelityReport`).
+1. **Kiểm thử engine NĐ30 trên văn bản thật** (PDF ký số VGCA, PDF xuất từ phần mềm quản lý văn bản, PDF in từ LibreOffice): chạy `python -m qtpdfpro.cli convert <tệp> --mode nd30 --verify-layout` và xử lý các trường hợp «Lệch nhỏ».
+2. **Chuyển đổi hàng loạt (Batch PDF → DOCX)** — đang hiển thị «Coming Soon» trên Trang chủ.
+3. **Tích hợp OCR Tiếng Việt cho PDF ảnh quét** (`Tesseract vie+eng` / `VietOCR`) — đang «Coming Soon».
+
+---
+
+## [0.3.0] — 2026-10-20 (Engine chuẩn thể thức NĐ30 giữ đúng bố cục PDF & Trang chủ kiểu PdfCraft)
+
+### Thêm mới
+- **Chế độ chuyển đổi `nd30` — tái dựng văn bản hành chính đúng thể thức Nghị định 30/2020/NĐ-CP** (`qtpdfpro/core/admin_layout.py`, `nd30_standard.py`, `nd30_engine.py`):
+  - **Đo trên PDF rồi ước lượng về giá trị gốc người soạn đã đặt**: lề 4 phía (vd 29,98 mm → 30 mm), cỡ chữ, khoảng cách dòng (bội số chuẩn của Word 1,0/1,15/1,5… hoặc «Exactly 18 pt»), khoảng cách đoạn, thụt đầu dòng (1 cm / 1,27 cm). Lề dưới được ước lượng theo khoảng [cận dưới, cận trên] từ các trang đầy.
+  - **Phần đầu văn bản** (Tên cơ quan | Quốc hiệu – Tiêu ngữ; Số, ký hiệu | Địa danh, ngày tháng) và **khối ký** (Nơi nhận | Quyền hạn, chức vụ, họ tên) dựng bằng **bảng 2 cột không viền**; từng dòng được căn tâm đúng toạ độ PDF bằng thụt lề đoạn trong ô.
+  - **Đường kẻ giữ nguyên PDF**: dựng bằng viền dưới của đoạn văn với đúng toạ độ x và độ dài như PDF (chỉnh sửa được trong Word, không dùng ảnh). Nhận diện cả đường kẻ dạng hình chữ nhật mảnh `re` mà Microsoft Word xuất ra.
+  - Số trang là trường `PAGE` ở đầu trang, không hiển thị trang 1; bảng dữ liệu có viền (gộp ô, chiều cao hàng, lề ô đo từ PDF); con dấu / chữ ký số giữ ảnh PNG trong suốt neo theo đoạn văn.
+  - **Hai chính sách**: `faithful` (mặc định — giữ đúng bố cục PDF, chỉ làm tròn về giá trị chuẩn khi sai số đo nhỏ) và `nd30` (ép chuẩn hoá lề/cỡ chữ/giãn dòng/cách đoạn ≥ 6 pt theo NĐ30, có thể đổi dàn trang).
+  - Chế độ `auto` tự chọn `nd30` khi trang đầu có khối Quốc hiệu – Tiêu ngữ 2 cột.
+- **Đối chiếu thể thức NĐ30** (`check_nd30_compliance`): 26 hạng mục (khổ giấy, 4 lề, phông, cỡ chữ, căn lề, giãn dòng, cách đoạn, thụt đầu dòng, Quốc hiệu, Tiêu ngữ & gạch nối có cách chữ, đường kẻ dưới Tiêu ngữ/tên cơ quan, số ký hiệu, ngày tháng có số 0, tên loại, trích yếu, Nơi nhận, «Lưu: VT», chức vụ, họ tên, đánh số trang) với kết quả Đạt / Cần xem lại / Chưa đạt và điểm %.
+- **Kiểm chứng bố cục bằng Microsoft Word** (`qtpdfpro/core/layout_verify.py`): xuất DOCX trở lại PDF bằng chính Word rồi so từng dòng với PDF gốc (số trang, dòng khớp, dòng bị đẩy trang, độ lệch dọc/ngang theo pt).
+- **CLI**: lệnh mới `nd30 <pdf>` (báo cáo đối chiếu + thông số Word ước lượng), cờ `convert --mode nd30 --nd30-policy faithful|nd30 --verify-layout`, `verify --render`.
+- **Trang chủ thiết kế lại theo [storytold/pdfcraft](https://github.com/storytold/pdfcraft)** (`qtpdfpro/ui/home_page.py`, `tool_catalog.py`, `command_palette.py`, `nd30_dialog.py`):
+  - Header 2 tầng: dải tiêu đề (⌂ Trang chủ, tab tài liệu, «＋ Mở», GitHub, Trợ giúp, Sáng/Tối) và thanh chế độ («☰ Menu», Tất cả công cụ · Đọc · Chuyển đổi · Chỉnh sửa · Ký số & Bảo mật, ô tìm công cụ, «Xuất Word»).
+  - Cột trái «Tất cả công cụ» (35 công cụ chia nhóm — 14 dùng được, 21 «Coming Soon», tìm không dấu, lọc theo chế độ); lời chào; thẻ nổi bật văn bản hành chính NĐ30; lưới «Công cụ đề xuất» + thẻ «Mở tệp» (kéo thả); «Gần đây» kèm số trang & dung lượng; ghi chú quyền riêng tư.
+  - Công cụ chưa phát triển hiển thị nhãn **«Coming Soon»** kèm mốc dự kiến (Sắp xếp/Ghép/Tách trang, OCR, Chuyển hàng loạt, PDF sang Excel/ảnh/PowerPoint, Ký số, Đặt mật khẩu…); bấm vào chỉ hiện thông báo nhỏ.
+  - Bảng lệnh **Ctrl+K** tìm mọi công cụ/lệnh và tìm chữ trong tài liệu đang mở; hộp thoại **Kiểm tra thể thức NĐ30** (Ctrl+Shift+N) và **Kiểm chứng DOCX với PDF**; chế độ đọc tập trung (F11).
+  - Khung tài liệu: thêm thẻ «Xuất Word chuẩn NĐ30», «Kiểm tra thể thức NĐ30», lọc thẻ theo chế độ; thanh thông báo nhận diện văn bản hành chính.
+- **Dữ liệu mẫu** `samples/nd30/` (Quyết định, Kế hoạch có bảng & con dấu, Công văn — nội dung hư cấu, tạo theo chuẩn NĐ30 rồi xuất PDF bằng Microsoft Word).
+
+### Sửa lỗi
+- Nút «Xuất Word — Giữ vị trí 1:1» không chọn sẵn chế độ `exact` trong hộp thoại (ghi vào thuộc tính `last_convert_mode` không ai đọc) → hộp thoại nhận `initial_mode`.
+- Chế độ `word_com` luôn thất bại âm thầm rồi lùi về `hybrid`: script PowerShell đặt `param(...)` sau câu lệnh khác (PowerShell bắt buộc `param` đứng đầu).
+- Ký tự `&` trong tiêu đề nhóm/hộp chọn của hộp thoại chuyển đổi và nút «Mở tệp PDF để đọc & soi bố cục» bị Qt biến thành phím tắt (mất chữ).
+
+### Kiểm thử
+- **29/29** bài test `pytest` vượt qua (thêm `tests/test_nd30.py` 11 bài và 2 bài giao diện Trang chủ / hộp thoại).
+- Kiểm chứng bằng Microsoft Word trên 3 văn bản mẫu (dựng DOCX → Word xuất PDF → so từng dòng): **Quyết định 51/51 dòng, Công văn 26/26 dòng, Kế hoạch 78/78 dòng khớp; đúng số trang; lệch dọc tối đa 0,84 pt, lệch ngang tối đa 0,42 pt** (≈ 0,3 mm).
+
+### Ghi chú kỹ thuật (đã gặp & xử lý)
+- Mẫu DOCX mặc định của `python-docx` dùng `compatibilityMode=14` (Word 2010) → ngắt dòng / căn đều khác văn bản Word hiện đại; engine NĐ30 đặt `15`.
+- Word đặt baseline tại **0,8 × chiều cao dòng** khi giãn dòng «Exactly», còn với «Multiple» thì phần giãn thêm nằm **dưới** dòng chữ; Word bỏ khoảng cách trước đoạn ở đầu trang.
+- Bội số giãn dòng chỉ được làm tròn khi sai lệch ≤ 0,04 pt/dòng (đo trên toàn văn bản), tránh cộng dồn lệch làm tràn trang.
 
 ---
 

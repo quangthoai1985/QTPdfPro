@@ -15,7 +15,11 @@
 - **Giấy phép**: Mã nguồn mở **MIT License** ([LICENSE](LICENSE)).
 - **Kho GitHub**: `https://github.com/quangthoai1985/QTPdfPro`
 
-### Trạng thái hiện tại (`v0.2.0` — 2026-10-19):
+### Trạng thái hiện tại (`v0.3.0` — 2026-10-20):
+- **Mới ở v0.3.0**:
+  1. **Chế độ chuyển đổi `nd30`** (mặc định qua `auto` khi phát hiện Quốc hiệu – Tiêu ngữ): tái dựng văn bản hành chính như người soạn trong Word — lề / cỡ chữ / giãn dòng / cách đoạn / thụt đầu dòng **đo trên PDF rồi ước lượng về giá trị gốc**, phần đầu & khối ký trong **bảng 2 cột không viền**, đường kẻ là viền dưới đoạn văn đúng toạ độ PDF, số trang là trường `PAGE`. Chính sách `faithful` (mặc định, giữ đúng bố cục PDF) hoặc `nd30` (ép chuẩn hoá).
+  2. **Đối chiếu thể thức NĐ30** 26 hạng mục (`cli nd30`, hộp thoại «Kiểm tra thể thức NĐ30») và **Kiểm chứng bố cục bằng Microsoft Word** (`--verify-layout`, `verify --render`): đã đạt 100% dòng khớp, lệch ≤ 0,84 pt trên 3 văn bản mẫu `samples/nd30/`.
+  3. **Trang chủ & header theo PdfCraft**: dải tab tài liệu + thanh chế độ (Tất cả công cụ · Đọc · Chuyển đổi · Chỉnh sửa · Ký số & Bảo mật), cột «Tất cả công cụ», «Công cụ đề xuất», «Gần đây», Ctrl+K; công cụ chưa có hiển thị **«Coming Soon»**.
 - **Đã hoàn thành Giai đoạn 1 & Giai đoạn 2 (Hoàn thiện Văn bản Hành chính Việt Nam 100% + Giao diện PdfCraft Sáng/Tối)**:
   1. **Trình đọc PDF chuyên nghiệp theo bố cục 3 cột kiểu [storytold/pdfcraft](https://github.com/storytold/pdfcraft)**:
      - **Nút chuyển nhanh Giao diện Sáng / Tối (`☀️ Giao diện Sáng` / `🌙 Giao diện Tối`)** ngay góc phải thanh Header (`Ctrl+Shift+T`), đồng bộ cả giao diện ứng dụng lẫn nền vùng vẽ PDF (`#E2E8F0` / `#111318`).
@@ -28,7 +32,7 @@
      - `word_com`: Cầu nối Microsoft Word Native Reflow qua COM + hậu xử lý OpenXML.
      - `auto`: Tự động chọn `hybrid` hoặc `exact` dựa trên phân tích bố cục trang.
      - Kèm **Bộ Kiểm định Độ chính xác (`core/fidelity.py`)** chấm điểm bảo toàn từ vựng, ký tự, bảng biểu, hình ảnh ngay sau khi chuyển đổi.
-- **Tất cả 16/16 bài kiểm thử tự động (`tests/`) đã chạy qua 100%**.
+- **Tất cả 29/29 bài kiểm thử tự động (`tests/`) đã chạy qua 100%** (bài kiểm chứng bằng MS Word tự bỏ qua nếu máy không có Word).
 
 ---
 
@@ -58,10 +62,14 @@ python -m qtpdfpro                          # Mở cửa sổ chào mừng (ho�
 python -m qtpdfpro duong_dan_tep.pdf        # Mở thẳng tệp PDF vào tab đọc
 
 # 3. Chạy qua dòng lệnh (CLI)
+python -m qtpdfpro.cli convert in.pdf -o out.docx --mode auto --verify-layout   # văn bản hành chính → nd30
+python -m qtpdfpro.cli convert in.pdf -o out.docx --mode nd30 --nd30-policy faithful
+python -m qtpdfpro.cli nd30 in.pdf                       # đối chiếu thể thức NĐ30 (26 hạng mục)
 python -m qtpdfpro.cli convert in.pdf -o out.docx --mode hybrid
 python -m qtpdfpro.cli convert in.pdf -o out_1to1.docx --mode exact --pages 1-2
 python -m qtpdfpro.cli inspect in.pdf --json
 python -m qtpdfpro.cli verify in.pdf out.docx --json
+python -m qtpdfpro.cli verify in.pdf out.docx --render   # dựng DOCX bằng MS Word, so vị trí từng dòng
 
 # 4. Chạy toàn bộ kiểm thử tự động (bắt buộc qua 100% trước khi commit)
 python -m pytest -q tests
@@ -85,11 +93,19 @@ cmd.exe /c ".\build.bat"                    # Xuất ra dist\QTPdfPro\QTPdfPro.e
 | `qtpdfpro/core/openxml_fixer.py` | Hậu xử lý chuẩn xác OpenXML | Dùng `lxml` sửa trực tiếp `word/document.xml` & `word/styles.xml`: đồng bộ 4 thuộc tính `w:rFonts`, khôi phục `w:b`/`w:i`, tắt `w:snapToGrid`, khoá `w:tblLayout="fixed"`, thu gọn `w:tcMar`, điều chỉnh `line_spacing_factor` (`0.93`), và neo ảnh con dấu/chữ ký/đường kẻ theo toạ độ trang (`anchor_page_overlays` với `<wp:anchor relativeFrom="page">`) |
 | `qtpdfpro/core/exact_layout_engine.py` | Engine vị trí tuyệt đối 1:1 | Xoá chữ trên bản sao trang PDF bằng `apply_redactions(images=PDF_REDACT_IMAGE_NONE, graphics=PDF_REDACT_LINE_ART_NONE)` để lấy ảnh nền đồ hoạ neo dưới chữ (`wp:anchor behindDoc="1"`), đặt từng dòng chữ vào `<w:framePr>` theo toạ độ `twips` |
 | `qtpdfpro/core/word_com_bridge.py` | Cầu nối MS Word Reflow | Gọi `Word.Application` qua PowerShell không giao diện khi máy có cài Office; thất bại thì tự lùi về `hybrid` |
+| `qtpdfpro/core/pdf_primitives.py` | Hàm nền dùng chung | `splice_overlapping_stamped_text` (ghép số/ngày đóng dấu đè), `extract_widget_overlays` (con dấu, chữ ký số PNG RGBA từ widget) |
+| `qtpdfpro/core/admin_layout.py` | Phân tích văn bản hành chính | Dòng trực quan (`TextLine`, mép phải theo ký tự thật), đường kẻ `l`/`re`, ảnh, bảng; nhận diện phần đầu 2 cột & khối ký (`TwoColBlock`), gom đoạn (`ParaBlock`), đo lề/giãn dòng/cách đoạn (`MeasuredLayout`); mô hình hình học Word: Multiple → phần giãn nằm dưới dòng, Exactly → baseline = 0,8 × h (`EXACT_BASELINE_RATIO`) |
+| `qtpdfpro/core/nd30_standard.py` | Chuẩn NĐ30 | `ND30_SPEC`, `check_nd30_compliance` (26 hạng mục), `build_docx_plan` (chính sách `faithful`/`nd30`), `snap_margin_mm` |
+| `qtpdfpro/core/nd30_engine.py` | Dựng DOCX chuẩn NĐ30 | `convert_pdf_nd30`: `compatibilityMode=15`, bảng không viền + thụt lề căn tâm theo PDF, đường kẻ = `w:pBdr/w:bottom`, bảng dữ liệu (`trHeight atLeast` trừ nét viền), ảnh neo `relativeFrom=paragraph`, header `PAGE` + `titlePg` |
+| `qtpdfpro/core/layout_verify.py` | Kiểm chứng bằng MS Word | `verify_docx_layout` (Word xuất PDF qua PowerShell COM) + `compare_pdf_layouts` (difflib theo dòng, lệch dọc/ngang pt) |
 | `qtpdfpro/core/converter.py` | Điều phối chuyển đổi | Hàm chính `convert_pdf_to_docx`, kèm bộ bản vá `_install_pdf2docx_patches()` xử lý số văn bản đóng dấu đè, trích xuất chữ ký số/con dấu đỏ (`_extract_widget_overlays`), và đường kẻ chân Quốc hiệu (`_extract_standalone_horizontal_rules`) |
 | `qtpdfpro/core/fidelity.py` | Kiểm định độ chính xác | So sánh từ vựng/ký tự (Multiset Bag-of-Words), cỡ trang, số bảng/khung/ảnh giữa PDF và DOCX, chấm điểm `overall_score` (thang 100) |
 | `qtpdfpro/ui/pdf_canvas.py` | Khung vẽ & Cuộn PDF | `PDFScrollViewer`: kết xuất theo vùng nhìn (lazy viewport), đổi màu nền Sáng/Tối (`set_canvas_theme`), vẽ tô sáng tìm kiếm và khung `Layout Inspector Overlay` (gồm cả `signature` màu đỏ hồng `#E11D48`) |
 | `qtpdfpro/ui/convert_dialog.py` | Hộp thoại chuyển đổi | Chạy `_ConversionWorker(QThread)`, thanh tiến trình, hiển thị báo cáo `FidelityReport` và nút mở tệp Word ngay |
-| `qtpdfpro/ui/main_window.py` | Cửa sổ chính đa tab | Bố cục 3 cột kiểu PdfCraft (`tools_panel` bên trái, `viewer` + `signature_banner` ở giữa, `sidebar_tabs` + `right_rail` bên phải) và nút chuyển Sáng/Tối 1 chạm (`btn_theme_toggle`) |
+| `qtpdfpro/ui/main_window.py` | Cửa sổ chính đa tab | Header 2 tầng kiểu PdfCraft (`doc_tab_bar` ở dải tiêu đề đồng bộ với `doc_tabs` ẩn thanh tab; thanh chế độ `mode_buttons` lọc công cụ; menu nằm trong nút «☰ Menu» nên mọi `QAction` phải `self.addActions` để phím tắt chạy); `run_tool(key)` điều phối công cụ; khung tài liệu 3 cột (`tools_panel`, `viewer` + `signature_banner`, `sidebar_tabs` + `right_rail`) |
+| `qtpdfpro/ui/home_page.py` | Trang chủ PdfCraft | `ToolCatalogPanel` (cột «Tất cả công cụ»), `ToolCard` (công cụ đề xuất), `OpenFileCard`, `RecentRow`; lưới thẻ tự đổi số cột theo chiều rộng |
+| `qtpdfpro/ui/tool_catalog.py` | Danh mục công cụ | `TOOLS` (35 công cụ, `ready=False` → «Coming Soon» + `milestone`), `RECOMMENDED`, tìm không dấu `tools_for()` |
+| `qtpdfpro/ui/command_palette.py`, `nd30_dialog.py` | Ctrl+K & NĐ30 | Bảng lệnh; hộp thoại báo cáo NĐ30 & kiểm chứng DOCX (chạy `QThread`) |
 
 ---
 
@@ -103,18 +119,21 @@ cmd.exe /c ".\build.bat"                    # Xuất ra dist\QTPdfPro\QTPdfPro.e
 | Tiêu đề *"QUYẾT ĐỊNH"* căn giữa bị hút lệch vào cột phải của Quốc hiệu – Tiêu ngữ, hoặc phần *"Nơi nhận"* cuối văn bản bị tách làm 2 section lệch dòng | `Pages._parse_section` của `pdf2docx` gộp nhầm dòng đơn căn giữa vào khối 2 cột liền kề, và tách rời từng hàng của khối 2 cột khi lệch cao độ | Vá `_patched_parse_section` trong `converter.py` để giữ nguyên dòng đơn căn giữa làm khối 1 cột độc lập và gom toàn bộ các dòng liên tiếp của khối *"Nơi nhận / Chữ ký"* vào chung 1 section 2 cột |
 | Mở DOCX trong Word bị đổi phông chữ sang Calibri làm tràn dòng | PDF lưu tên phông dạng `BCDEFG+TimesNewRomanPS-BoldMT`; Word không nhận ra tên PostScript/Subset | `font_resolver.py` gỡ tiền tố `ABCDEF+`, ánh xạ về tên chuẩn (`Times New Roman`, `Arial`...) và `openxml_fixer.py` ghi đủ cả 4 thuộc tính `w:ascii`, `w:hAnsi`, `w:cs`, `w:eastAsia` + xoá `asciiTheme`/`cstheme` |
 | Chữ trong bảng bị ép xuống dòng thứ 2 dù trên PDF nằm gọn 1 dòng | Word mặc định cộng thêm `108 dxa` (`5.4pt`) đệm trái/phải cho mỗi ô bảng | `openxml_fixer.py` đặt `w:tblLayout="fixed"` và giảm `w:tblCellMar` trái/phải xuống `36 dxa` (`1.8pt`) |
+| DOCX dựng bằng `python-docx` ngắt dòng khác PDF dù cùng lề, cùng phông | Mẫu mặc định của `python-docx` đặt `compatibilityMode=14` (Word 2010) — thuật toán ngắt dòng/căn đều khác Word 2013+ | `nd30_engine._set_modern_compat()` đặt `compatibilityMode=15`, xoá `w:useFELayout` |
+| Đoạn văn lệch dọc vài pt sau khi dựng lại | Word: giãn dòng «Multiple» đặt phần giãn thêm **dưới** dòng chữ; «Exactly h» đặt baseline tại **0,8 × h** (đo thực nghiệm); khoảng cách trước đoạn bị bỏ ở đầu trang | Mô hình `ParaBlock.top/bottom` theo đúng quy luật trên; đoạn 1 dòng suy giãn dòng từ vị trí khối kế tiếp; đoạn tràn trang tính khoảng cách theo `end_page` |
+| Giãn dòng «Exactly 18 pt» bị bắt nhầm về bội số 1,2 → lệch 0,08 pt/dòng, cộng dồn làm tràn trang | Ngưỡng làm tròn 2,5% quá rộng | `resolve_line_spacing`: chỉ nhận bội số chuẩn khi sai lệch ≤ 0,04 pt/dòng (đo trên toàn văn bản), ngược lại ghi «Exactly» |
+| Đường kẻ dưới Quốc hiệu không được nhận | Word xuất viền bảng / đường kẻ dạng hình chữ nhật mảnh `re`, không phải nét `l`; nét dọc có hình bao rộng 0 nên `Rect.intersects` luôn sai | `admin_layout.extract_rules` nhận cả `re`/`qu` mảnh, nới hình bao nét dọc 0,5 pt |
+| Bảng dữ liệu cao dần mỗi hàng ~0,5 pt | Word cộng độ dày nét viền vào chiều cao hàng `atLeast` | `trHeight` = khoảng cách 2 viền trên PDF − 0,5 pt; khoảng trống trước bảng chuyển thành `space_after` của đoạn trước |
+| Chế độ `word_com` luôn lùi về `hybrid` | Script PowerShell đặt `param(...)` sau `$ErrorActionPreference` | `param` phải là câu lệnh đầu tiên; ghi script UTF-8 có BOM |
 | Trang PDF 3 trang khi sang Word bị tràn vài dòng sang trang thứ 4 | Word mặc định cộng dồn khoảng cách dòng lớn hơn PDF | Đặt `<w:snapToGrid w:val="0"/>`, `w:header="0" w:footer="0"` và nhân hệ số `line_spacing_factor = 0.93` trong `openxml_fixer.py` để giữ nguyên đúng 3 trang như PDF gốc |
 
 ---
 
 ## 6. Việc cần làm tiếp theo (Theo thứ tự ưu tiên cho Agent phiên sau)
 
-1. **Tích hợp OCR Tiếng Việt (`Tesseract` / `VietOCR`) cho PDF Scan**:
-   - Tự động nhận diện trang scan (`is_scanned=True`) và chuyển đổi sang văn bản Word có giữ định dạng kèm trích xuất con dấu đỏ.
-2. **Chuyển đổi hàng loạt (Batch Conversion)**:
-   - Thêm hộp thoại chuyển đổi cùng lúc nhiều tệp PDF hành chính sang DOCX.
-3. **Phát hành các bản cập nhật kế tiếp**:
-   - Bản phát hành hiện tại: [Release v0.2.0](https://github.com/quangthoai1985/QTPdfPro/releases/tag/v0.2.0) kèm tệp nén `QTPdfPro-v0.2.0-win64.zip`.
+1. **Kiểm thử engine `nd30` trên văn bản hành chính thật** (PDF ký số VGCA có số/ngày đóng dấu đè, PDF từ phần mềm quản lý văn bản, PDF in từ LibreOffice, văn bản nhiều phụ lục khổ ngang). Quy trình: `python -m qtpdfpro.cli convert <tệp> --mode nd30 --verify-layout`; mọi kết quả «Lệch nhỏ» phải truy nguyên bằng `compare_pdf_layouts` và bổ sung test. Văn bản chỉ dùng nội bộ, **không** đưa vào `samples/` nếu có thông tin thật.
+2. **Hiện thực các công cụ đang «Coming Soon»** theo `docs/DE_XUAT_TINH_NANG.md` — mỗi công cụ xong thì đặt `ready=True` trong `qtpdfpro/ui/tool_catalog.py` và thêm nhánh xử lý trong `MainWindow.run_tool`. Ưu tiên: Chuyển đổi hàng loạt (v0.4), Xem 2 trang (v0.4), OCR tiếng Việt (v1.1).
+3. **Phát hành bản v0.3.0**: chạy `build.bat`, đóng gói `QTPdfPro-v0.3.0-win64.zip`, tạo GitHub Release (bản trước: [v0.2.0](https://github.com/quangthoai1985/QTPdfPro/releases/tag/v0.2.0)).
 
 ---
 
@@ -122,5 +141,6 @@ cmd.exe /c ".\build.bat"                    # Xuất ra dist\QTPdfPro\QTPdfPro.e
 
 - [x] `python -m pytest -q tests` chạy qua 100% không có lỗi.
 - [x] Nếu sửa giao diện (`qtpdfpro/ui/`): chạy thử cửa sổ với `QT_PDF_PRO_DATA` tạm và kiểm tra hiển thị tiếng Việt.
+- [x] Nếu sửa engine chuyển đổi (`qtpdfpro/core/`): chạy `python -m qtpdfpro.cli convert samples/nd30/<tệp>.pdf -o <thư mục tạm>/x.docx --mode nd30 --verify-layout` cho cả 3 văn bản mẫu — kết quả phải là «Trùng khớp PDF gốc» (không ghi tệp DOCX vào `samples/`).
 - [x] Cập nhật [CHANGELOG.md](CHANGELOG.md) và tệp `CLAUDE.md` này.
 - [x] Thực hiện `git commit` và `git push` lên kho lưu trữ GitHub `quangthoai1985/QTPdfPro`.

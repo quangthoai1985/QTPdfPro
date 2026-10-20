@@ -144,3 +144,100 @@ def test_splice_overlapping_stamped_text_preserves_document_number() -> None:
     assert "3865" in merged_text
     assert merged_text.startswith("Số:")
     assert merged_text.endswith("/QĐ-UBND")
+
+
+def test_home_page_pdfcraft_layout_and_coming_soon(sample_vietnamese_pdf: Path) -> None:
+    """Trang chủ kiểu PdfCraft: danh mục công cụ, công cụ đề xuất, Coming Soon, tab tài liệu ở dải tiêu đề."""
+    from qtpdfpro.ui.command_palette import CommandPaletteDialog
+    from qtpdfpro.ui.home_page import CatalogRow, ToolCard
+    from qtpdfpro.ui.tool_catalog import COMING_SOON_LABEL, TOOLS, get_tool, tools_for
+
+    app = QApplication.instance() or QApplication([])
+    win = MainWindow(settings=AppSettings.load())
+    win.show()
+    app.processEvents()
+
+    # Mở ứng dụng → Trang chủ, nút ⌂ được chọn, không có điều khiển trang
+    assert win.stack.currentWidget() is win.home_page
+    assert win.btn_home.isChecked() is True
+    assert win.doc_controls.isVisible() is False
+
+    # Danh mục: khoá duy nhất, công cụ chưa có đều có mốc phát hành và nhãn Coming Soon
+    keys = [t.key for t in TOOLS]
+    assert len(keys) == len(set(keys))
+    soon = [t for t in TOOLS if not t.ready]
+    assert soon and all(t.milestone for t in soon)
+    assert all(t.status_text == COMING_SOON_LABEL for t in soon)
+    # Tìm không dấu
+    assert [t.key for t in tools_for("all", "kiem tra the thuc")] == ["nd30_check"]
+
+    cards = win.home_page.findChildren(ToolCard)
+    assert {c.tool.key for c in cards} >= {"pdf_to_word_nd30", "nd30_check", "organize"}
+    rows = win.home_page.catalog.findChildren(CatalogRow)
+    assert len(rows) == len(TOOLS)
+
+    # Lọc theo chế độ "Chuyển đổi"
+    win.set_mode_category("convert")
+    app.processEvents()
+    assert set(win.home_page.catalog.tool_keys()) == {t.key for t in TOOLS if t.category == "convert"}
+    win.set_mode_category("all")
+
+    # Công cụ Coming Soon → chỉ hiện thông báo, không mở hộp thoại
+    win.run_tool("organize")
+    app.processEvents()
+    assert win._toast is not None and COMING_SOON_LABEL in win._toast.text()
+    assert get_tool("organize").ready is False
+
+    # Mở tài liệu → tab hiện ở dải tiêu đề, chuyển sang khung tài liệu
+    tab = win.open_pdf_path(sample_vietnamese_pdf)
+    app.processEvents()
+    assert tab is not None
+    assert win.doc_tab_bar.count() == 1 and win.doc_tabs.count() == 1
+    assert win.stack.currentWidget() is win.doc_tabs
+    assert win.doc_controls.isVisible() is True
+
+    # Lọc thẻ công cụ trong khung tài liệu theo chế độ
+    win.set_mode_category("convert")
+    app.processEvents()
+    assert tab.tool_btn_convert_nd30.isVisible() is True
+    assert tab.tool_btn_rot_left.isVisible() is False
+    win.set_mode_category("all")
+    app.processEvents()
+    assert tab.tool_btn_rot_left.isVisible() is True
+
+    # Về Trang chủ và quay lại tài liệu
+    win.action_go_home()
+    app.processEvents()
+    assert win.stack.currentWidget() is win.home_page
+    assert win.home_page.btn_resume.isVisible() is True
+    win.action_go_home()
+    app.processEvents()
+    assert win.stack.currentWidget() is win.doc_tabs
+
+    # Bảng lệnh Ctrl+K: tìm "word" ra công cụ chuyển đổi + mục tìm trong tài liệu
+    pal = CommandPaletteDialog(win, query="word", has_document=True)
+    labels = [pal.list.item(i).text() for i in range(pal.list.count())]
+    assert "trong tài liệu đang mở" in labels[0]
+    assert any("PDF sang Word chuẩn NĐ30" in s for s in labels)
+    pal.close()
+
+    # Đóng tab cuối → quay về Trang chủ
+    win.close_tab_at(0)
+    app.processEvents()
+    assert win.doc_tab_bar.count() == 0
+    assert win.stack.currentWidget() is win.home_page
+    win.close()
+    app.processEvents()
+
+
+def test_convert_dialog_initial_mode_and_nd30_policy(sample_vietnamese_pdf: Path) -> None:
+    app = QApplication.instance() or QApplication([])
+    settings = AppSettings.load()
+    dlg = ConvertToDocxDialog(sample_vietnamese_pdf, 2, 0, settings, initial_mode="exact")
+    assert dlg.mode_combo.currentData() == "exact"
+    assert dlg.policy_combo.isEnabled() is False
+    dlg.mode_combo.setCurrentIndex(dlg.mode_combo.findData("nd30"))
+    app.processEvents()
+    assert dlg.policy_combo.isEnabled() is True
+    assert dlg.policy_combo.currentData() == "faithful"
+    dlg.close()
