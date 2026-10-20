@@ -26,6 +26,15 @@ In tài liệu:
   python -m qtpdfpro.cli print in.pdf --printer "Canon LBP2900" [--copies 2] [--duplex long] [--grayscale]
   python -m qtpdfpro.cli print in.pdf --plan [--paper A4 --orientation auto --scale fit] [--json]
   python -m qtpdfpro.cli print --list-printers
+Công cụ văn phòng (nén, dấu nước, đánh số trang, mật khẩu — mọi lệnh có --json, --password, tệp ký số cần --force):
+  python -m qtpdfpro.cli compress in.pdf [-o out.pdf] [--level nhe|vua|manh]
+  python -m qtpdfpro.cli watermark in.pdf --text "BẢN SAO" [--size 56] [--opacity 0.2] [--angle 45] [--color do]
+                                   [--font sans|serif] [--tile] [--behind] [--pages 1-3]
+  python -m qtpdfpro.cli number in.pdf [--preset nd30] [--format "Trang {n} / {total}"] [--position bottom-center]
+                                [--start 1] [--skip-first] [--size 12] [--font serif] [--margin 10] [--pages 2-5]
+  python -m qtpdfpro.cli protect in.pdf [--user-password MK_MO] [--owner-password MK_CHU] [--no-print] [--no-copy]
+                                 [--no-modify] [--no-annotate]
+  python -m qtpdfpro.cli unlock in.pdf --password MK [-o out.pdf]
 """
 
 from __future__ import annotations
@@ -38,9 +47,11 @@ from typing import List, Optional
 
 from qtpdfpro import __app_name__, __version__
 from qtpdfpro.core import annotations as annots_mod
-from qtpdfpro.core import page_ops
-from qtpdfpro.core import update_check
+from qtpdfpro.core import compress as compress_mod
+from qtpdfpro.core import page_ops, page_stamp, pdf_security
 from qtpdfpro.core import printing
+from qtpdfpro.core import update_check
+from qtpdfpro.core.pdf_io import PdfToolError, ToolResult, format_size
 from qtpdfpro.core.batch import (
     STATUS_FAILED,
     STATUS_OK,
@@ -196,6 +207,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_edit_commands(sub)
     _add_update_command(sub)
     _add_print_command(sub)
+    _add_office_commands(sub)
     return parser
 
 
@@ -477,6 +489,131 @@ def _run_edit_command(args: argparse.Namespace) -> int:
     return 0
 
 
+OFFICE_COMMANDS = ("compress", "watermark", "number", "protect", "unlock")
+
+
+def _add_office_commands(sub) -> None:
+    """Công cụ văn phòng: nén, dấu nước, đánh số trang, đặt / gỡ mật khẩu."""
+
+    def common(p, signed: bool = True) -> None:
+        p.add_argument("input_pdf", help="Tệp PDF nguồn")
+        p.add_argument("-o", "--output", help="Tệp kết quả (mặc định: cạnh tệp gốc, thêm hậu tố)")
+        p.add_argument("--password", help="Mật khẩu của tệp nguồn nếu có (tệp hạn chế quyền cần mật khẩu chủ)")
+        if signed:
+            p.add_argument("--force", action="store_true", help="Vẫn xử lý tệp có chữ ký số (chữ ký sẽ mất hiệu lực)")
+        p.add_argument("--json", action="store_true", help="In kết quả dạng JSON")
+
+    p_cmp = sub.add_parser("compress", help="Nén PDF: giảm độ phân giải ảnh, nhúng tập con phông, dọn đối tượng thừa")
+    common(p_cmp)
+    p_cmp.add_argument("--level", default="vua", help="Mức nén: nhe (in đẹp) | vua (mặc định) | manh (gửi thư)")
+
+    p_wm = sub.add_parser("watermark", help="Đóng dấu nước chữ (tiếng Việt) lên các trang")
+    common(p_wm)
+    p_wm.add_argument("--text", required=True, help=r"Nội dung dấu nước; xuống dòng bằng \n")
+    p_wm.add_argument("--size", type=float, default=56.0, help="Cỡ chữ (pt, mặc định 56)")
+    p_wm.add_argument("--opacity", type=float, default=0.2, help="Độ đậm 0.02–1 (mặc định 0.2)")
+    p_wm.add_argument("--angle", type=float, default=45.0, help="Góc xoay (độ, mặc định 45)")
+    p_wm.add_argument("--color", default="#DC2626", help="Màu: #RRGGBB hoặc do, xanh, den…")
+    p_wm.add_argument("--font", default="sans", choices=["sans", "serif"], help="sans = Arial, serif = Times New Roman")
+    p_wm.add_argument("--no-bold", action="store_true", help="Chữ thường (mặc định chữ đậm)")
+    p_wm.add_argument("--tile", action="store_true", help="Lát gạch kín trang (mặc định: một dấu giữa trang)")
+    p_wm.add_argument("--behind", action="store_true", help="Đặt dưới nội dung trang")
+    p_wm.add_argument("-p", "--pages", default="", help="Các trang đóng dấu, vd '1-3,5' (mặc định: tất cả)")
+
+    p_num = sub.add_parser("number", help="Đánh số trang (6 vị trí đầu/chân trang, mẫu «Chuẩn NĐ30»)")
+    common(p_num)
+    p_num.add_argument("--preset", choices=["nd30"], help="nd30 = giữa lề trên, Times New Roman 13, bỏ số trang 1")
+    p_num.add_argument("--format", dest="template", help="Mẫu: '{n}', 'Trang {n}', '{n} / {total}' (mặc định '{n}')")
+    p_num.add_argument("--position", help="top-left|top-center|top-right|bottom-left|bottom-center|bottom-right")
+    p_num.add_argument("--start", type=int, help="Số của trang đầu tiên trong phạm vi (mặc định 1)")
+    p_num.add_argument("--skip-first", action="store_true", default=None, help="Không in số lên trang đầu")
+    p_num.add_argument("--size", type=float, help="Cỡ chữ (pt, mặc định 12)")
+    p_num.add_argument("--font", choices=["serif", "sans"], help="serif = Times New Roman (mặc định), sans = Arial")
+    p_num.add_argument("--bold", action="store_true", default=None, help="Chữ đậm")
+    p_num.add_argument("--color", help="Màu chữ (mặc định đen)")
+    p_num.add_argument("--margin", type=float, help="Cách mép trên/dưới (mm, mặc định 10)")
+    p_num.add_argument("--side-margin", type=float, help="Cách mép trái/phải với vị trí trái/phải (mm, mặc định 20)")
+    p_num.add_argument("-p", "--pages", help="Phạm vi đánh số, vd '2-10' (mặc định: tất cả)")
+
+    p_pro = sub.add_parser("protect", help="Đặt mật khẩu AES-256 & hạn chế quyền in / sao chép / sửa / chú thích")
+    common(p_pro)
+    p_pro.add_argument("-u", "--user-password", default="", help="Mật khẩu mở tệp (bỏ trống = mở không cần mật khẩu)")
+    p_pro.add_argument("-O", "--owner-password", default="", help="Mật khẩu chủ (bắt buộc khi hạn chế quyền)")
+    p_pro.add_argument("--no-print", action="store_true", help="Cấm in")
+    p_pro.add_argument("--no-copy", action="store_true", help="Cấm sao chép nội dung")
+    p_pro.add_argument("--no-modify", action="store_true", help="Cấm sửa nội dung, sắp xếp trang")
+    p_pro.add_argument("--no-annotate", action="store_true", help="Cấm chú thích, điền biểu mẫu")
+
+    p_unl = sub.add_parser("unlock", help="Gỡ mật khẩu & hạn chế quyền khi biết mật khẩu")
+    common(p_unl, signed=False)
+
+
+def _number_options(args: argparse.Namespace) -> page_stamp.PageNumberOptions:
+    opts = page_stamp.nd30_page_number_options() if args.preset == "nd30" else page_stamp.PageNumberOptions()
+    overrides = {
+        "template": args.template, "position": args.position, "start": args.start, "skip_first": args.skip_first,
+        "font_size": args.size, "font_family": args.font, "bold": args.bold, "color": args.color,
+        "margin_mm": args.margin, "side_margin_mm": args.side_margin, "pages": args.pages,
+    }
+    for key, value in overrides.items():
+        if value is not None:
+            setattr(opts, key, value)
+    return opts
+
+
+def _print_tool_result(res: ToolResult, as_json: bool) -> None:
+    if as_json:
+        print(json.dumps(res.to_dict(), ensure_ascii=False, indent=2))
+        return
+    if not res.written:
+        print(res.note)
+        return
+    titles = {"compress": "Đã nén", "watermark": "Đã đóng dấu nước", "number": "Đã đánh số trang",
+              "protect": "Đã đặt mật khẩu", "unlock": "Đã gỡ mật khẩu"}
+    print(f"{titles.get(res.tool, 'Xong')} → {res.output_path}")
+    if res.tool in ("watermark", "number"):
+        print(f"  - {res.pages_changed}/{res.pages} trang")
+    if res.note:
+        print(f"  - {res.note}")
+    if res.tool != "compress":
+        print(f"  - Dung lượng: {format_size(res.input_size)} → {format_size(res.output_size)}")
+    if res.encrypted and res.tool != "protect":
+        print("  - Tệp kết quả giữ nguyên mật khẩu của tệp gốc")
+
+
+def _run_office_command(args: argparse.Namespace) -> int:
+    """Chạy các lệnh nén / dấu nước / đánh số trang / mật khẩu; trả về mã thoát."""
+    force = bool(getattr(args, "force", False))
+    try:
+        if args.command == "compress":
+            res = compress_mod.compress_pdf(args.input_pdf, args.output, args.level, args.password, force)
+        elif args.command == "watermark":
+            opts = page_stamp.WatermarkOptions(
+                text=args.text.replace(r"\n", "\n"), font_size=args.size, opacity=args.opacity, angle=args.angle,
+                color=args.color, font_family=args.font, bold=not args.no_bold,
+                layout="tile" if args.tile else "center", pages=args.pages, behind=args.behind,
+            )
+            res = page_stamp.watermark_pdf(args.input_pdf, args.output, opts, args.password, force)
+        elif args.command == "number":
+            res = page_stamp.number_pages(args.input_pdf, args.output, _number_options(args), args.password, force)
+        elif args.command == "protect":
+            opts = pdf_security.ProtectOptions(
+                user_password=args.user_password, owner_password=args.owner_password,
+                allow_print=not args.no_print, allow_copy=not args.no_copy,
+                allow_modify=not args.no_modify, allow_annotate=not args.no_annotate,
+            )
+            res = pdf_security.protect_pdf(args.input_pdf, args.output, opts, args.password, force)
+        else:
+            if not args.password:
+                raise PdfToolError("Hãy nhập mật khẩu bằng --password.")
+            res = pdf_security.unlock_pdf(args.input_pdf, args.output, args.password)
+    except (PdfToolError, page_ops.PageOpsError, FileNotFoundError, PermissionError, ValueError, OSError) as exc:
+        print(f"Lỗi: {exc}", file=sys.stderr)
+        return 1
+    _print_tool_result(res, args.json)
+    return 0
+
+
 def _print_batch_item(item: BatchItemResult, total: int) -> None:
     head = f"[{item.index + 1}/{total}] {Path(item.pdf_path).name}"
     if not item.ok:
@@ -708,6 +845,8 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     if args.command == "update":
         return _run_update(args)
+    if args.command in OFFICE_COMMANDS:
+        return _run_office_command(args)
 
     if args.command == "nd30":
         src = Path(args.input_pdf).resolve()

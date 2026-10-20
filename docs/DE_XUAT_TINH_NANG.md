@@ -45,10 +45,10 @@
 
 | Phiên bản | Nội dung | Mã mục |
 |---|---|---|
-| **v0.5.0** — Đọc & In | Xem 2 trang song song (đã có kế hoạch) · In PDF · Một cửa sổ duy nhất · Thông báo «Đã lưu» | A1, V1, V2 |
-| **v0.6.0** — Công cụ văn phòng | Nén · Đóng dấu nước / Đánh số trang / Đầu – chân trang · Mật khẩu, metadata, làm sạch · Chèn ảnh chữ ký / con dấu | A2, A3, A4, A5 |
+| **v0.5.0** — *đã phát hành 2026-10-20* | In PDF · Nén · Dấu nước chữ + Đánh số trang (mẫu «Chuẩn NĐ30») · Đặt / gỡ mật khẩu · Tự cập nhật từ GitHub Release | A1, A2, A3 (một phần), A4 (một phần), V4 |
+| **v0.6.0** — Đọc & hoàn thiện công cụ văn phòng | Xem 2 trang song song · Một cửa sổ duy nhất · Thông báo «Đã lưu» · Đầu – chân trang / Bates / dấu nước ảnh · Metadata & làm sạch · Chèn ảnh chữ ký / con dấu | V1, V2, A3 (còn lại), A4 (còn lại), A5 |
 | **v0.7.0** — Studio & So sánh | Áp công cụ ngay trên tab đang đọc có Hoàn tác · So sánh 2 PDF | B1, B2 |
-| **v0.8.0** — Phát hành chuyên nghiệp | Bộ cài + Portable + «Mở bằng QT PDF Pro» · ~~Kiểm tra cập nhật~~ (V4 đã xong sớm) · Tải mô-đun khi cần | V3, ~~V4~~, V5 |
+| **v0.8.0** — Phát hành chuyên nghiệp | Bộ cài + Portable + «Mở bằng QT PDF Pro» · Tải mô-đun khi cần (kiểm tra cập nhật V4 đã có từ v0.5.0) | V3, V5 |
 | **v1.1.0** — OCR | OCR tiếng Việt → PDF tìm kiếm được & DOCX chuẩn NĐ30 (cần V5) | B3 |
 | **v2.0.0** — Ký số | Ký số bằng USB token qua kho chứng thư Windows · Xác thực chữ ký đầy đủ | B4 |
 
@@ -60,15 +60,15 @@ Mọi mục đều theo quy tắc của `CLAUDE.md`: phần xử lý viết tron
   - Lõi `core/printing.py`: phân tích khoảng trang (`1-3,5,8-`, trang hiện tại), lập kế hoạch in (tự xoay theo trang ngang/dọc, «Vừa khổ giấy» / «Cỡ thật»), kết xuất trang bằng PyMuPDF ở DPI máy in (giới hạn 300–600 dpi, `annots=True`), tuỳ chọn đen trắng (pixmap xám).
   - Giao diện: hộp thoại in tiếng Việt — chọn máy in (mặc định của Windows), số bản, khoảng trang, khổ A4/A5/A3/Letter, hướng giấy, in 2 mặt, màu/đen trắng, **xem trước từng trang**; nhớ thiết lập lần trước trong `settings.json`; in trong `QThread` có tiến trình.
   - Xong khi: test in ra PDF bằng `QPrinter` (`OutputFormat.PdfFormat`) đúng số trang & hướng; chạy thử in thật một trang.
-- [ ] **A2. Nén PDF** — *v0.6* (công cụ `compress` đang «Coming Soon»).
+- [x] **A2. Nén PDF** — *v0.6* — **xong 2026-10-20** (`core/compress.py`, `cli compress`, hộp thoại «Nén PDF»; chưa phát hành).
   - `doc.rewrite_images(dpi_threshold, dpi_target, quality)` theo 3 mức Nhẹ / Vừa / Mạnh, `subset_fonts()`, `save(garbage=4, deflate=True, clean=True, use_objstms=1)`.
   - Báo dung lượng trước/sau; không ghi nếu kết quả không nhỏ hơn. **Cảnh báo trước** khi tệp có chữ ký số (ghi lại toàn bộ tệp làm chữ ký mất hiệu lực).
-- [ ] **A3. Đóng dấu nước, Đánh số trang, Đầu – chân trang, Đánh số Bates** — *v0.6*.
+- [ ] **A3. Đóng dấu nước, Đánh số trang, Đầu – chân trang, Đánh số Bates** — *v0.6*. **Đã xong 2026-10-20**: dấu nước chữ & đánh số trang (`core/page_stamp.py`, `cli watermark` / `cli number --preset nd30`). **Còn**: đầu – chân trang, Bates, dấu nước bằng ảnh (dùng lại `_TextStamps` / `show_pdf_page`).
   - Dấu nước chữ: nội dung tiếng Việt, cỡ, độ mờ, góc xoay, màu, giữa trang hoặc lát gạch, khoảng trang. Dùng phông Windows nhúng tập con như cách `annotations.py` dựng hộp chữ (tránh lỗi «Ỷ» → «Ý» của Helvetica dựng sẵn). Dấu nước bằng ảnh làm sau.
   - Đánh số trang: 6 vị trí đầu/chân trang, mẫu «1», «Trang 1», «1 / 10», bắt đầu từ số bất kỳ, bỏ trang đầu, lề theo mm, đúng cả trang có `/Rotate`. Có mẫu sẵn **«Chuẩn NĐ30»**: giữa lề trên, Times New Roman 13–14, không đánh số trang đầu.
   - Đầu – chân trang (chữ trái/giữa/phải, có `{trang}`, `{tong}`, `{ngay}`, `{tep}`); đánh số Bates (tiền tố + số 6 chữ số) cho hồ sơ.
   - Cảnh báo chữ ký số như A2.
-- [ ] **A4. Mật khẩu & quyền, Metadata, Làm sạch PDF** — *v0.6* (công cụ `protect` trước đây dự kiến v2.0).
+- [ ] **A4. Mật khẩu & quyền, Metadata, Làm sạch PDF** — *v0.6* (công cụ `protect` trước đây dự kiến v2.0). **Đã xong 2026-10-20**: đặt / gỡ mật khẩu AES-256 & quyền (`core/pdf_security.py`, `cli protect` / `cli unlock`). **Còn**: metadata, làm sạch.
   - Đặt mật khẩu AES-256 (mật khẩu mở + mật khẩu chủ, quyền in / sao chép / sửa / chú thích); gỡ mật khẩu khi biết mật khẩu.
   - Xem/sửa metadata (tiêu đề, tác giả, chủ đề, từ khoá), xoá metadata.
   - Làm sạch bằng `doc.scrub()`: gỡ JavaScript, tệp đính kèm, XMP, chú thích ẩn, thông tin nhạy cảm còn sót.

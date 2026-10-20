@@ -98,7 +98,7 @@ TOOLS: list[ToolSpec] = [
     ToolSpec("print", "In tài liệu", "🖨️", "Xem trước · Khổ giấy · 2 mặt · Đen trắng (Ctrl+P)", "read",
              needs_document=True, keywords="in print may in printer kho giay a4 a5 a3 hai mat den trang ban sao"),
     ToolSpec("two_up", "Xem 2 trang song song", "📰", "Two-up · Trang bìa riêng", "read",
-             ready=False, milestone="v0.5", keywords="hai trang"),
+             ready=False, milestone="v0.6", keywords="hai trang"),
     # ── Chỉnh sửa ──
     ToolSpec("edit_pdf", "Chỉnh sửa PDF", "✏️", "Tô màu · Đánh dấu · Vẽ · Chèn chữ (Ctrl+E)", "edit",
              needs_document=True, keywords="sua chinh sua annotate to mau danh dau ve chen chu"),
@@ -120,8 +120,12 @@ TOOLS: list[ToolSpec] = [
              needs_document=True, keywords="stamp dau dong dau"),
     ToolSpec("forms", "Điền biểu mẫu", "🧾", "Trường nhập liệu · Xoá biểu mẫu", "edit",
              ready=False, milestone="v1.2", keywords="form bieu mau"),
-    ToolSpec("compress", "Nén PDF", "🗜️", "Giảm dung lượng giữ chất lượng", "edit", ready=False,
-             milestone="v1.2", keywords="compress nen"),
+    ToolSpec("compress", "Nén PDF", "🗜️", "Nhẹ · Vừa · Mạnh — báo dung lượng trước/sau", "edit",
+             keywords="compress nen giam dung luong anh email"),
+    ToolSpec("watermark", "Đóng dấu nước", "💧", "Chữ tiếng Việt · Độ mờ · Góc xoay · Lát gạch", "edit",
+             keywords="watermark dau nuoc ban sao mat noi bo du thao chim"),
+    ToolSpec("page_numbers", "Đánh số trang", "🔢", "6 vị trí · «Trang 1 / 10» · Mẫu chuẩn NĐ30", "edit",
+             keywords="page number danh so trang so trang nd30 dau trang chan trang"),
     # ── Ký số & Bảo mật ──
     ToolSpec("sig_inspect", "Soi chữ ký số & con dấu", "🛡️", "Phát hiện widget ký số VGCA", "sign",
              needs_document=True, keywords="chu ky so vgca con dau"),
@@ -129,12 +133,14 @@ TOOLS: list[ToolSpec] = [
              ready=False, milestone="v2.0", keywords="ky so token"),
     ToolSpec("verify_signature", "Xác thực chữ ký số", "🔏", "Kiểm tra chứng thư · Toàn vẹn", "sign",
              ready=False, milestone="v2.0", keywords="xac thuc chung thu"),
-    ToolSpec("protect", "Đặt mật khẩu PDF", "🔐", "Mật khẩu mở · Quyền in / sửa", "sign",
-             ready=False, milestone="v2.0", keywords="password mat khau"),
+    ToolSpec("protect", "Đặt mật khẩu PDF", "🔐", "AES-256 · Mật khẩu mở · Quyền in / sao chép / sửa", "sign",
+             keywords="password mat khau bao ve ma hoa aes quyen protect encrypt"),
+    ToolSpec("unlock", "Gỡ mật khẩu PDF", "🔓", "Khi biết mật khẩu · Gỡ hạn chế quyền", "sign",
+             keywords="unlock go mat khau mo khoa decrypt password"),
     ToolSpec("redact", "Xoá thông tin nhạy cảm", "⬛", "Redaction · Làm sạch metadata", "sign",
              ready=False, milestone="v2.0", keywords="redact an"),
     ToolSpec("compare", "So sánh 2 tệp PDF", "⚖️", "Tìm khác biệt nội dung", "sign", ready=False,
-             milestone="v2.0", keywords="compare so sanh"),
+             milestone="v0.7", keywords="compare so sanh"),
 ]
 
 RECOMMENDED: list[str] = [

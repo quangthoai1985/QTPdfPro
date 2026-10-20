@@ -7,6 +7,24 @@
 
 ## [Chưa phát hành]
 
+### Việc còn dở / Ưu tiên kế tiếp cho Agent phiên sau
+1. **Kiểm thử engine NĐ30 trên văn bản thật** (PDF ký số VGCA, PDF xuất từ phần mềm quản lý văn bản, PDF in từ LibreOffice): chạy `python -m qtpdfpro.cli convert <tệp> --mode nd30 --verify-layout` (hoặc `cli batch <thư mục> --verify-layout`) và xử lý các trường hợp «Lệch nhỏ».
+2. **v0.6** theo «Lộ trình gần» (`docs/DE_XUAT_TINH_NANG.md`): **Xem 2 trang song song**, **V1** một cửa sổ duy nhất, **V2** thông báo «Đã lưu», phần còn lại của **A3** (đầu – chân trang, Bates, dấu nước ảnh), **A4** (metadata, làm sạch `scrub`), **A5** chèn ảnh chữ ký / con dấu; sau đó v0.7 (B1, B2), v0.8 (V3, V5), **OCR Tiếng Việt** (B3, v1.1). Còn in thử 1 trang ra giấy trên máy in thật khi người dùng đồng ý.
+   - «Chỉnh sửa PDF» mở rộng: đổi cỡ hộp chữ/hình bằng tay nắm, sửa kiểu dáng chú thích đã có, che thông tin (redaction), dấu đóng có ảnh chữ ký.
+3. Tuỳ chọn: chuyển hàng loạt song song bằng nhiều tiến trình (`ProcessPoolExecutor`, cần `multiprocessing.freeze_support()` cho bản PyInstaller).
+
+---
+
+## [0.5.0] — 2026-10-20 (In tài liệu, công cụ văn phòng & tự cập nhật)
+
+### 2026-10-20 — Phát hành bản Release v0.5.0 trên GitHub
+- Gộp vào `main` hai nhánh làm song song: «In tài liệu» (`claude/recursing-borg-149273`, A1) và «Công cụ văn phòng» (`claude/hungry-hermann-d58117`, A2 + A3/A4 một phần); xung đột chỉ ở các dòng thêm cạnh nhau (`cli.py`, `main_window.py`, `settings.py`, CHANGELOG, CLAUDE.md) — giữ cả hai bên.
+- `__version__` = `0.5.0`. Danh mục: 41 công cụ — 30 dùng được; «Xem 2 trang song song» dời mốc sang **v0.6**, «So sánh 2 tệp PDF» sang **v0.7** (theo lộ trình).
+- **Bản đầu tiên có trình tự cập nhật** (V4): người dùng v0.4.0 phải tải tay bản này một lần; từ v0.5.0 trở đi bấm «Cập nhật» là xong. Tệp phát hành giữ đúng mẫu `QTPdfPro-v0.5.0-win64.zip` (thư mục gốc `QTPdfPro/`).
+- Đóng gói: PyInstaller 6.22.3, Python 3.14.0, PySide6 6.11.2, PyMuPDF 1.28.2 — thư mục 303,5 MB / 321 tệp, nén còn **127,1 MB** (`QTPdfPro-v0.5.0-win64.zip`, SHA-256 `544e79d6701b5f055211be654ee6b7227506b287af91dcf64e7ed272d0658deb`); `QTPdfPro.spec` sinh lại không đổi. Tệp zip tạo bằng `zipfile` (đường dẫn `/`, thư mục gốc `QTPdfPro/`) và đã giải nén thử bằng chính `update_check.extract_update` → tìm thấy `QTPdfPro/QTPdfPro.exe`.
+- Chạy thử `dist\QTPdfPro\QTPdfPro.exe` (dữ liệu tạm): tiêu đề «QT PDF Pro v0.5.0 — …», mở `samples/nd30/cong_van_mau.pdf`; `Qt6PrintSupport.dll` + `QtPrintSupport.pyd` có trong gói (Qt 6 không còn plugin `printsupport` riêng). Chưa in thử ra giấy từ bản .exe.
+- **121/121** `pytest` (1 bài in qua trình điều khiển Windows bỏ qua mặc định).
+
 ### 2026-10-20 — Tự phát hiện bản mới & cập nhật một chạm từ GitHub Release (mục V4)
 - **`core/update_check.py`** (không PySide6, chỉ `urllib`): đọc `releases/latest` của kho trong `__github_repo__`, so thẻ với `__version__` theo SemVer (bỏ qua bản nháp, pre-release và thẻ `-rc`/`-beta`), chọn tệp **`QTPdfPro-v<x.y.z>-win64.zip`**, trả ghi chú phát hành. Tải về `<thư mục dữ liệu>/updates/` qua tệp `.part`: có tiến trình, huỷ được, kiểm kích thước + **SHA-256** (trường `digest` của asset). Chỉ nhận **https + host GitHub** (`api.github.com`, `github.com`, `objects.githubusercontent.com`, `release-assets.githubusercontent.com`), kiểm từng bước chuyển hướng và URL cuối; timeout + User-Agent `QTPdfPro/<phiên bản>`. Biến `QT_PDF_PRO_UPDATE_API` (chỉ để kiểm thử) đổi địa chỉ API và cho phép `127.0.0.1`/`localhost`.
 - **Cài bản mới** (bản đóng gói onedir): giải nén vào `updates/staging` (chặn đường dẫn thoát ra ngoài), sinh `apply_update.ps1` (UTF-8 có BOM, `param` đầu tiên). Script đợi ứng dụng thoát, đổi thư mục cài thành `.old` (khôi phục nếu lỗi), chuyển bản mới vào (khác ổ đĩa thì chép), mở lại ứng dụng; lần khởi động sau báo «Đã cập nhật lên …» và xoá `.old`, thư mục tạm, tệp zip cũ. Thư mục cài không ghi được (Program Files) → chỉ tải về, mở thư mục chứa tệp và hướng dẫn chép tay. Chạy từ mã nguồn → chỉ báo và mở trang phát hành.
@@ -42,18 +60,38 @@ Trước đây ứng dụng chưa có chức năng in. Học ý tưởng hộp t
 - Bộ in Windows của Qt (`QAlphaPaintEngine`) ghi lại lệnh vẽ cả trang rồi phát lại khi `newPage()`/`end()`, còn `QImage` dựng từ bộ đệm PyMuPDF chỉ trỏ vào bộ nhớ → giữ ảnh của trang đang vẽ tới sau khi sang trang.
 - `QPageLayout.minimumMargins()` trả cùng một bộ lề cho cả hướng dọc và ngang → dùng lề lớn nhất cho cả 4 cạnh.
 - `QPrinter.setPrinterName` mất 0,2–1 giây (lần đầu với «Microsoft Print to PDF» ~1 giây) → hộp thoại lưu đệm lề theo máy in & khổ giấy và chỉ đọc sau khi đã hiện.
+### 2026-10-20 — Công cụ văn phòng: Nén PDF, Đóng dấu nước, Đánh số trang, Đặt / Gỡ mật khẩu (A2, A3 một phần, A4 một phần)
+Chỉ dùng PyMuPDF 1.28 có sẵn (không Ghostscript, không thêm thư viện). Học ý tưởng từ cit-pdf, **không chép mã** (AGPL).
+
+#### Thêm mới — Engine (`qtpdfpro/core/`, không phụ thuộc PySide6)
+- **`pdf_io.py`** — hàm dùng chung: `open_pdf` (đăng nhập mật khẩu; tệp hạn chế quyền sửa chỉ xử lý khi có **mật khẩu chủ**), `resolve_output` (mặc định `<tên><hậu tố>.pdf`, **từ chối ghi đè tệp nguồn** kể cả khác hoa/thường), `check_signature` (tệp có chữ ký số → `SignedDocumentError` trừ khi `allow_signed`), `write_pdf_bytes` (qua tệp tạm), `ToolResult` (`to_dict()` cho `--json`), `format_size` («1,25 MB»).
+- **`compress.py`** — `compress_pdf`: `rewrite_images` theo 3 mức **Nhẹ** (> 250 → 200 dpi, JPEG 85) / **Vừa** (> 180 → 150 dpi, JPEG 75) / **Mạnh** (> 120 → 96 dpi, JPEG 60), `subset_fonts()`, `tobytes(garbage=4, deflate, clean, use_objstms=1)`; báo dung lượng trước/sau; **không ghi** khi kết quả không nhỏ hơn; tệp có mật khẩu giữ nguyên mật khẩu. PDF có ảnh 1200×1600 px (~260 dpi): 5,14 MB → 903 KB (Nhẹ) / 463 KB (Vừa) / 32,7 KB (Mạnh).
+- **`page_stamp.py`** — **dấu nước chữ** (`watermark_pdf`/`apply_watermark`: tiếng Việt nhiều dòng, cỡ, độ mờ, góc bất kỳ, màu, giữa trang hoặc **lát gạch so le**, khoảng trang, đặt trên/dưới nội dung) và **đánh số trang** (`number_pages`/`apply_page_numbers`: 6 vị trí, mẫu `{n}` / `Trang {n}` / `{n} / {total}`…, bắt đầu từ số bất kỳ, bỏ trang đầu vẫn tính số, lề mm, Times New Roman / Arial; mẫu **«Chuẩn NĐ30»** = giữa lề trên, Times New Roman 13, không hiện số trang 1). Chữ vẽ trên tài liệu tạm bằng phông Windows (`insert_text` + `fontfile`, mọi nhãn dùng chung 1 phông) → `subset_fonts()` → thu gọn `/W` và `ToUnicode` về đúng ký tự đã dùng → `show_pdf_page` lên từng trang (toạ độ trang hiển thị × `derotation_matrix`, góc + `/Rotate`) — **đúng chiều trên trang xoay 90/180/270°**, chữ tìm kiếm / chép được, không lỗi «Ỷ» → «Ý».
+- **`pdf_security.py`** — `protect_pdf` (**AES-256**, mật khẩu mở + mật khẩu chủ, quyền in / sao chép / sửa / chú thích; hạn chế quyền bắt buộc có mật khẩu chủ khác mật khẩu mở), `unlock_pdf` (gỡ khi biết mật khẩu; tệp hạn chế quyền cần mật khẩu chủ), `security_info`.
+- `page_ops.save_pdf(doc, path, **save_options)` nhận thêm tham số `Document.save` (vd giữ mã hoá); `reader.password`.
+
+#### Thêm mới — Dòng lệnh
+- `compress`, `watermark`, `number` (`--preset nd30`), `protect`, `unlock` — đều có `--json`, `--password` (tệp nguồn có mật khẩu), `--force` (tệp có chữ ký số); lỗi → mã thoát 1.
+
+#### Thêm mới — Giao diện
+- **`ui/pdf_tools_dialog.py`**: khung `PdfToolDialog` (tệp nguồn = tệp của tab đang đọc hoặc chọn tệp, hỏi mật khẩu; nơi lưu mặc định cạnh tệp gốc; chạy `QThread`; **hỏi trước khi xử lý tệp có chữ ký số**; tệp hạn chế quyền → hỏi mật khẩu chủ rồi chạy lại) và 5 hộp thoại `CompressDialog`, `WatermarkDialog` (mẫu nhanh BẢN SAO / MẬT / DỰ THẢO…, **xem trước** trang), `PageNumberDialog` (nút «Dùng mẫu Chuẩn NĐ30», xem trước đúng số của trang), `ProtectDialog` (nhập lại mật khẩu, hiện mật khẩu, 4 quyền), `UnlockDialog` (tình trạng bảo vệ của tệp).
+- `tool_catalog.py`: `compress`, `protect` → dùng được; thêm `watermark`, `page_numbers`, `unlock` (40 công cụ — 29 dùng được). `MainWindow.run_tool` → `action_pdf_tool` (tab có chú thích chưa lưu → hỏi «Lưu rồi tiếp tục / Dùng bản đã lưu»; xong → **hỏi mở tệp kết quả thành tab mới**, kèm mật khẩu). Cột trái của tab: mục «CÔNG CỤ VĂN PHÒNG» và «BẢO MẬT» (tín hiệu `PDFDocumentTab.toolRequested`); menu «Chỉnh sửa PDF» thêm 5 mục.
+
+#### Lỗi gặp phải & cách xử lý
+- **MuPDF 1.28: đọc `doc.needs_pass` sau `doc.authenticate()` làm hỏng khoá giải mã** → lần lưu sau ghi luồng nội dung rác («aes padding out of range», trang trắng). `pdf_io` chỉ đọc `needs_pass` một lần trước khi đăng nhập; sau đó dùng `is_encrypted` / `metadata["encryption"]`.
+- `ToUnicode` MuPDF sinh cho Arial/Times ánh xạ glyph dấu cách → U+00A0 (chép ra «BẢN\xa0SAO»), và ghi `/W` + `ToUnicode` cho **cả phông** (~25 KB mỗi lần). Tự viết lại 2 bảng theo các ký tự đã dùng: đánh số 10 trang chỉ thêm ~21 KB/tệp (phông Times nhúng tập con), dấu nước ~17 KB, thay vì ~45 KB.
+- `insert_htmlbox` trên nhiều trang của cùng tài liệu tạm nhúng **mỗi trang một bản phông** → dùng `insert_text` + `fontfile` (một phông chung) cho nhãn số trang / dấu nước.
+- `QDoubleSpinBox` chưa có kiểu trong QSS giao diện Tối → ô lề dùng `QSpinBox` (mm nguyên).
+
+#### Kiểm thử
+- `tests/test_pdf_tools.py` (10 bài: nén nhỏ hơn với ảnh lớn, không ghi khi không nhỏ hơn, từ chối tệp ký số / ghi đè nguồn, dấu nước tiếng Việt + trang chọn + trang xoay + lát gạch, số trang mẫu/bắt đầu/bỏ trang đầu/vị trí mm/trang xoay, mẫu NĐ30, đặt/gỡ mật khẩu & quyền, công cụ trên tệp có mật khẩu giữ mã hoá, CLI) và `tests/test_pdf_tools_ui.py` (8 bài: danh mục, nén → mở tab kết quả, xem trước, mẫu NĐ30, hỏi chữ ký số, đặt/gỡ mật khẩu, hỏi mật khẩu chủ trên tab hạn chế quyền). **80/80** `pytest`.
+- Chạy thử GUI với `QT_PDF_PRO_DATA` tạm: chụp 5 hộp thoại ở giao diện Sáng/Tối và cột công cụ — chữ tiếng Việt hiển thị đúng.
 
 ### 2026-10-20 — Lộ trình v0.5 → v2.0 sau khi khảo sát cit-pdf (chỉ tài liệu)
 - Khảo sát [cit-pdf](https://github.com/Cuongyd196/cit-pdf) (bản desktop Electron của BentoPDF, AGPL-3.0): chuyển PDF → Word của ta vượt xa (họ dùng PyMuPDF/pdf2docx mặc định, không có tuỳ chọn); giữ nguyên công nghệ Python + PySide6 + PyMuPDF native (nhanh, nhẹ hơn Electron + WASM). Chỉ học ý tưởng, không chép mã AGPL.
 - `docs/DE_XUAT_TINH_NANG.md`: thêm mục **«Lộ trình gần»** — bảng mốc v0.5 / v0.6 / v0.7 / v0.8 / v1.1 / v2.0 và 14 mục có mã: nhóm **A** công cụ văn phòng (A1 In PDF — hiện chưa có chức năng in, A2 Nén, A3 Dấu nước / Đánh số trang / Đầu – chân trang / Bates, A4 Mật khẩu – metadata – làm sạch, A5 Chèn ảnh chữ ký / con dấu), nhóm **B** (B1 áp công cụ ngay trên tab có Hoàn tác, B2 So sánh 2 PDF, B3 OCR → DOCX NĐ30, B4 ký số USB token & xác thực đầy đủ), **vỏ ứng dụng** (V1 một cửa sổ duy nhất, V2 thông báo «Đã lưu», V3 bộ cài + «Mở bằng», V4 kiểm tra cập nhật, V5 tải mô-đun khi cần). Ghi rõ **không làm** nhóm tiện ích scan (người dùng đã có app scan riêng). Giai đoạn 2/4 trỏ tới B3/B4; «Chuyển đổi hàng loạt» đánh dấu đã xong (v0.3.0); «Đặt mật khẩu» dời lên v0.6.
 - `CLAUDE.md`: liên kết lộ trình ở đầu tệp; mục 6 xếp việc theo mã mục.
 - Không đổi mã nguồn; **62/62** `pytest`.
-
-### Việc còn dở / Ưu tiên kế tiếp cho Agent phiên sau
-1. **Kiểm thử engine NĐ30 trên văn bản thật** (PDF ký số VGCA, PDF xuất từ phần mềm quản lý văn bản, PDF in từ LibreOffice): chạy `python -m qtpdfpro.cli convert <tệp> --mode nd30 --verify-layout` (hoặc `cli batch <thư mục> --verify-layout`) và xử lý các trường hợp «Lệch nhỏ».
-2. **v0.5** theo «Lộ trình gần» (`docs/DE_XUAT_TINH_NANG.md`): **Xem 2 trang song song**, ~~A1 In PDF~~ (đã xong — còn in thử 1 trang ra giấy khi người dùng đồng ý), **V1** một cửa sổ duy nhất, **V2** thông báo «Đã lưu»; sau đó v0.6 (A2–A5), v0.7 (B1, B2), v0.8 (V3–V5), **OCR Tiếng Việt** (B3, v1.1).
-   - «Chỉnh sửa PDF» mở rộng: đổi cỡ hộp chữ/hình bằng tay nắm, sửa kiểu dáng chú thích đã có, che thông tin (redaction), dấu đóng có ảnh chữ ký.
-3. Tuỳ chọn: chuyển hàng loạt song song bằng nhiều tiến trình (`ProcessPoolExecutor`, cần `multiprocessing.freeze_support()` cho bản PyInstaller).
 
 ---
 

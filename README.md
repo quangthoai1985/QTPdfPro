@@ -31,10 +31,21 @@
 - **«Sắp xếp & cắt ghép trang»** (`Ctrl+Shift+O`): lưới ảnh trang **kéo thả** đổi thứ tự, xoay, nhân bản, xoá, chèn trang trắng, đảo thứ tự, **ghép trang từ nhiều tệp PDF** (mỗi tệp một màu), **đặt điểm cắt ✂** giữa các trang → xuất mỗi phần thành một tệp, chia theo mỗi N trang / theo khoảng trang, trích trang chọn; giữ chú thích, liên kết và **mục lục** (bookmark) của các trang còn lại.
 - Dòng lệnh: `merge`, `split`, `organize`, `extract`, `annotate` (tô sáng cụm từ, đóng dấu, thao tác JSON, làm phẳng), `annots`.
 
-### 1.0d. In tài liệu (`Ctrl+P`, chưa phát hành — sẽ vào `v0.5`)
+### 1.0d. In tài liệu (`Ctrl+P`, mới ở `v0.5.0`)
 - Hộp thoại in tiếng Việt: chọn máy in (mặc định của Windows) hoặc **lưu bản in thành tệp PDF**, số bản + in trọn từng bộ, trang in (tất cả / trang hiện tại / tuỳ chọn `1-3, 5, 8-`), chỉ trang lẻ / chẵn, in ngược thứ tự, khổ **A4 / A5 / A3 / Letter / Legal**, hướng giấy tự động theo trang, **tự xoay** trang ngang / dọc cho vừa giấy, «Vừa khổ giấy» / «Cỡ thật» / «Chỉ thu nhỏ trang quá khổ», in 2 mặt (khi máy in hỗ trợ; nếu không thì gợi ý in 2 mặt thủ công bằng trang lẻ / chẵn), màu / **đen trắng**, chất lượng 300–600 dpi, in kèm chú thích – con dấu – chữ ký.
 - **Xem trước từng tờ** đúng như sẽ in; in trong luồng nền có thanh tiến trình và nút «Dừng in»; nhớ thiết lập lần trước. In cả chú thích chưa lưu của tab.
 - Dòng lệnh: `print --to-pdf` (dựng bản in ra PDF, không cần máy in), `--printer`, `--plan`, `--list-printers`.
+
+### 1.0e. Công cụ văn phòng: nén, đóng dấu nước, đánh số trang, mật khẩu (mới ở `v0.5.0`)
+- **Nén PDF** 3 mức Nhẹ / Vừa / Mạnh (giảm ảnh, nhúng tập con phông, dọn đối tượng thừa); không ghi nếu kết quả không nhỏ hơn; giữ mật khẩu của tệp.
+- **Đóng dấu nước** chữ tiếng Việt nhiều dòng: cỡ, độ mờ, góc xoay, màu, giữa trang hoặc lát gạch, chọn khoảng trang; chữ vẫn tìm kiếm / sao chép được.
+- **Đánh số trang**: 6 vị trí, mẫu «1» / «Trang 1» / «1 / 10», bắt đầu từ số bất kỳ, bỏ trang đầu; mẫu sẵn **«Chuẩn NĐ30»** (giữa lề trên, Times New Roman 13, không hiện số trang 1).
+- **Đặt / gỡ mật khẩu** AES-256: mật khẩu mở + mật khẩu chủ, quyền in / sao chép / sửa / chú thích.
+- Tệp có chữ ký số được hỏi trước khi xử lý (ghi lại tệp làm chữ ký mất hiệu lực). Dòng lệnh: `compress`, `watermark`, `number`, `protect`, `unlock`.
+
+### 1.0f. Tự cập nhật từ GitHub Release (mới ở `v0.5.0`)
+- Ứng dụng tự kiểm tra bản mới tối đa 1 lần/ngày (tắt được ở ☰ Menu › Trợ giúp), báo «Đã có bản vX.Y.Z — Cập nhật»; bấm là tải về, kiểm mã SHA-256, khởi động lại và thay bản cũ (giữ bản dự phòng, lỗi thì khôi phục).
+- Kiểm tra bằng tay: ☰ Menu › Trợ giúp › «Kiểm tra cập nhật...», hoặc `cli update --check`.
 
 ### 1.1. Chuyển đổi PDF sang Word (`.docx`) chuẩn xác (Chức năng chủ đạo)
 Khắc phục triệt để hiện tượng *vỡ khung, nhảy dòng, tràn trang, lỗi phông tiếng Việt* thường gặp ở các công cụ chuyển đổi thông thường nhờ **Kiến trúc Đa Chế độ + Bộ Hậu xử lý Chuẩn xác OpenXML (`lxml`)**:
@@ -123,6 +134,16 @@ python -m qtpdfpro.cli print vanban.pdf --pages "1-3,8-" --to-pdf ban_in.pdf --g
 python -m qtpdfpro.cli print vanban.pdf --plan --paper A5
 python -m qtpdfpro.cli print --list-printers
 python -m qtpdfpro.cli print vanban.pdf --printer mac-dinh --copies 2
+
+# Công cụ văn phòng: nén, dấu nước, đánh số trang chuẩn NĐ30, đặt / gỡ mật khẩu
+python -m qtpdfpro.cli compress tailieu.pdf --level vua
+python -m qtpdfpro.cli watermark tailieu.pdf --text "BẢN SAO" --opacity 0.2 --angle 45
+python -m qtpdfpro.cli number tailieu.pdf --preset nd30
+python -m qtpdfpro.cli protect tailieu.pdf -u MK_MO -O MK_CHU --no-copy
+python -m qtpdfpro.cli unlock tailieu_khoa.pdf --password MK_CHU
+
+# Kiểm tra / tải bản mới nhất từ GitHub Release
+python -m qtpdfpro.cli update --check
 ```
 
 ### Chạy kiểm thử tự động & Đóng gói `.exe`
