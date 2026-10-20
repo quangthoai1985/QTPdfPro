@@ -17,6 +17,10 @@ Chỉnh sửa PDF (tổ chức trang & chú thích):
   python -m qtpdfpro.cli annotate in.pdf [-o out.pdf] [--highlight "cụm từ"] [--underline ...] [--strikeout ...]
                                   [--color vang] [--stamp "ĐÃ DUYỆT" --stamp-date] [--ops thao_tac.json] [--flatten]
   python -m qtpdfpro.cli annots in.pdf [--json]
+
+Cập nhật (GitHub Release):
+  python -m qtpdfpro.cli update --check [--json]
+  python -m qtpdfpro.cli update --download [-o thu_muc] [--json]
 """
 
 from __future__ import annotations
@@ -30,6 +34,7 @@ from typing import List, Optional
 from qtpdfpro import __app_name__, __version__
 from qtpdfpro.core import annotations as annots_mod
 from qtpdfpro.core import page_ops
+from qtpdfpro.core import update_check
 from qtpdfpro.core.batch import (
     STATUS_FAILED,
     STATUS_OK,
@@ -183,6 +188,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_bat.add_argument("--json", action="store_true", help="In kết quả dạng JSON")
 
     _add_edit_commands(sub)
+    _add_update_command(sub)
     return parser
 
 
@@ -244,6 +250,78 @@ def _add_edit_commands(sub) -> None:
     p_list = sub.add_parser("annots", help="Liệt kê chú thích trong tệp PDF")
     p_list.add_argument("input_pdf", help="Tệp PDF")
     p_list.add_argument("--json", action="store_true", help="In kết quả dạng JSON")
+
+
+def _add_update_command(sub) -> None:
+    """Lệnh «update»: kiểm tra / tải bản mới từ GitHub Release (không tự cài)."""
+    p_upd = sub.add_parser("update", help="Kiểm tra hoặc tải bản QT PDF Pro mới nhất từ GitHub Release")
+    grp = p_upd.add_mutually_exclusive_group()
+    grp.add_argument("--check", action="store_true", help="Chỉ kiểm tra có bản mới hay không (mặc định)")
+    grp.add_argument("--download", action="store_true", help="Tải tệp .zip bản mới (kiểm SHA-256)")
+    p_upd.add_argument("-o", "--output-dir", help="Thư mục lưu tệp tải về (mặc định: <dữ liệu>/updates)")
+    p_upd.add_argument("--json", action="store_true", help="In kết quả dạng JSON")
+
+
+def _run_update(args: argparse.Namespace) -> int:
+    try:
+        result = update_check.check_for_update()
+    except update_check.UpdateError as exc:
+        print(f"Lỗi: {exc}", file=sys.stderr)
+        return 1
+    payload = result.to_dict()
+    rel = result.latest
+    if not args.download:
+        if args.json:
+            print(json.dumps(payload, ensure_ascii=False, indent=2))
+        else:
+            print(result.message)
+            if result.update_available and rel is not None:
+                print(f"  - Bản mới      : {rel.title}")
+                print(f"  - Trang phát hành: {rel.html_url}")
+                if rel.asset is not None:
+                    print(f"  - Tệp tải về   : {rel.asset.name} ({update_check.format_size(rel.asset.size)})")
+        return 0
+
+    if not result.update_available or rel is None:
+        if args.json:
+            print(json.dumps({**payload, "downloaded": None}, ensure_ascii=False, indent=2))
+        else:
+            print(result.message)
+        return 0
+    if rel.asset is None:
+        print(
+            f"Lỗi: bản v{rel.version} chưa có tệp {update_check.expected_asset_name(rel.version)} — "
+            f"tải thủ công tại {rel.html_url}",
+            file=sys.stderr,
+        )
+        return 1
+
+    def _on_progress(done: int, total: int) -> None:
+        if args.json:
+            return
+        if total:
+            text = f"{update_check.format_size(done)} / {update_check.format_size(total)} ({done * 100 // total}%)"
+        else:
+            text = update_check.format_size(done)
+        print(f"\r  Đang tải: {text}   ", end="", file=sys.stderr, flush=True)
+
+    try:
+        path = update_check.download_asset(
+            rel.asset, Path(args.output_dir) if args.output_dir else None, progress_cb=_on_progress
+        )
+    except update_check.UpdateError as exc:
+        if not args.json:
+            print(file=sys.stderr)
+        print(f"Lỗi: {exc}", file=sys.stderr)
+        return 1
+    if args.json:
+        print(json.dumps({**payload, "downloaded": str(path)}, ensure_ascii=False, indent=2))
+    else:
+        print(file=sys.stderr)
+        check = "khớp SHA-256" if rel.asset.sha256 else "đúng dung lượng"
+        print(f"Đã tải bản v{rel.version} ({check}): {path}")
+        print("  Giải nén và chép đè thư mục QTPdfPro để cập nhật (hoặc cập nhật ngay trong ứng dụng).")
+    return 0
 
 
 def _print_organize(res: page_ops.OrganizeResult, title: str, as_json: bool) -> None:
@@ -498,6 +576,9 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     if args.command in ("merge", "split", "organize", "extract", "annotate", "annots"):
         return _run_edit_command(args)
+
+    if args.command == "update":
+        return _run_update(args)
 
     if args.command == "nd30":
         src = Path(args.input_pdf).resolve()

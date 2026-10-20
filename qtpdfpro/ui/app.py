@@ -61,4 +61,5 @@ def main(argv: Optional[List[str]] = None) -> int:
         if p.exists():
             win.open_pdf_path(p)
 
+    win.updater.on_startup()  # tự kiểm tra bản mới (tối đa 1 lần/ngày, chạy nền) + dọn bản cũ sau khi cập nhật
     return app.exec()

@@ -44,6 +44,9 @@ class AppSettings:
     verify_layout: bool = True  # Kiểm chứng DOCX bằng Microsoft Word sau khi chuyển (nếu máy có Word)
     batch_output_dir: str = ""  # Thư mục lưu của «Chuyển đổi hàng loạt»; trống = lưu cạnh từng tệp PDF gốc
     annot_author: str = ""  # Tên người chú thích ghi vào PDF; trống = tên đăng nhập Windows
+    auto_check_updates: bool = True  # Tự kiểm tra bản mới trên GitHub Release lúc khởi động (tối đa 1 lần/ngày)
+    last_update_check: str = ""  # Thời điểm kiểm tra cập nhật thành công gần nhất (ISO 8601, UTC)
+    skipped_update_version: str = ""  # Bản người dùng chọn «Bỏ qua bản này» (không tự báo nữa)
 
     @classmethod
     def settings_file(cls) -> Path:

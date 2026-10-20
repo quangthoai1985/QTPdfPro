@@ -64,6 +64,7 @@ from qtpdfpro.ui.organizer_dialog import PageOrganizerDialog
 from qtpdfpro.ui.pdf_canvas import PDFScrollViewer
 from qtpdfpro.ui.theme import get_stylesheet
 from qtpdfpro.ui.tool_catalog import CATEGORIES, COMING_SOON_LABEL, TOOLS, get_tool
+from qtpdfpro.ui.update_dialog import UpdateController
 
 
 class PDFDocumentTab(QWidget):
@@ -803,6 +804,7 @@ class MainWindow(QMainWindow):
         self.setAcceptDrops(True)
         self._mode_category = "all"
         self._toast: Optional[QLabel] = None
+        self.updater = UpdateController(self, self.settings)
 
         self._build_actions_and_menus()
         central = QWidget()
@@ -981,6 +983,8 @@ class MainWindow(QMainWindow):
         act_about = QAction(f"Giới thiệu {__app_name__}...", self)
         act_about.triggered.connect(self.action_show_about)
         help_menu.addAction(act_about)
+        help_menu.addSeparator()
+        self.updater.add_menu_actions(help_menu)
 
         # Menu nằm trong nút «☰ Menu» nên phải gắn hành động vào cửa sổ để phím tắt hoạt động
         for menu in (file_menu, view_menu, tools_menu, edit_menu, help_menu):
@@ -1567,6 +1571,7 @@ class MainWindow(QMainWindow):
                 if not self._confirm_close_tab(w):
                     event.ignore()
                     return
+        self.updater.on_window_closing()
         super().closeEvent(event)
 
     def action_organize(self, mode: str = "organize") -> None:

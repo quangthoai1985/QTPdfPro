@@ -48,7 +48,7 @@
 | **v0.5.0** — Đọc & In | Xem 2 trang song song (đã có kế hoạch) · In PDF · Một cửa sổ duy nhất · Thông báo «Đã lưu» | A1, V1, V2 |
 | **v0.6.0** — Công cụ văn phòng | Nén · Đóng dấu nước / Đánh số trang / Đầu – chân trang · Mật khẩu, metadata, làm sạch · Chèn ảnh chữ ký / con dấu | A2, A3, A4, A5 |
 | **v0.7.0** — Studio & So sánh | Áp công cụ ngay trên tab đang đọc có Hoàn tác · So sánh 2 PDF | B1, B2 |
-| **v0.8.0** — Phát hành chuyên nghiệp | Bộ cài + Portable + «Mở bằng QT PDF Pro» · Kiểm tra cập nhật · Tải mô-đun khi cần | V3, V4, V5 |
+| **v0.8.0** — Phát hành chuyên nghiệp | Bộ cài + Portable + «Mở bằng QT PDF Pro» · ~~Kiểm tra cập nhật~~ (V4 đã xong sớm) · Tải mô-đun khi cần | V3, ~~V4~~, V5 |
 | **v1.1.0** — OCR | OCR tiếng Việt → PDF tìm kiếm được & DOCX chuẩn NĐ30 (cần V5) | B3 |
 | **v2.0.0** — Ký số | Ký số bằng USB token qua kho chứng thư Windows · Xác thực chữ ký đầy đủ | B4 |
 
@@ -104,7 +104,11 @@ Mọi mục đều theo quy tắc của `CLAUDE.md`: phần xử lý viết tron
 - [ ] **V3. Bộ cài + bản Portable + «Mở bằng QT PDF Pro»** — *v0.8*.
   - Bộ cài Inno Setup theo từng người dùng (không cần quyền Administrator): lối tắt Start Menu, gỡ cài đặt, đăng ký ProgID cho `.pdf` trong mục «Mở bằng» (không ép làm ứng dụng mặc định). Giữ bản zip Portable như hiện nay.
   - Script đóng gói tuân thủ quy tắc tệp `.bat` thuần ASCII + CRLF.
-- [ ] **V4. Kiểm tra cập nhật** — *v0.8*: `core/update_check.py` (chỉ `urllib`, không thêm thư viện) đọc `https://api.github.com/repos/quangthoai1985/QTPdfPro/releases/latest`, so với `__version__`; chạy khi bấm nút hoặc tối đa 1 lần/ngày (tắt được trong cài đặt), có bản mới thì báo kèm liên kết tải — **không tự tải, không tự cài**. Test bằng phản hồi giả lập.
+- [x] **V4. Kiểm tra cập nhật & cập nhật một chạm** — *xong sớm 2026-10-20 (dự kiến v0.8, phát hành cùng bản kế tiếp)*.
+  - `core/update_check.py` (chỉ `urllib`, không thêm thư viện): đọc `https://api.github.com/repos/quangthoai1985/QTPdfPro/releases/latest`, so thẻ với `__version__` theo SemVer, bỏ qua bản nháp / pre-release; chọn tệp `QTPdfPro-v<x.y.z>-win64.zip` (**giữ đúng mẫu tên này khi phát hành**); chỉ nhận https + host GitHub (`api.github.com`, `github.com`, `objects.githubusercontent.com`, `release-assets.githubusercontent.com`, kiểm cả từng bước chuyển hướng), có timeout và User-Agent; tải vào `<thư mục dữ liệu>/updates/` có tiến trình, huỷ được, kiểm kích thước + SHA-256 (trường `digest`).
+  - Tự kiểm tra lúc khởi động tối đa 1 lần/ngày (chạy nền `QThread`, tắt được: ☰ Menu › Trợ giúp hoặc ô trong hộp thoại), thông báo nổi «Đã có bản vX.Y.Z — Cập nhật»; «Kiểm tra cập nhật...» kiểm tra bằng tay. Hộp thoại: ghi chú phát hành, dung lượng, «Tải về & cập nhật» / «Để sau» / «Bỏ qua bản này», thanh tiến trình, Huỷ.
+  - **Chỉ tải và cài khi người dùng bấm.** Bản đóng gói: giải nén vào thư mục tạm, script PowerShell đợi ứng dụng thoát (sau khi `closeEvent` hỏi lưu các tab), đổi thư mục cài thành `.old` (khôi phục nếu lỗi), đưa bản mới vào, mở lại ứng dụng; lần mở sau xoá `.old`. Thư mục cài không ghi được (Program Files) → tải về, mở thư mục chứa tệp và hướng dẫn chép tay. Chạy từ mã nguồn → chỉ báo và mở trang phát hành.
+  - CLI `update --check [--json]`, `update --download [-o thư_mục]`. Test bằng phản hồi giả lập + HTTP server cục bộ (`QT_PDF_PRO_UPDATE_API`), không gọi mạng thật.
 - [ ] **V5. Tải mô-đun nặng khi cần dùng lần đầu** — *v0.8*, tiền đề cho B3.
   - `core/modules.py`: bảng kê (tên, URL, kích thước, SHA-256), hỏi người dùng trước khi tải, tải vào `%LOCALAPPDATA%\QTPdfPro\modules\` (theo `QT_PDF_PRO_DATA` khi test), kiểm mã băm, dùng được khi không có mạng sau đó.
   - Mô-đun đầu tiên: Tesseract + dữ liệu `vie`/`eng`. Trang cài đặt cho xem trạng thái, tải lại hoặc xoá từng mô-đun. Giữ bộ cài nhỏ.
