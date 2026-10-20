@@ -7,6 +7,19 @@
 
 ## [Chưa phát hành]
 
+### Việc còn dở / Ưu tiên kế tiếp cho Agent phiên sau
+1. **Kiểm thử engine NĐ30 trên văn bản thật** (PDF ký số VGCA, PDF xuất từ phần mềm quản lý văn bản, PDF in từ LibreOffice): chạy `python -m qtpdfpro.cli convert <tệp> --mode nd30 --verify-layout` (hoặc `cli batch <thư mục> --verify-layout`) và xử lý các trường hợp «Lệch nhỏ».
+2. **Xem 2 trang song song** (v0.4) và **OCR Tiếng Việt cho PDF ảnh quét** (`Tesseract vie+eng` / `VietOCR`, v1.1) — đang «Coming Soon».
+3. Tuỳ chọn: chuyển hàng loạt song song bằng nhiều tiến trình (`ProcessPoolExecutor`, cần `multiprocessing.freeze_support()` cho bản PyInstaller).
+
+---
+
+## [0.3.1] — 2026-10-20 (Icon ứng dụng mới)
+
+### 2026-10-20 — Phát hành bản Release v0.3.1 trên GitHub
+- Bản vá sau v0.3.0: chỉ thêm icon ứng dụng (cửa sổ, thanh tác vụ, tệp `QTPdfPro.exe`); engine chuyển đổi không đổi.
+- `__version__` = `0.3.1`; đóng gói bằng `build.bat` → `QTPdfPro-v0.3.1-win64.zip`; tag `v0.3.1`; GitHub Release: https://github.com/quangthoai1985/QTPdfPro/releases/tag/v0.3.1.
+
 ### 2026-10-20 — Icon ứng dụng mới
 
 #### Thêm mới
@@ -20,11 +33,6 @@
 #### Kiểm thử
 - **41/41** `pytest` (thêm `test_app_icon_has_all_sizes`: tệp .ico tồn tại, `QIcon` đọc đủ các cỡ 16/24/32/48/256).
 - Chạy `python -m qtpdfpro` và `dist\QTPdfPro\QTPdfPro.exe` (dữ liệu tạm): icon mới hiện ở thanh tiêu đề và thanh tác vụ; icon nhúng trong .exe đọc lại được.
-
-### Việc còn dở / Ưu tiên kế tiếp cho Agent phiên sau
-1. **Kiểm thử engine NĐ30 trên văn bản thật** (PDF ký số VGCA, PDF xuất từ phần mềm quản lý văn bản, PDF in từ LibreOffice): chạy `python -m qtpdfpro.cli convert <tệp> --mode nd30 --verify-layout` (hoặc `cli batch <thư mục> --verify-layout`) và xử lý các trường hợp «Lệch nhỏ».
-2. **Xem 2 trang song song** (v0.4) và **OCR Tiếng Việt cho PDF ảnh quét** (`Tesseract vie+eng` / `VietOCR`, v1.1) — đang «Coming Soon».
-3. Tuỳ chọn: chuyển hàng loạt song song bằng nhiều tiến trình (`ProcessPoolExecutor`, cần `multiprocessing.freeze_support()` cho bản PyInstaller).
 
 ---
 
