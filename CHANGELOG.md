@@ -7,6 +7,20 @@
 
 ## [Chưa phát hành]
 
+### 2026-10-20 — Icon ứng dụng mới
+
+#### Thêm mới
+- **Icon QT PDF Pro**: nền vuông bo góc xanh dương (màu nhấn của app), trang tài liệu gấp góc có nhãn đỏ «PDF» và huy hiệu xanh lá mũi tên chuyển đổi. Nguồn SVG: `qtpdfpro/ui/assets/app_icon.svg` (cỡ lớn) và `app_icon_small.svg` (bản giản lược cho 16–32 px để không nhoè); `tools/make_app_icon.py` dựng bằng Qt ra `app_icon.ico` 10 cỡ (16, 20, 24, 32, 40, 48, 64, 96, 128, 256 px, ảnh PNG trong .ico) và `app_icon_256.png` (dùng trong README).
+- `qtpdfpro/ui/app.py`: `app_icon()` + `app.setWindowIcon(...)` → icon ở thanh tiêu đề mọi cửa sổ/hộp thoại và thanh tác vụ. Khi chạy bằng `python -m qtpdfpro`, đặt `SetCurrentProcessExplicitAppUserModelID("quangthoai1985.QTPdfPro")` để thanh tác vụ không gộp vào nhóm «Python» (hiện icon của app); bản .exe không đặt (Windows lấy icon nhúng, và để không tách khỏi lối tắt đã ghim).
+- `build.bat`: `--icon qtpdfpro\ui\assets\app_icon.ico` (nhúng icon vào `QTPdfPro.exe`) và `--add-data` chép `app_icon.ico` vào `_internal\qtpdfpro\ui\assets\` cho icon cửa sổ; `QTPdfPro.spec` sinh lại tương ứng.
+
+#### Đã sửa
+- Ứng dụng không có icon: thanh tiêu đề và thanh tác vụ hiện biểu tượng cửa sổ mặc định của Windows (chưa từng gọi `setWindowIcon`, `build.bat` chưa có `--icon`).
+
+#### Kiểm thử
+- **41/41** `pytest` (thêm `test_app_icon_has_all_sizes`: tệp .ico tồn tại, `QIcon` đọc đủ các cỡ 16/24/32/48/256).
+- Chạy `python -m qtpdfpro` và `dist\QTPdfPro\QTPdfPro.exe` (dữ liệu tạm): icon mới hiện ở thanh tiêu đề và thanh tác vụ; icon nhúng trong .exe đọc lại được.
+
 ### Việc còn dở / Ưu tiên kế tiếp cho Agent phiên sau
 1. **Kiểm thử engine NĐ30 trên văn bản thật** (PDF ký số VGCA, PDF xuất từ phần mềm quản lý văn bản, PDF in từ LibreOffice): chạy `python -m qtpdfpro.cli convert <tệp> --mode nd30 --verify-layout` (hoặc `cli batch <thư mục> --verify-layout`) và xử lý các trường hợp «Lệch nhỏ».
 2. **Xem 2 trang song song** (v0.4) và **OCR Tiếng Việt cho PDF ảnh quét** (`Tesseract vie+eng` / `VietOCR`, v1.1) — đang «Coming Soon».

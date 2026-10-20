@@ -5,7 +5,7 @@ a = Analysis(
     ['run_qtpdfpro.py'],
     pathex=[],
     binaries=[],
-    datas=[],
+    datas=[('qtpdfpro/ui/assets/app_icon.ico', 'qtpdfpro/ui/assets')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
@@ -32,6 +32,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon=['qtpdfpro/ui/assets/app_icon.ico'],
 )
 coll = COLLECT(
     exe,

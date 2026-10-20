@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
+  <!-- Bản giản lược của app_icon.svg cho cỡ 16–32 px (bỏ chữ, dòng kẻ, huy hiệu) -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#3B82F6"/>
+      <stop offset="1" stop-color="#1E3A8A"/>
+    </linearGradient>
+  </defs>
+  <rect x="0.5" y="0.5" width="31" height="31" rx="7" fill="url(#bg)"/>
+  <path d="M9 4 H19 L25 10 V27 Q25 28 24 28 H9 Q8 28 8 27 V5 Q8 4 9 4 Z" fill="#FFFFFF"/>
+  <path d="M19 4 V9 Q19 10 20 10 H25 Z" fill="#BFDBFE"/>
+  <rect x="11" y="12" width="9" height="2" rx="1" fill="#CBD5E1"/>
+  <rect x="5" y="17" width="17" height="8" rx="2" fill="#DC2626"/>
+</svg>

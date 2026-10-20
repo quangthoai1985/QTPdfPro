@@ -1,4 +1,4 @@
-# QT PDF Pro
+# <img src="qtpdfpro/ui/assets/app_icon_256.png" width="40" align="top" alt=""> QT PDF Pro
 
 **QT PDF Pro** là ứng dụng chuyên đọc tài liệu PDF tốc độ cao kèm chức năng chủ đạo **chuyển đổi PDF sang Word (`.docx`) chuẩn xác từng thành phần** dành cho Windows, viết bằng **Python 3.14 + PySide6 (Qt6) + PyMuPDF + Hybrid OpenXML Engine**.
 

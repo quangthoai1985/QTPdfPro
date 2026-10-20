@@ -13,6 +13,8 @@ python -m PyInstaller ^
     --windowed ^
     --name QTPdfPro ^
     --distpath "%DIST_DIR%" ^
+    --icon qtpdfpro\ui\assets\app_icon.ico ^
+    --add-data "qtpdfpro\ui\assets\app_icon.ico;qtpdfpro\ui\assets" ^
     --exclude-module tkinter ^
     --exclude-module matplotlib ^
     --exclude-module scipy ^

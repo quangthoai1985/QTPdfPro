@@ -33,7 +33,8 @@
      - `word_com`: Cầu nối Microsoft Word Native Reflow qua COM + hậu xử lý OpenXML.
      - `auto`: Tự động chọn `hybrid` hoặc `exact` dựa trên phân tích bố cục trang.
      - Kèm **Bộ Kiểm định Độ chính xác (`core/fidelity.py`)** chấm điểm bảo toàn từ vựng, ký tự, bảng biểu, hình ảnh ngay sau khi chuyển đổi.
-- **Tất cả 40/40 bài kiểm thử tự động (`tests/`) đã chạy qua 100%** (bài kiểm chứng bằng MS Word tự bỏ qua nếu máy không có Word).
+- **Mới sau v0.3.0 (chưa phát hành)**: **Icon ứng dụng** (`qtpdfpro/ui/assets/app_icon.ico`, nhúng vào .exe và hiện ở thanh tiêu đề / thanh tác vụ).
+- **Tất cả 41/41 bài kiểm thử tự động (`tests/`) đã chạy qua 100%** (bài kiểm chứng bằng MS Word tự bỏ qua nếu máy không có Word).
 
 ---
 
@@ -77,7 +78,10 @@ python -m qtpdfpro.cli batch thu_muc_pdf a.pdf -o thu_muc_docx [--verify-layout]
 python -m pytest -q tests
 
 # 5. Đóng gói tệp thực thi độc lập (.exe) bằng PyInstaller
-cmd.exe /c ".\build.bat"                    # Xuất ra dist\QTPdfPro\QTPdfPro.exe
+cmd.exe /c ".\build.bat"                    # Xuất ra dist\QTPdfPro\QTPdfPro.exe (nhúng icon); sinh lại QTPdfPro.spec — chỉ commit khi nội dung đổi
+
+# 6. Sinh lại icon sau khi sửa qtpdfpro/ui/assets/app_icon*.svg
+python tools/make_app_icon.py --preview <thư mục tạm>/xem_truoc.png
 ```
 
 ---
@@ -106,6 +110,7 @@ cmd.exe /c ".\build.bat"                    # Xuất ra dist\QTPdfPro\QTPdfPro.e
 | `qtpdfpro/ui/pdf_canvas.py` | Khung vẽ & Cuộn PDF | `PDFScrollViewer`: kết xuất theo vùng nhìn (lazy viewport), đổi màu nền Sáng/Tối (`set_canvas_theme`), vẽ tô sáng tìm kiếm và khung `Layout Inspector Overlay` (gồm cả `signature` màu đỏ hồng `#E11D48`) |
 | `qtpdfpro/ui/convert_dialog.py` | Hộp thoại chuyển đổi | Chạy `_ConversionWorker(QThread)`, thanh tiến trình, hiển thị báo cáo `FidelityReport` và nút mở tệp Word ngay; `MODE_CHOICES`/`POLICY_CHOICES` dùng chung |
 | `qtpdfpro/ui/batch_dialog.py` | Hộp thoại hàng loạt | `BatchConvertDialog`: kéo thả PDF/thư mục, `_BatchWorker(QThread)` + cờ `_running` (đợi luồng thoát trong `_on_finished` để không huỷ QThread đang chạy), bảng điểm từng tệp, «Dừng», mở thư mục kết quả, lưu báo cáo; nơi lưu chọn bằng `QComboBox` |
+| `qtpdfpro/ui/app.py` + `ui/assets/` | Khởi động GUI & icon | `app_icon()` đọc `assets/app_icon.ico` (10 cỡ, sinh bằng `tools/make_app_icon.py` từ `app_icon.svg` + `app_icon_small.svg` cho ≤ 32 px); `app.setWindowIcon`; `_set_windows_app_id()` chỉ khi chạy bằng python.exe (không đặt cho bản .exe đóng gói) |
 | `qtpdfpro/ui/theme.py` | QSS Sáng/Tối | `_DARK_QSS`/`_LIGHT_QSS` + `_SHELL_TEMPLATE` điền theo bảng màu `@token` (khoá dài thay trước); tự vẽ `QRadioButton`/`QCheckBox::indicator` (kiểu `windows11` không vẽ radio đang chọn khi có QSS); dấu ✔ là SVG ghi vào `<thư mục dữ liệu>/theme/` (QSS không nhận ảnh nhúng) |
 | `qtpdfpro/ui/main_window.py` | Cửa sổ chính đa tab | Header 2 tầng kiểu PdfCraft (`doc_tab_bar` ở dải tiêu đề đồng bộ với `doc_tabs` ẩn thanh tab; thanh chế độ `mode_buttons` lọc công cụ; menu nằm trong nút «☰ Menu» nên mọi `QAction` phải `self.addActions` để phím tắt chạy); `run_tool(key)` điều phối công cụ; khung tài liệu 3 cột (`tools_panel`, `viewer` + `signature_banner`, `sidebar_tabs` + `right_rail`) |
 | `qtpdfpro/ui/home_page.py` | Trang chủ PdfCraft | `ToolCatalogPanel` (cột «Tất cả công cụ»), `ToolCard` (công cụ đề xuất), `OpenFileCard`, `RecentRow`; lưới thẻ tự đổi số cột theo chiều rộng |
@@ -131,6 +136,7 @@ cmd.exe /c ".\build.bat"                    # Xuất ra dist\QTPdfPro\QTPdfPro.e
 | Bảng dữ liệu cao dần mỗi hàng ~0,5 pt | Word cộng độ dày nét viền vào chiều cao hàng `atLeast` | `trHeight` = khoảng cách 2 viền trên PDF − 0,5 pt; khoảng trống trước bảng chuyển thành `space_after` của đoạn trước |
 | Chế độ `word_com` luôn lùi về `hybrid` | Script PowerShell đặt `param(...)` sau `$ErrorActionPreference` | `param` phải là câu lệnh đầu tiên; ghi script UTF-8 có BOM |
 | Nút `QRadioButton` đang chọn không hiện chấm tròn | Kiểu `windows11` của Qt 6 + QSS của `theme.py` không vẽ indicator khi đã chọn (lỗi có sẵn) | **Đã sửa**: `theme.py` tự vẽ `QRadioButton::indicator` (chấm = `qradialgradient` màu nhấn/trắng) và `QCheckBox::indicator` (ô tô màu nhấn + SVG ✔) cho cả Sáng/Tối, kể cả `:hover`/`:disabled`. Bảng màu `Accent` vẫn đúng — đừng sửa palette |
+| Ứng dụng không có icon (thanh tiêu đề & thanh tác vụ hiện biểu tượng mặc định) | Chưa gọi `setWindowIcon`; `build.bat` chưa `--icon`; chạy bằng `python.exe` thì Windows gộp cửa sổ vào nhóm «Python» | `app.setWindowIcon(app_icon())`; `build.bat` thêm `--icon` + `--add-data` cho `app_icon.ico`; `SetCurrentProcessExplicitAppUserModelID` khi không đóng gói. Explorer có thể giữ icon cũ trong bộ đệm — đổi tên/chép thư mục `dist` nếu thấy icon cũ |
 | Python ghi tệp bằng `Path.write_text` trên Windows đổi xuống dòng sang CRLF | Chế độ văn bản dịch `\n` → `os.linesep`; kho dùng `eol=lf` (`.gitattributes`) | Ghi bằng `write_text(..., newline="\n")` hoặc công cụ Write/Edit |
 | Trang PDF 3 trang khi sang Word bị tràn vài dòng sang trang thứ 4 | Word mặc định cộng dồn khoảng cách dòng lớn hơn PDF | Đặt `<w:snapToGrid w:val="0"/>`, `w:header="0" w:footer="0"` và nhân hệ số `line_spacing_factor = 0.93` trong `openxml_fixer.py` để giữ nguyên đúng 3 trang như PDF gốc |
 

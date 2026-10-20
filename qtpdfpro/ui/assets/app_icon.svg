@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <!-- Icon QT PDF Pro: trang PDF (nhãn đỏ) + huy hiệu mũi tên chuyển đổi sang Word -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#3B82F6"/>
+      <stop offset="1" stop-color="#1E3A8A"/>
+    </linearGradient>
+    <linearGradient id="band" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#EF4444"/>
+      <stop offset="1" stop-color="#B91C1C"/>
+    </linearGradient>
+    <linearGradient id="badge" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#22C55E"/>
+      <stop offset="1" stop-color="#15803D"/>
+    </linearGradient>
+  </defs>
+  <rect x="8" y="8" width="240" height="240" rx="56" fill="url(#bg)"/>
+  <path d="M80 42 H158 L198 82 V214 Q198 228 184 228 H80 Q66 228 66 214 V56 Q66 42 80 42 Z" fill="#0B1B4D" fill-opacity="0.30"/>
+  <path d="M76 34 H154 L194 74 V206 Q194 220 180 220 H76 Q62 220 62 206 V48 Q62 34 76 34 Z" fill="#FFFFFF"/>
+  <path d="M154 34 V62 Q154 74 166 74 H194 Z" fill="#BFDBFE"/>
+  <rect x="80" y="88" width="72" height="10" rx="5" fill="#CBD5E1"/>
+  <rect x="80" y="108" width="96" height="10" rx="5" fill="#CBD5E1"/>
+  <rect x="80" y="128" width="60" height="10" rx="5" fill="#CBD5E1"/>
+  <rect x="36" y="148" width="134" height="54" rx="12" fill="url(#band)"/>
+  <text x="103" y="188" text-anchor="middle" font-family="Segoe UI" font-weight="bold" font-size="40" fill="#FFFFFF">PDF</text>
+  <circle cx="194" cy="192" r="40" fill="url(#badge)" stroke="#FFFFFF" stroke-width="7"/>
+  <path d="M174 192 H210 M196 177 L211 192 L196 207" fill="none" stroke="#FFFFFF" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

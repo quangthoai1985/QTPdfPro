@@ -255,3 +255,16 @@ def test_theme_styles_radio_and_checkbox_indicators(isolated_app_data: Path) -> 
     icon = isolated_app_data / "theme" / "check_ffffff.svg"
     assert icon.exists()
     assert f'url("{icon.as_posix()}")' in get_stylesheet("dark")
+
+
+def test_app_icon_has_all_sizes() -> None:
+    """Icon ứng dụng có đủ cỡ cho thanh tiêu đề (16), thanh tác vụ (24–48) và Explorer (256)."""
+    from qtpdfpro.ui.app import ICON_PATH, app_icon
+
+    app = QApplication.instance() or QApplication([])
+    assert ICON_PATH.exists()
+    icon = app_icon()
+    assert not icon.isNull()
+    sizes = {s.width() for s in icon.availableSizes()}
+    assert {16, 24, 32, 48, 256} <= sizes
+    app.processEvents()
