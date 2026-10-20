@@ -28,17 +28,98 @@
 | PDF sang Excel / ảnh / PowerPoint, Tạo PDF từ Word / ảnh, Điền biểu mẫu, Nén PDF | v1.2 |
 | Ký số PDF, Xác thực chữ ký số, Đặt mật khẩu, Xoá thông tin nhạy cảm, So sánh 2 tệp PDF | v2.0 |
 
+> Mốc mới của Nén PDF, Đặt mật khẩu, So sánh 2 tệp PDF… xem mục **«Lộ trình gần»** ngay dưới. Khi bắt tay làm công cụ nào thì sửa trường `milestone` (hoặc đặt `ready=True`) trong `qtpdfpro/ui/tool_catalog.py` cho khớp.
+
+---
+
+## Lộ trình gần (v0.5 – v0.8 → v1.1 → v2.0): Hoàn thiện trình đọc, công cụ văn phòng & vỏ ứng dụng
+
+> **Nguồn**: khảo sát [cit-pdf](https://github.com/Cuongyd196/cit-pdf) ngày 2026-10-20 (bản desktop Electron của BentoPDF, AGPL-3.0, hơn 50 công cụ). Kết luận chính:
+> - **Chuyển PDF → Word của QT PDF Pro vượt xa** (cit-pdf dùng PyMuPDF/pdf2docx mặc định, không có tuỳ chọn); **giữ nguyên công nghệ** Python + PySide6 + PyMuPDF native — nhanh và nhẹ hơn Electron + WASM (PyMuPDF chạy trong Pyodide, Ghostscript, LibreOffice, Tesseract.js).
+> - **Chỉ học ý tưởng, KHÔNG chép mã cit-pdf**: mã AGPL chép vào sẽ buộc cả dự án theo AGPL (dự án đang là MIT).
+> - **Không làm nhóm tiện ích scan** (gộp mặt trước/mặt sau, xoá trang trắng, nắn thẳng trang, cắt lề, N-up, tập sách) — người dùng đã có ứng dụng scan riêng.
+>
+> Mỗi mục có mã (**A1**, **B2**, **V3**…) để giao việc từng phần. Làm xong mục nào: đánh dấu `[x]`, ghi phiên bản, cập nhật `tool_catalog.py`, `CHANGELOG.md`, `CLAUDE.md`.
+
+### Thứ tự làm & mốc phiên bản
+
+| Phiên bản | Nội dung | Mã mục |
+|---|---|---|
+| **v0.5.0** — Đọc & In | Xem 2 trang song song (đã có kế hoạch) · In PDF · Một cửa sổ duy nhất · Thông báo «Đã lưu» | A1, V1, V2 |
+| **v0.6.0** — Công cụ văn phòng | Nén · Đóng dấu nước / Đánh số trang / Đầu – chân trang · Mật khẩu, metadata, làm sạch · Chèn ảnh chữ ký / con dấu | A2, A3, A4, A5 |
+| **v0.7.0** — Studio & So sánh | Áp công cụ ngay trên tab đang đọc có Hoàn tác · So sánh 2 PDF | B1, B2 |
+| **v0.8.0** — Phát hành chuyên nghiệp | Bộ cài + Portable + «Mở bằng QT PDF Pro» · Kiểm tra cập nhật · Tải mô-đun khi cần | V3, V4, V5 |
+| **v1.1.0** — OCR | OCR tiếng Việt → PDF tìm kiếm được & DOCX chuẩn NĐ30 (cần V5) | B3 |
+| **v2.0.0** — Ký số | Ký số bằng USB token qua kho chứng thư Windows · Xác thực chữ ký đầy đủ | B4 |
+
+Mọi mục đều theo quy tắc của `CLAUDE.md`: phần xử lý viết trong `qtpdfpro/core/` (không import PySide6), có lệnh CLI (hỗ trợ `--json`) và bài test; ghi tệp qua tệp tạm, từ chối ghi đè tệp nguồn đang mở như `page_ops.save_pdf`; chuỗi giao diện tiếng Việt có dấu.
+
+### Nhóm A — Công cụ văn phòng (chỉ cần PyMuPDF 1.28 có sẵn, không thêm thư viện)
+
+- [ ] **A1. In PDF (`Ctrl+P`)** — *v0.5*. Hiện ứng dụng **chưa có chức năng in** (không có `QPrinter`), đây là lỗ hổng lớn nhất của một trình đọc PDF.
+  - Lõi `core/printing.py`: phân tích khoảng trang (`1-3,5,8-`, trang hiện tại), lập kế hoạch in (tự xoay theo trang ngang/dọc, «Vừa khổ giấy» / «Cỡ thật»), kết xuất trang bằng PyMuPDF ở DPI máy in (giới hạn 300–600 dpi, `annots=True`), tuỳ chọn đen trắng (pixmap xám).
+  - Giao diện: hộp thoại in tiếng Việt — chọn máy in (mặc định của Windows), số bản, khoảng trang, khổ A4/A5/A3/Letter, hướng giấy, in 2 mặt, màu/đen trắng, **xem trước từng trang**; nhớ thiết lập lần trước trong `settings.json`; in trong `QThread` có tiến trình.
+  - Xong khi: test in ra PDF bằng `QPrinter` (`OutputFormat.PdfFormat`) đúng số trang & hướng; chạy thử in thật một trang.
+- [ ] **A2. Nén PDF** — *v0.6* (công cụ `compress` đang «Coming Soon»).
+  - `doc.rewrite_images(dpi_threshold, dpi_target, quality)` theo 3 mức Nhẹ / Vừa / Mạnh, `subset_fonts()`, `save(garbage=4, deflate=True, clean=True, use_objstms=1)`.
+  - Báo dung lượng trước/sau; không ghi nếu kết quả không nhỏ hơn. **Cảnh báo trước** khi tệp có chữ ký số (ghi lại toàn bộ tệp làm chữ ký mất hiệu lực).
+- [ ] **A3. Đóng dấu nước, Đánh số trang, Đầu – chân trang, Đánh số Bates** — *v0.6*.
+  - Dấu nước chữ: nội dung tiếng Việt, cỡ, độ mờ, góc xoay, màu, giữa trang hoặc lát gạch, khoảng trang. Dùng phông Windows nhúng tập con như cách `annotations.py` dựng hộp chữ (tránh lỗi «Ỷ» → «Ý» của Helvetica dựng sẵn). Dấu nước bằng ảnh làm sau.
+  - Đánh số trang: 6 vị trí đầu/chân trang, mẫu «1», «Trang 1», «1 / 10», bắt đầu từ số bất kỳ, bỏ trang đầu, lề theo mm, đúng cả trang có `/Rotate`. Có mẫu sẵn **«Chuẩn NĐ30»**: giữa lề trên, Times New Roman 13–14, không đánh số trang đầu.
+  - Đầu – chân trang (chữ trái/giữa/phải, có `{trang}`, `{tong}`, `{ngay}`, `{tep}`); đánh số Bates (tiền tố + số 6 chữ số) cho hồ sơ.
+  - Cảnh báo chữ ký số như A2.
+- [ ] **A4. Mật khẩu & quyền, Metadata, Làm sạch PDF** — *v0.6* (công cụ `protect` trước đây dự kiến v2.0).
+  - Đặt mật khẩu AES-256 (mật khẩu mở + mật khẩu chủ, quyền in / sao chép / sửa / chú thích); gỡ mật khẩu khi biết mật khẩu.
+  - Xem/sửa metadata (tiêu đề, tác giả, chủ đề, từ khoá), xoá metadata.
+  - Làm sạch bằng `doc.scrub()`: gỡ JavaScript, tệp đính kèm, XMP, chú thích ẩn, thông tin nhạy cảm còn sót.
+- [ ] **A5. Chèn ảnh chữ ký / con dấu + thư viện ảnh đã lưu** — *v0.6*.
+  - Công cụ «Ảnh» trong chế độ chỉnh sửa: chèn PNG/JPG, kéo đặt vị trí, đổi cỡ giữ tỷ lệ; tạo thành chú thích có `/AP` chứa ảnh (giống dấu đóng hiện có) để di chuyển, hoàn tác được; làm phẳng khi xuất.
+  - Thư viện ảnh lưu ở `<thư mục dữ liệu>/signatures/`; nút **«Tách nền trắng»** bằng OpenCV (đã có trong `requirements.txt`) biến nền giấy của con dấu/chữ ký scan thành trong suốt, giữ màu đỏ/xanh.
+  - Ghi rõ trên giao diện: đây là **chữ ký hình ảnh**, không phải chữ ký số (xem B4).
+
+### Nhóm B — Giá trị cao, công sức vừa
+
+- [ ] **B1. Áp công cụ ngay trên tab đang đọc (kiểu «Studio») có Hoàn tác** — *v0.7*, cần A2, A3.
+  - Ngăn bên phải của tab đang đọc: Xoay, Xoá trang, Chèn PDF khác, Trích trang, Đóng dấu nước, Đánh số trang, Làm phẳng, Nén — áp thẳng lên tài liệu, giữ nguyên trang & mức thu phóng.
+  - Một lịch sử chung cho cả chú thích lẫn thao tác trang: Hoàn tác/Làm lại (thao tác trang lưu ảnh chụp `doc.tobytes()`, tối đa ~20 bước, cũ hơn thì gộp vào bản gốc), danh sách các bước, «Khôi phục bản gốc». `EditSession` phải `rebind` khi số trang đổi.
+  - Lưu một lần bằng `Ctrl+S` / Lưu thành sẵn có; dấu ● trên tab đã có.
+- [ ] **B2. So sánh 2 tệp PDF** — *v0.7* (công cụ `compare` trước đây dự kiến v2.0).
+  - Ghép cặp trang theo độ giống nội dung (chịu được trang chèn thêm/bị xoá), so chữ theo từ bằng `difflib` (dùng lại cách `layout_verify.compare_pdf_layouts`), tô **xanh** phần thêm, **đỏ** phần bị xoá trên 2 khung đọc cạnh nhau cuộn đồng bộ.
+  - So hình cho trang có ảnh/con dấu: hiệu điểm ảnh bằng `numpy` trên trang đã kết xuất, có ngưỡng.
+  - Xuất báo cáo (PDF có chú thích đánh dấu + JSON); lệnh `cli compare a.pdf b.pdf --json`. Dùng để so các bản dự thảo văn bản.
+- [ ] **B3. OCR tiếng Việt → PDF tìm kiếm được & DOCX chuẩn NĐ30** — *v1.1* (chi tiết ở Giai đoạn 2), cần V5.
+  - Phạm vi: **PDF ảnh nhận được** (văn bản scan do nơi khác gửi), không làm khâu scan.
+  - `page.get_textpage_ocr(language="vie+eng", dpi=300, full=True)` của PyMuPDF (cần Tesseract + dữ liệu `vie` bản best, tải qua V5); xuất PDF có lớp chữ ẩn để tìm kiếm/sao chép; tuỳ chọn phóng to, nhị phân hoá ảnh, danh sách ký tự cho phép.
+  - **Điểm khác biệt**: đưa kết quả OCR vào engine `nd30` → văn bản hành chính scan thành DOCX đúng thể thức (cit-pdf và các ứng dụng khác không có).
+- [ ] **B4. Ký số bằng USB token & Xác thực chữ ký đầy đủ** — *v2.0* (chi tiết ở Giai đoạn 4).
+  - cit-pdf chỉ ký bằng tệp PFX/P12 và xác thực không kiểm thu hồi — trong khi ở Việt Nam đa số dùng **USB token** (VGCA, Viettel-CA, VNPT-CA). Ký qua kho chứng thư Windows (driver token đăng ký chứng thư vào đó) hoặc PKCS#11; chuẩn PAdES (B-LT/LTA) bằng `pyHanko`, dấu thời gian TSA, hình hiển thị dùng ảnh con dấu từ A5.
+  - Xác thực: `/ByteRange` phủ toàn tệp, phát hiện **«tài liệu đã bị sửa sau khi ký»** (bản ghi bổ sung sau chữ ký), chuỗi chứng thư tới gốc tin cậy (Root CA quốc gia, gốc của Ban Cơ yếu Chính phủ cho VGCA), kiểm OCSP/CRL. Nối với «Soi chữ ký số & con dấu» sẵn có.
+
+### Vỏ ứng dụng
+
+- [ ] **V1. Một cửa sổ duy nhất + mở tệp từ Explorer vào tab mới** — *v0.5*.
+  - Hiện mở 2 tệp PDF từ Explorer sẽ chạy 2 tiến trình. Dùng `QLocalServer`/`QLocalSocket` (tên kênh theo người dùng): tiến trình thứ hai gửi danh sách đường dẫn rồi thoát; cửa sổ đang chạy mở thành tab mới và tự đưa lên trước (lưu ý giới hạn `SetForegroundWindow` của Windows).
+  - Nhận nhiều tệp ở dòng lệnh (`python -m qtpdfpro a.pdf b.pdf`).
+- [ ] **V2. Thông báo «Đã lưu» sau khi ghi tệp** — *v0.5*: thông báo nhỏ ở góc thay cho hộp thoại, kèm nút **Xem kết quả** (mở PDF vừa ghi thành tab mới; DOCX thì mở bằng Word) và **Mở thư mục**; dùng cho Lưu thành, chuyển đổi, ghép/tách, các công cụ nhóm A.
+- [ ] **V3. Bộ cài + bản Portable + «Mở bằng QT PDF Pro»** — *v0.8*.
+  - Bộ cài Inno Setup theo từng người dùng (không cần quyền Administrator): lối tắt Start Menu, gỡ cài đặt, đăng ký ProgID cho `.pdf` trong mục «Mở bằng» (không ép làm ứng dụng mặc định). Giữ bản zip Portable như hiện nay.
+  - Script đóng gói tuân thủ quy tắc tệp `.bat` thuần ASCII + CRLF.
+- [ ] **V4. Kiểm tra cập nhật** — *v0.8*: `core/update_check.py` (chỉ `urllib`, không thêm thư viện) đọc `https://api.github.com/repos/quangthoai1985/QTPdfPro/releases/latest`, so với `__version__`; chạy khi bấm nút hoặc tối đa 1 lần/ngày (tắt được trong cài đặt), có bản mới thì báo kèm liên kết tải — **không tự tải, không tự cài**. Test bằng phản hồi giả lập.
+- [ ] **V5. Tải mô-đun nặng khi cần dùng lần đầu** — *v0.8*, tiền đề cho B3.
+  - `core/modules.py`: bảng kê (tên, URL, kích thước, SHA-256), hỏi người dùng trước khi tải, tải vào `%LOCALAPPDATA%\QTPdfPro\modules\` (theo `QT_PDF_PRO_DATA` khi test), kiểm mã băm, dùng được khi không có mạng sau đó.
+  - Mô-đun đầu tiên: Tesseract + dữ liệu `vie`/`eng`. Trang cài đặt cho xem trạng thái, tải lại hoặc xoá từng mô-đun. Giữ bộ cài nhỏ.
+
 ---
 
 ## Giai đoạn 2 (v1.1.0): OCR Tiếng Việt cho PDF Scan & Công thức Toán học
 
-1. **Tích hợp OCR thông minh cho PDF ảnh quét (Scanned PDF)**:
+1. **Tích hợp OCR thông minh cho PDF ảnh quét (Scanned PDF)** — kế hoạch cụ thể ở mục **B3** (cần **V5**):
    - Tự động phát hiện trang PDF không có lớp văn bản (chỉ có ảnh scan).
    - Kết hợp `Tesseract OCR (vie+eng)` + `VietOCR` / `Surya Layout` để nhận diện chữ tiếng Việt in và bảng biểu trên trang scan, sau đó xuất ra DOCX có đúng bố cục.
 2. **Nhận diện Công thức Toán học (OMML)**:
    - Chuyển các ký hiệu toán học/phân số/căn thức trong PDF sang định dạng phương trình gốc của Word (`Office MathML - <m:oMath>`) thay vì ảnh tĩnh.
-3. **Chuyển đổi hàng loạt (Batch Conversion)**:
-   - Cho phép kéo-thả hàng chục tệp PDF để chuyển đổi song song sang DOCX với báo cáo tổng hợp.
+3. [x] **Chuyển đổi hàng loạt (Batch Conversion)** — *đã làm sớm ở `v0.3.0`* (`core/batch.py`, `cli batch`, hộp thoại «Chuyển đổi hàng loạt»):
+   - Cho phép kéo-thả hàng chục tệp PDF để chuyển đổi sang DOCX với báo cáo tổng hợp.
 
 ---
 
@@ -56,5 +137,5 @@
 
 ## Giai đoạn 4 (v2.0.0): Chữ ký số (USB Token / VGCA) & Bảo mật PDF
 
-1. **Ký số PDF chuẩn PAdES**: Hỗ trợ hiển thị và kiểm tra chữ ký số Việt Nam (VGCA, Viettel-CA, VNPT-CA).
-2. **Đặt mật khẩu bảo vệ / Gỡ mật khẩu PDF** (khi biết mật khẩu) và xoá thông tin nhạy cảm (`Redaction`).
+1. **Ký số PDF chuẩn PAdES**: Hỗ trợ hiển thị và kiểm tra chữ ký số Việt Nam (VGCA, Viettel-CA, VNPT-CA) — kế hoạch cụ thể ở mục **B4** (ký bằng USB token, xác thực đầy đủ).
+2. **Đặt mật khẩu bảo vệ / Gỡ mật khẩu PDF** (khi biết mật khẩu; dời lên `v0.6`, mục **A4**) và xoá thông tin nhạy cảm (`Redaction`).

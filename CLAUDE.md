@@ -4,6 +4,7 @@
 > - Lịch sử chi tiết từng phiên làm việc: [CHANGELOG.md](CHANGELOG.md).
 > - Nghiên cứu & đề xuất công nghệ: [docs/NGHIEN_CUU_CONG_NGHE.md](docs/NGHIEN_CUU_CONG_NGHE.md).
 > - Thiết kế kiến trúc chi tiết: [docs/THIET_KE.md](docs/THIET_KE.md).
+> - **Lộ trình & việc cần làm theo từng mục (A1…A5, B1…B4, V1…V5)**: [docs/DE_XUAT_TINH_NANG.md](docs/DE_XUAT_TINH_NANG.md), mục «Lộ trình gần».
 > - Người dùng viết tiếng Việt → trả lời tiếng Việt; chuỗi giao diện và tài liệu viết tiếng Việt có dấu chuẩn xác.
 
 ---
@@ -168,8 +169,13 @@ python tools/make_app_icon.py --preview <thư mục tạm>/xem_truoc.png
 ## 6. Việc cần làm tiếp theo (Theo thứ tự ưu tiên cho Agent phiên sau)
 
 1. **Kiểm thử engine `nd30` trên văn bản hành chính thật** (PDF ký số VGCA có số/ngày đóng dấu đè, PDF từ phần mềm quản lý văn bản, PDF in từ LibreOffice, văn bản nhiều phụ lục khổ ngang). Quy trình: `python -m qtpdfpro.cli convert <tệp> --mode nd30 --verify-layout`; mọi kết quả «Lệch nhỏ» phải truy nguyên bằng `compare_pdf_layouts` và bổ sung test. Văn bản chỉ dùng nội bộ, **không** đưa vào `samples/` nếu có thông tin thật.
-2. **Hiện thực các công cụ đang «Coming Soon»** theo `docs/DE_XUAT_TINH_NANG.md` — mỗi công cụ xong thì đặt `ready=True` trong `qtpdfpro/ui/tool_catalog.py` và thêm nhánh xử lý trong `MainWindow.run_tool`. Ưu tiên: Xem 2 trang (v0.5), OCR tiếng Việt (v1.1). (Chuyển đổi hàng loạt và «Chỉnh sửa PDF» — chú thích + sắp xếp/cắt ghép trang — đã xong.) Mở rộng «Chỉnh sửa PDF» nếu cần: tay nắm đổi cỡ hộp chữ/hình, sửa kiểu dáng chú thích đã có, che thông tin (redaction).
-3. **Phát hành bản kế tiếp (v0.5.0)** khi xong «Xem 2 trang»: tăng `__version__`, thêm mục `## [0.5.0]` vào CHANGELOG (test `test_version.py` kiểm), chạy `build.bat`, nén `dist\QTPdfPro` thành `QTPdfPro-v0.5.0-win64.zip`, `git tag v0.5.0` + push, `gh release create` kèm tệp zip (bản trước: [v0.4.0](https://github.com/quangthoai1985/QTPdfPro/releases/tag/v0.4.0)).
+2. **Làm lần lượt theo «Lộ trình gần» trong [docs/DE_XUAT_TINH_NANG.md](docs/DE_XUAT_TINH_NANG.md)** (rút ra từ khảo sát cit-pdf 2026-10-20), mỗi lần một mục có mã:
+   - **v0.5**: Xem 2 trang song song · **A1** In PDF (`Ctrl+P`, hiện chưa có chức năng in) · **V1** một cửa sổ duy nhất (mở tệp từ Explorer vào tab mới) · **V2** thông báo «Đã lưu» + Xem kết quả / Mở thư mục.
+   - **v0.6**: **A2** Nén · **A3** Dấu nước / Đánh số trang (có mẫu «Chuẩn NĐ30») / Đầu – chân trang / Bates · **A4** Mật khẩu, metadata, làm sạch · **A5** Chèn ảnh chữ ký / con dấu + tách nền trắng.
+   - **v0.7**: **B1** áp công cụ ngay trên tab có Hoàn tác · **B2** So sánh 2 PDF. **v0.8**: **V3** bộ cài + «Mở bằng» · **V4** kiểm tra cập nhật · **V5** tải mô-đun khi cần. **v1.1**: **B3** OCR → DOCX NĐ30. **v2.0**: **B4** ký số USB token.
+   - Mỗi mục xong: đánh dấu `[x]` trong lộ trình, đặt `ready=True` / sửa `milestone` trong `qtpdfpro/ui/tool_catalog.py`, thêm nhánh `MainWindow.run_tool`. **Không làm** nhóm tiện ích scan (người dùng đã có app scan riêng). **Không chép mã cit-pdf** (AGPL-3.0) — chỉ học ý tưởng.
+   - Mở rộng «Chỉnh sửa PDF» khi cần: tay nắm đổi cỡ hộp chữ/hình, sửa kiểu dáng chú thích đã có, che thông tin (redaction).
+3. **Phát hành bản kế tiếp (v0.5.0)** khi xong các mục v0.5 ở trên: tăng `__version__`, thêm mục `## [0.5.0]` vào CHANGELOG (test `test_version.py` kiểm), chạy `build.bat`, nén `dist\QTPdfPro` thành `QTPdfPro-v0.5.0-win64.zip`, `git tag v0.5.0` + push, `gh release create` kèm tệp zip (bản trước: [v0.4.0](https://github.com/quangthoai1985/QTPdfPro/releases/tag/v0.4.0)).
 
 ---
 
