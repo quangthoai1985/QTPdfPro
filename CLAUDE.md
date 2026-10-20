@@ -15,8 +15,8 @@
 - **Giấy phép**: Mã nguồn mở **MIT License** ([LICENSE](LICENSE)).
 - **Kho GitHub**: `https://github.com/quangthoai1985/QTPdfPro`
 
-### Trạng thái hiện tại (`v0.3.0` + chưa phát hành — 2026-10-20):
-- **Mới sau v0.3.0 (chưa phát hành, mốc v0.4)**: **Chuyển đổi hàng loạt** — `core/batch.py` (`convert_batch`, mặc định `auto` → `nd30`/`faithful`, không kiểm chứng Word), lệnh `cli batch`, hộp thoại «Chuyển đổi hàng loạt» (kéo thả nhiều PDF/thư mục, bảng điểm chuẩn xác & thể thức NĐ30 từng tệp, báo cáo CSV/JSON, Ctrl+Shift+B). **Sửa theme**: radio đang chọn hiện chấm, checkbox có khung + dấu ✔ ở cả giao diện Sáng/Tối.
+### Trạng thái hiện tại (`v0.3.0` — đã phát hành [GitHub Release](https://github.com/quangthoai1985/QTPdfPro/releases/tag/v0.3.0) 2026-10-20):
+- **Có trong bản phát hành v0.3.0 (gộp vào trước khi phát hành)**: **Chuyển đổi hàng loạt** — `core/batch.py` (`convert_batch`, mặc định `auto` → `nd30`/`faithful`, không kiểm chứng Word), lệnh `cli batch`, hộp thoại «Chuyển đổi hàng loạt» (kéo thả nhiều PDF/thư mục, bảng điểm chuẩn xác & thể thức NĐ30 từng tệp, báo cáo CSV/JSON, Ctrl+Shift+B). **Sửa theme**: radio đang chọn hiện chấm, checkbox có khung + dấu ✔ ở cả giao diện Sáng/Tối.
 - **Mới ở v0.3.0**:
   1. **Chế độ chuyển đổi `nd30`** (mặc định qua `auto` khi phát hiện Quốc hiệu – Tiêu ngữ): tái dựng văn bản hành chính như người soạn trong Word — lề / cỡ chữ / giãn dòng / cách đoạn / thụt đầu dòng **đo trên PDF rồi ước lượng về giá trị gốc**, phần đầu & khối ký trong **bảng 2 cột không viền**, đường kẻ là viền dưới đoạn văn đúng toạ độ PDF, số trang là trường `PAGE`. Chính sách `faithful` (mặc định, giữ đúng bố cục PDF) hoặc `nd30` (ép chuẩn hoá).
   2. **Đối chiếu thể thức NĐ30** 26 hạng mục (`cli nd30`, hộp thoại «Kiểm tra thể thức NĐ30») và **Kiểm chứng bố cục bằng Microsoft Word** (`--verify-layout`, `verify --render`): đã đạt 100% dòng khớp, lệch ≤ 0,84 pt trên 3 văn bản mẫu `samples/nd30/`.
@@ -140,7 +140,7 @@ cmd.exe /c ".\build.bat"                    # Xuất ra dist\QTPdfPro\QTPdfPro.e
 
 1. **Kiểm thử engine `nd30` trên văn bản hành chính thật** (PDF ký số VGCA có số/ngày đóng dấu đè, PDF từ phần mềm quản lý văn bản, PDF in từ LibreOffice, văn bản nhiều phụ lục khổ ngang). Quy trình: `python -m qtpdfpro.cli convert <tệp> --mode nd30 --verify-layout`; mọi kết quả «Lệch nhỏ» phải truy nguyên bằng `compare_pdf_layouts` và bổ sung test. Văn bản chỉ dùng nội bộ, **không** đưa vào `samples/` nếu có thông tin thật.
 2. **Hiện thực các công cụ đang «Coming Soon»** theo `docs/DE_XUAT_TINH_NANG.md` — mỗi công cụ xong thì đặt `ready=True` trong `qtpdfpro/ui/tool_catalog.py` và thêm nhánh xử lý trong `MainWindow.run_tool`. Ưu tiên: Xem 2 trang (v0.4), OCR tiếng Việt (v1.1). (Chuyển đổi hàng loạt đã xong.)
-3. **Phát hành bản v0.3.0** (hoặc gộp thành v0.4.0 khi xong «Xem 2 trang»): chạy `build.bat`, đóng gói `QTPdfPro-v0.3.0-win64.zip`, tạo GitHub Release (bản trước: [v0.2.0](https://github.com/quangthoai1985/QTPdfPro/releases/tag/v0.2.0)).
+3. **Phát hành bản kế tiếp (v0.4.0)** khi xong «Xem 2 trang»: tăng `__version__`, thêm mục `## [0.4.0]` vào CHANGELOG (test `test_version.py` kiểm), chạy `build.bat`, nén `dist\QTPdfPro` thành `QTPdfPro-v0.4.0-win64.zip`, `git tag v0.4.0` + push, `gh release create` kèm tệp zip (bản trước: [v0.3.0](https://github.com/quangthoai1985/QTPdfPro/releases/tag/v0.3.0)).
 
 ---
 

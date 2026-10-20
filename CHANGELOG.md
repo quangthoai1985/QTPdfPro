@@ -7,6 +7,22 @@
 
 ## [Chưa phát hành]
 
+### Việc còn dở / Ưu tiên kế tiếp cho Agent phiên sau
+1. **Kiểm thử engine NĐ30 trên văn bản thật** (PDF ký số VGCA, PDF xuất từ phần mềm quản lý văn bản, PDF in từ LibreOffice): chạy `python -m qtpdfpro.cli convert <tệp> --mode nd30 --verify-layout` (hoặc `cli batch <thư mục> --verify-layout`) và xử lý các trường hợp «Lệch nhỏ».
+2. **Xem 2 trang song song** (v0.4) và **OCR Tiếng Việt cho PDF ảnh quét** (`Tesseract vie+eng` / `VietOCR`, v1.1) — đang «Coming Soon».
+3. Tuỳ chọn: chuyển hàng loạt song song bằng nhiều tiến trình (`ProcessPoolExecutor`, cần `multiprocessing.freeze_support()` cho bản PyInstaller).
+
+---
+
+## [0.3.0] — 2026-10-20 (Engine chuẩn thể thức NĐ30, Chuyển đổi hàng loạt, Trang chủ kiểu PdfCraft & Phát hành Release)
+
+### 2026-10-20 — Phát hành bản Release v0.3.0 trên GitHub
+- Gộp các thay đổi «Chuyển đổi hàng loạt» và «Sửa theme» (trước ghi ở [Chưa phát hành]) vào bản **v0.3.0** (bản v0.3.0 chưa từng phát hành; «Xem 2 trang» chưa xong nên chưa lên v0.4.0).
+- Đóng gói bằng `build.bat` (PyInstaller, `--onedir --windowed`) → `QTPdfPro-v0.3.0-win64.zip`; tag `v0.3.0`; GitHub Release: https://github.com/quangthoai1985/QTPdfPro/releases/tag/v0.3.0.
+- README: thêm mục «Chuyển đổi hàng loạt», «Tải bản chạy ngay», lệnh `cli batch`.
+- Kiểm thử: **40/40** `pytest`; chạy thử `dist\QTPdfPro\QTPdfPro.exe` (PyInstaller 6.22.3, Python 3.14, PySide6 6.11.2) với `QT_PDF_PRO_DATA` tạm — mở `samples/nd30/cong_van_mau.pdf`, tiếng Việt hiển thị đúng, tiêu đề «QT PDF Pro v0.3.0», ghi được `theme/check_ffffff.svg` (bản đóng gói có sẵn plugin `qsvg`/`qsvgicon`).
+- Tệp phát hành: thư mục 304 MB / 318 tệp, nén còn 128,7 MB. `build.bat` sinh lại `QTPdfPro.spec` (chỉ khác CRLF) → khôi phục bằng `git checkout -- QTPdfPro.spec`, không commit.
+
 ### 2026-10-20 — Sửa theme: nút chọn (radio) và ô đánh dấu (checkbox) hiện rõ trạng thái
 
 #### Đã sửa
@@ -22,7 +38,7 @@
 - **40/40** bài test `pytest` vượt qua (thêm `test_theme_styles_radio_and_checkbox_indicators`: QSS cả 2 theme có kiểu indicator, không còn khoá màu `@…` chưa thay, tệp SVG dấu ✔ được ghi đúng thư mục dữ liệu tạm).
 - Đã chụp hộp thoại «Chuyển PDF sang Word» thật ở giao diện Tối và Sáng (kiểu `windows11`): radio «Tất cả các trang» hiện chấm, các checkbox có khung + dấu ✔; trạng thái vô hiệu hiển thị xám.
 
-### 2026-10-20 — Chuyển đổi hàng loạt PDF sang Word (mốc v0.4)
+### 2026-10-20 — Chuyển đổi hàng loạt PDF sang Word
 
 #### Thêm mới
 - **Engine chuyển đổi hàng loạt** `qtpdfpro/core/batch.py` (không phụ thuộc PySide6):
@@ -48,17 +64,9 @@
 - Chạy tuần tự trong một luồng: bộ vá `pdf2docx` dùng biến toàn cục theo trang nên không an toàn khi song song trong cùng tiến trình.
 - Kiểu `windows11` của Qt + QSS hiện tại **không vẽ chấm của `QRadioButton` đang chọn** (lỗi có sẵn, thấy ở «Phạm vi trang» của hộp thoại chuyển 1 tệp) → hộp thoại hàng loạt dùng `QComboBox` cho nơi lưu.
 
-### Việc còn dở / Ưu tiên kế tiếp cho Agent phiên sau
-1. **Kiểm thử engine NĐ30 trên văn bản thật** (PDF ký số VGCA, PDF xuất từ phần mềm quản lý văn bản, PDF in từ LibreOffice): chạy `python -m qtpdfpro.cli convert <tệp> --mode nd30 --verify-layout` (hoặc `cli batch <thư mục> --verify-layout`) và xử lý các trường hợp «Lệch nhỏ».
-2. ~~**Sửa theme**: thêm kiểu `QRadioButton::indicator`~~ — đã xong (xem mục «Sửa theme» phía trên).
-3. **Xem 2 trang song song** (v0.4) và **OCR Tiếng Việt cho PDF ảnh quét** (`Tesseract vie+eng` / `VietOCR`, v1.1) — đang «Coming Soon».
-4. Tuỳ chọn: chuyển hàng loạt song song bằng nhiều tiến trình (`ProcessPoolExecutor`, cần `multiprocessing.freeze_support()` cho bản PyInstaller).
+### 2026-10-20 — Engine chuẩn thể thức NĐ30 giữ đúng bố cục PDF & Trang chủ kiểu PdfCraft
 
----
-
-## [0.3.0] — 2026-10-20 (Engine chuẩn thể thức NĐ30 giữ đúng bố cục PDF & Trang chủ kiểu PdfCraft)
-
-### Thêm mới
+#### Thêm mới
 - **Chế độ chuyển đổi `nd30` — tái dựng văn bản hành chính đúng thể thức Nghị định 30/2020/NĐ-CP** (`qtpdfpro/core/admin_layout.py`, `nd30_standard.py`, `nd30_engine.py`):
   - **Đo trên PDF rồi ước lượng về giá trị gốc người soạn đã đặt**: lề 4 phía (vd 29,98 mm → 30 mm), cỡ chữ, khoảng cách dòng (bội số chuẩn của Word 1,0/1,15/1,5… hoặc «Exactly 18 pt»), khoảng cách đoạn, thụt đầu dòng (1 cm / 1,27 cm). Lề dưới được ước lượng theo khoảng [cận dưới, cận trên] từ các trang đầy.
   - **Phần đầu văn bản** (Tên cơ quan | Quốc hiệu – Tiêu ngữ; Số, ký hiệu | Địa danh, ngày tháng) và **khối ký** (Nơi nhận | Quyền hạn, chức vụ, họ tên) dựng bằng **bảng 2 cột không viền**; từng dòng được căn tâm đúng toạ độ PDF bằng thụt lề đoạn trong ô.
@@ -77,16 +85,16 @@
   - Khung tài liệu: thêm thẻ «Xuất Word chuẩn NĐ30», «Kiểm tra thể thức NĐ30», lọc thẻ theo chế độ; thanh thông báo nhận diện văn bản hành chính.
 - **Dữ liệu mẫu** `samples/nd30/` (Quyết định, Kế hoạch có bảng & con dấu, Công văn — nội dung hư cấu, tạo theo chuẩn NĐ30 rồi xuất PDF bằng Microsoft Word).
 
-### Sửa lỗi
+#### Sửa lỗi
 - Nút «Xuất Word — Giữ vị trí 1:1» không chọn sẵn chế độ `exact` trong hộp thoại (ghi vào thuộc tính `last_convert_mode` không ai đọc) → hộp thoại nhận `initial_mode`.
 - Chế độ `word_com` luôn thất bại âm thầm rồi lùi về `hybrid`: script PowerShell đặt `param(...)` sau câu lệnh khác (PowerShell bắt buộc `param` đứng đầu).
 - Ký tự `&` trong tiêu đề nhóm/hộp chọn của hộp thoại chuyển đổi và nút «Mở tệp PDF để đọc & soi bố cục» bị Qt biến thành phím tắt (mất chữ).
 
-### Kiểm thử
+#### Kiểm thử
 - **29/29** bài test `pytest` vượt qua (thêm `tests/test_nd30.py` 11 bài và 2 bài giao diện Trang chủ / hộp thoại).
 - Kiểm chứng bằng Microsoft Word trên 3 văn bản mẫu (dựng DOCX → Word xuất PDF → so từng dòng): **Quyết định 51/51 dòng, Công văn 26/26 dòng, Kế hoạch 78/78 dòng khớp; đúng số trang; lệch dọc tối đa 0,84 pt, lệch ngang tối đa 0,42 pt** (≈ 0,3 mm).
 
-### Ghi chú kỹ thuật (đã gặp & xử lý)
+#### Ghi chú kỹ thuật (đã gặp & xử lý)
 - Mẫu DOCX mặc định của `python-docx` dùng `compatibilityMode=14` (Word 2010) → ngắt dòng / căn đều khác văn bản Word hiện đại; engine NĐ30 đặt `15`.
 - Word đặt baseline tại **0,8 × chiều cao dòng** khi giãn dòng «Exactly», còn với «Multiple» thì phần giãn thêm nằm **dưới** dòng chữ; Word bỏ khoảng cách trước đoạn ở đầu trang.
 - Bội số giãn dòng chỉ được làm tròn khi sai lệch ≤ 0,04 pt/dòng (đo trên toàn văn bản), tránh cộng dồn lệch làm tràn trang.

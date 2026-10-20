@@ -18,6 +18,11 @@
 - **Đối chiếu thể thức** 26 hạng mục (lề, phông, cỡ chữ, giãn dòng, cách đoạn ≥ 6 pt, Quốc hiệu, Tiêu ngữ, đường kẻ, số ký hiệu, ngày tháng, Nơi nhận, «Lưu: VT», số trang…).
 - **Kiểm chứng bằng Microsoft Word**: dựng lại DOCX bằng Word và so vị trí từng dòng với PDF gốc (trên văn bản mẫu: 100% dòng khớp, lệch ≤ 0,84 pt ≈ 0,3 mm).
 
+### 1.0b. Chuyển đổi hàng loạt (mới ở `v0.3.0`)
+- Hộp thoại **«Chuyển đổi hàng loạt»** (`Ctrl+Shift+B`): kéo thả nhiều tệp PDF hoặc cả thư mục, chuyển lần lượt sang Word; lưu vào một thư mục chọn hoặc cạnh từng tệp gốc, tự đặt tên không ghi đè khi trùng tên.
+- Bảng kết quả từng tệp: trạng thái, chế độ engine, số trang, **điểm chuẩn xác**, **điểm thể thức NĐ30**, kết luận kiểm chứng Word; một tệp lỗi không dừng cả lượt, có nút «Dừng».
+- Lưu báo cáo `.csv` (mở đúng tiếng Việt trong Excel) hoặc `.json`; dùng được qua dòng lệnh `cli batch`.
+
 ### 1.1. Chuyển đổi PDF sang Word (`.docx`) chuẩn xác (Chức năng chủ đạo)
 Khắc phục triệt để hiện tượng *vỡ khung, nhảy dòng, tràn trang, lỗi phông tiếng Việt* thường gặp ở các công cụ chuyển đổi thông thường nhờ **Kiến trúc Đa Chế độ + Bộ Hậu xử lý Chuẩn xác OpenXML (`lxml`)**:
 
@@ -51,6 +56,10 @@ Khắc phục triệt để hiện tượng *vỡ khung, nhảy dòng, tràn tra
 
 ## 2. Cài đặt & Sử dụng
 
+### Tải bản chạy ngay (không cần cài Python)
+1. Tải tệp `QTPdfPro-v<phiên bản>-win64.zip` ở trang [Releases](https://github.com/quangthoai1985/QTPdfPro/releases/latest).
+2. Giải nén vào thư mục bất kỳ, nhấp đúp `QTPdfPro.exe`.
+
 ### Yêu cầu hệ thống
 - Windows 10 / 11 (64-bit)
 - Python 3.11+ (đã kiểm thử trên **Python 3.14.5**)
@@ -82,6 +91,9 @@ python -m qtpdfpro.cli inspect tailieu.pdf
 
 # Kiểm định độ chính xác giữa PDF gốc và DOCX
 python -m qtpdfpro.cli verify tailieu.pdf tailieu.docx
+
+# Chuyển cả thư mục PDF sang Word, ghi báo cáo CSV
+python -m qtpdfpro.cli batch thu_muc_pdf -o thu_muc_docx --report bao_cao.csv
 ```
 
 ### Chạy kiểm thử tự động & Đóng gói `.exe`
