@@ -48,7 +48,7 @@
 | **v0.5.0** — *đã phát hành 2026-10-20* | In PDF · Nén · Dấu nước chữ + Đánh số trang (mẫu «Chuẩn NĐ30») · Đặt / gỡ mật khẩu · Tự cập nhật từ GitHub Release | A1, A2, A3 (một phần), A4 (một phần), V4 |
 | **v0.6.0** — Đọc & hoàn thiện công cụ văn phòng | Xem 2 trang song song · Một cửa sổ duy nhất · Thông báo «Đã lưu» · Đầu – chân trang / Bates / dấu nước ảnh · Metadata & làm sạch · Chèn ảnh chữ ký / con dấu | V1, V2, A3 (còn lại), A4 (còn lại), A5 |
 | **v0.7.0** — Studio & So sánh | Áp công cụ ngay trên tab đang đọc có Hoàn tác · So sánh 2 PDF | B1, B2 |
-| **v0.8.0** — Phát hành chuyên nghiệp | Bộ cài + Portable + «Mở bằng QT PDF Pro» · Tải mô-đun khi cần (kiểm tra cập nhật V4 đã có từ v0.5.0) | V3, V5 |
+| **v0.8.0** — Phát hành chuyên nghiệp | ~~Bộ cài + Portable + «Mở bằng QT PDF Pro»~~ (xong ở v1.0.0) · Tải mô-đun khi cần (kiểm tra cập nhật V4 đã có từ v0.5.0) | ~~V3~~, V5 |
 | **v1.1.0** — OCR | OCR tiếng Việt → PDF tìm kiếm được & DOCX chuẩn NĐ30 (cần V5) | B3 |
 | **v2.0.0** — Ký số | Ký số bằng USB token qua kho chứng thư Windows · Xác thực chữ ký đầy đủ | B4 |
 
@@ -101,9 +101,9 @@ Mọi mục đều theo quy tắc của `CLAUDE.md`: phần xử lý viết tron
   - Hiện mở 2 tệp PDF từ Explorer sẽ chạy 2 tiến trình. Dùng `QLocalServer`/`QLocalSocket` (tên kênh theo người dùng): tiến trình thứ hai gửi danh sách đường dẫn rồi thoát; cửa sổ đang chạy mở thành tab mới và tự đưa lên trước (lưu ý giới hạn `SetForegroundWindow` của Windows).
   - Nhận nhiều tệp ở dòng lệnh (`python -m qtpdfpro a.pdf b.pdf`).
 - [ ] **V2. Thông báo «Đã lưu» sau khi ghi tệp** — *v0.5*: thông báo nhỏ ở góc thay cho hộp thoại, kèm nút **Xem kết quả** (mở PDF vừa ghi thành tab mới; DOCX thì mở bằng Word) và **Mở thư mục**; dùng cho Lưu thành, chuyển đổi, ghép/tách, các công cụ nhóm A.
-- [ ] **V3. Bộ cài + bản Portable + «Mở bằng QT PDF Pro»** — *v0.8*.
-  - Bộ cài Inno Setup theo từng người dùng (không cần quyền Administrator): lối tắt Start Menu, gỡ cài đặt, đăng ký ProgID cho `.pdf` trong mục «Mở bằng» (không ép làm ứng dụng mặc định). Giữ bản zip Portable như hiện nay.
-  - Script đóng gói tuân thủ quy tắc tệp `.bat` thuần ASCII + CRLF.
+- [x] **V3. Bộ cài + bản Portable + «Mở bằng QT PDF Pro»** — *xong sớm ở v1.0.0 (2026-10-21)*.
+  - `installer.iss` (Inno Setup 6) theo từng người dùng, không UAC, `%LOCALAPPDATA%\Programs\QT PDF Pro`: lối tắt Start Menu, gỡ cài đặt sạch, ProgID `QTPdfPro.PDF` + Capabilities + RegisteredApplications (`core/file_assoc.py`). Windows không cho tự đặt mặc định → cuối bộ cài mở `ms-settings:defaultapps?registeredAppUser=QTPdfPro`; ứng dụng hỏi một lần + mục menu. Bản Portable = `QTPdfPro_Update.zip`.
+  - Đóng gói: `python tools/build_release.py` (Python, nên không vướng quy tắc `.bat`).
 - [x] **V4. Kiểm tra cập nhật & cập nhật một chạm** — *xong sớm 2026-10-20 (dự kiến v0.8, phát hành cùng bản kế tiếp)*.
   - `core/update_check.py` (chỉ `urllib`, không thêm thư viện): đọc `https://api.github.com/repos/quangthoai1985/QTPdfPro/releases/latest`, so thẻ với `__version__` theo SemVer, bỏ qua bản nháp / pre-release; chọn tệp `QTPdfPro-v<x.y.z>-win64.zip` (**giữ đúng mẫu tên này khi phát hành**); chỉ nhận https + host GitHub (`api.github.com`, `github.com`, `objects.githubusercontent.com`, `release-assets.githubusercontent.com`, kiểm cả từng bước chuyển hướng), có timeout và User-Agent; tải vào `<thư mục dữ liệu>/updates/` có tiến trình, huỷ được, kiểm kích thước + SHA-256 (trường `digest`).
   - Tự kiểm tra lúc khởi động tối đa 1 lần/ngày (chạy nền `QThread`, tắt được: ☰ Menu › Trợ giúp hoặc ô trong hộp thoại), thông báo nổi «Đã có bản vX.Y.Z — Cập nhật»; «Kiểm tra cập nhật...» kiểm tra bằng tay. Hộp thoại: ghi chú phát hành, dung lượng, «Tải về & cập nhật» / «Để sau» / «Bỏ qua bản này», thanh tiến trình, Huỷ.

@@ -43,9 +43,13 @@
 - **Đặt / gỡ mật khẩu** AES-256: mật khẩu mở + mật khẩu chủ, quyền in / sao chép / sửa / chú thích.
 - Tệp có chữ ký số được hỏi trước khi xử lý (ghi lại tệp làm chữ ký mất hiệu lực). Dòng lệnh: `compress`, `watermark`, `number`, `protect`, `unlock`.
 
-### 1.0f. Tự cập nhật từ GitHub Release (mới ở `v0.5.0`)
-- Ứng dụng tự kiểm tra bản mới tối đa 1 lần/ngày (tắt được ở ☰ Menu › Trợ giúp), báo «Đã có bản vX.Y.Z — Cập nhật»; bấm là tải về, kiểm mã SHA-256, khởi động lại và thay bản cũ (giữ bản dự phòng, lỗi thì khôi phục).
+### 1.0f. Tự cập nhật từ GitHub Release (mới ở `v0.5.0`, tải ngầm từ `v1.0.0`)
+- Ứng dụng tự kiểm tra bản mới tối đa 1 lần/ngày (tắt được ở ☰ Menu › Trợ giúp). Bản cài bằng `QTPdfPro_Setup.exe` **tự tải ngầm** `QTPdfPro_Update.zip` (kiểm mã SHA-256) rồi báo «Bản vX.Y.Z đã tải xong — Khởi động lại để cập nhật»; không bấm thì bản mới được cài khi bạn thoát (giữ bản dự phòng, lỗi thì khôi phục).
 - Kiểm tra bằng tay: ☰ Menu › Trợ giúp › «Kiểm tra cập nhật...», hoặc `cli update --check`.
+
+### 1.0g. Bộ cài & trình xem PDF mặc định (mới ở `v1.0.0`)
+- `QTPdfPro_Setup.exe` cài cho riêng tài khoản của bạn vào `%LOCALAPPDATA%\Programs\QT PDF Pro` — **không cần quyền quản trị**; có lối tắt Start Menu, gỡ cài đặt trong «Apps & features», cài im lặng `/SILENT` hoặc `/VERYSILENT`.
+- Bộ cài đăng ký QT PDF Pro làm trình mở `.pdf` (mục «Open with» và «Ứng dụng mặc định» của Windows). Windows không cho ứng dụng tự đặt mình làm mặc định, nên cuối bộ cài sẽ mở trang cài đặt của QT PDF Pro — bấm **«Đặt mặc định»** một lần. Làm lại bất cứ lúc nào: ☰ Menu › Trợ giúp › «Đặt QT PDF Pro làm trình xem PDF mặc định...».
 
 ### 1.1. Chuyển đổi PDF sang Word (`.docx`) chuẩn xác (Chức năng chủ đạo)
 Khắc phục triệt để hiện tượng *vỡ khung, nhảy dòng, tràn trang, lỗi phông tiếng Việt* thường gặp ở các công cụ chuyển đổi thông thường nhờ **Kiến trúc Đa Chế độ + Bộ Hậu xử lý Chuẩn xác OpenXML (`lxml`)**:
@@ -81,8 +85,8 @@ Khắc phục triệt để hiện tượng *vỡ khung, nhảy dòng, tràn tra
 ## 2. Cài đặt & Sử dụng
 
 ### Tải bản chạy ngay (không cần cài Python)
-1. Tải tệp `QTPdfPro-v<phiên bản>-win64.zip` ở trang [Releases](https://github.com/quangthoai1985/QTPdfPro/releases/latest).
-2. Giải nén vào thư mục bất kỳ, nhấp đúp `QTPdfPro.exe`.
+1. Tải **`QTPdfPro_Setup.exe`** ở trang [Releases](https://github.com/quangthoai1985/QTPdfPro/releases/latest) và chạy (không hỏi quyền quản trị). Cuối bộ cài, bấm «Đặt mặc định» trong Cài đặt Windows để mở PDF bằng QT PDF Pro.
+2. Bản không cần cài (portable): tải `QTPdfPro_Update.zip`, giải nén vào thư mục bất kỳ, nhấp đúp `QTPdfPro.exe`.
 
 ### Yêu cầu hệ thống
 - Windows 10 / 11 (64-bit)
@@ -144,10 +148,15 @@ python -m qtpdfpro.cli unlock tailieu_khoa.pdf --password MK_CHU
 
 # Kiểm tra / tải bản mới nhất từ GitHub Release
 python -m qtpdfpro.cli update --check
+
+# Liên kết .pdf với Windows: trạng thái / mở trang «Ứng dụng mặc định» của QT PDF Pro
+python -m qtpdfpro.cli assoc --status
+python -m qtpdfpro.cli assoc --open-settings
 ```
 
 ### Chạy kiểm thử tự động & Đóng gói `.exe`
 ```bash
 python -m pytest -q tests
-build.bat
+build.bat                         # chỉ PyInstaller → dist\QTPdfPro\QTPdfPro.exe
+python tools/build_release.py     # PyInstaller + bộ cài Inno Setup + QTPdfPro_Update.zip (tự cài công cụ còn thiếu)
 ```

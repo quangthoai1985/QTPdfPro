@@ -246,7 +246,7 @@ def test_dialog_manual_mode_cancel_and_error(monkeypatch: pytest.MonkeyPatch, tm
 
     no_asset = UpdateDialog(_release(asset=False), AppSettings.load(), install_dir=install, frozen=True)
     assert no_asset.mode == UpdateDialog.MODE_NO_ASSET and not no_asset.btn_release.isHidden()
-    assert "QTPdfPro-v0.9.0-win64.zip" in no_asset.hint_lbl.text()
+    assert uc.UPDATE_ASSET_NAME in no_asset.hint_lbl.text()
 
 
 def test_restart_goes_through_close_event_and_save_prompt(
@@ -309,4 +309,160 @@ def test_startup_reports_previous_update_and_cleans(monkeypatch: pytest.MonkeyPa
     win.updater._cleanup_thread.join(10)
     assert toasts == [f"Đã cập nhật lên QT PDF Pro v{__version__}."]
     assert not stale.exists() and uc.consume_pending_marker() is None
+    win.close()
+
+
+# ─── Tải ngầm (core/updater.py) ────────────────────────────────────────────
+
+
+def _frozen_install(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> tuple:
+    """Giả lập bản đóng gói đã cài; trả về (thư mục cài, plan, danh sách gọi download)."""
+    install = _fake_install(tmp_path / "Programs" / "QT PDF Pro")
+    zip_path = tmp_path / uc.UPDATE_ASSET_NAME
+    plan = uc.InstallPlan("9.0.0", zip_path, tmp_path / "staging" / "QTPdfPro", install,
+                          tmp_path / "apply_update.ps1", tmp_path / "update.log")  # fmt: skip
+    downloads: list = []
+    monkeypatch.setattr(uc, "is_frozen", lambda: True)
+    monkeypatch.setattr(uc, "current_install_dir", lambda: install)
+    monkeypatch.setattr(uc, "download_asset", lambda asset, **kw: downloads.append(asset.name) or zip_path)
+    monkeypatch.setattr(uc, "prepare_install", lambda zp, version, target_dir=None, **kw: plan)
+    return install, plan, downloads
+
+
+def _new_release() -> uc.ReleaseInfo:
+    rel = _release("9.0.0")
+    rel.asset.name = uc.UPDATE_ASSET_NAME
+    return rel
+
+
+def test_background_download_then_restart_or_install_on_exit(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    app = _app()
+    install, plan, downloads = _frozen_install(monkeypatch, tmp_path)
+    rel = _new_release()
+    monkeypatch.setattr(uc, "check_for_update", lambda *a, **k: uc.UpdateCheckResult(__version__, rel, True, ""))
+    launched: list = []
+    monkeypatch.setattr(uc, "launch_install", lambda p, pid=None, relaunch=True: launched.append((p, relaunch)))
+
+    win = MainWindow(settings=AppSettings.load())
+    win.show()
+    app.processEvents()
+    ctl = win.updater
+    monkeypatch.setattr(ctl, "_quit_app", lambda: None)
+    assert ctl.act_auto_download.isChecked() and ctl.act_auto_download in win.actions()
+    assert ctl.start_auto_check() is True
+    _wait_check(win)
+    assert ctl.wait_for_background(5000)
+    app.processEvents()
+    assert downloads == [uc.UPDATE_ASSET_NAME]
+    assert ctl.prepared is not None and ctl.pending_plan is plan and ctl.relaunch_after_install is False
+    assert ctl.notice.isVisible() and ctl.notice.ready and "9.0.0" in ctl.notice.label.text()
+    assert ctl.notice.btn_update.text() == "Khởi động lại để cập nhật"
+
+    # Kiểm tra bằng tay khi đã tải xong → hỏi khởi động lại; «No» = cài khi thoát
+    monkeypatch.setattr(QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.StandardButton.No))
+    assert ctl.open_dialog(rel) == "on_exit" and launched == []
+
+    # Bấm «Khởi động lại để cập nhật» trên thông báo → đóng cửa sổ, cài rồi mở lại
+    ctl.notice.btn_update.click()
+    assert launched == [(plan, True)] and not win.isVisible()
+
+    # Lần khác: không bấm gì, cứ thoát → cài ngầm, không mở lại
+    win2 = MainWindow(settings=AppSettings.load())
+    win2.show()
+    app.processEvents()
+    monkeypatch.setattr(win2.updater, "_quit_app", lambda: None)
+    win2.settings.last_update_check = ""
+    assert win2.updater.start_auto_check() is True
+    _wait_check(win2)
+    assert win2.updater.wait_for_background(5000)
+    app.processEvents()
+    assert win2.close() is True
+    assert launched[-1] == (plan, False)
+
+
+def test_background_download_fallbacks(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    app = _app()
+    install, plan, downloads = _frozen_install(monkeypatch, tmp_path)
+    rel = _new_release()
+    win = MainWindow(settings=AppSettings.load())
+    win.show()
+    app.processEvents()
+    ctl = win.updater
+
+    # Lỗi tải (sai SHA-256) → lùi về thông báo «Cập nhật» thường
+    def bad(*a, **k):  # noqa: ANN002, ANN003
+        raise uc.UpdateError("Mã SHA-256 không khớp")
+
+    monkeypatch.setattr(uc, "download_asset", bad)
+    assert ctl.start_background_download(rel) is True
+    assert ctl.wait_for_background(5000)
+    app.processEvents()
+    assert ctl.prepared is None and ctl.pending_plan is None
+    assert ctl.notice.isVisible() and not ctl.notice.ready and ctl.notice.btn_update.text() == "Cập nhật"
+    assert "SHA-256" in win.statusBar().currentMessage()
+
+    # Tắt «Tự tải» / thư mục cài không ghi được / chạy từ mã nguồn → chỉ thông báo
+    ctl.act_auto_download.setChecked(False)
+    assert AppSettings.load().auto_download_updates is False
+    assert ctl.start_background_download(rel) is False
+    ctl.act_auto_download.setChecked(True)
+    monkeypatch.setattr(uc, "can_write_install_dir", lambda path: False)
+    assert ctl.start_background_download(rel) is False
+    assert ctl.start_background_download(rel, install_dir=install, frozen=False) is False
+    win.close()
+
+
+# ─── Trình xem PDF mặc định (ui/default_app.py) ───────────────────────────
+
+
+def test_default_app_prompt_and_menu(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    import sys
+
+    from qtpdfpro.core import file_assoc as fa
+
+    app = _app()
+    state = {"default": False, "registered": False}
+    registered: list = []
+    opened: list = []
+    monkeypatch.setattr(fa, "is_default_pdf_app", lambda prefix="": state["default"])
+    monkeypatch.setattr(fa, "is_registered", lambda exe=None, prefix="": state["registered"])
+    monkeypatch.setattr(fa, "register_pdf_handler", lambda exe, prefix="": registered.append(exe))
+    monkeypatch.setattr(fa, "open_default_apps_settings", lambda: opened.append(1) or True)
+    monkeypatch.setattr(uc, "is_frozen", lambda: True)
+    infos: list = []
+    monkeypatch.setattr(QMessageBox, "information", staticmethod(lambda parent, title, text, *a: infos.append(text)))
+    questions: list = []
+    monkeypatch.setattr(
+        QMessageBox, "question",
+        staticmethod(lambda parent, title, text, *a: questions.append(text) or QMessageBox.StandardButton.Yes),
+    )  # fmt: skip
+
+    win = MainWindow(settings=AppSettings.load())
+    win.show()
+    app.processEvents()
+    ctl = win.default_app
+    assert ctl.act_set_default in win.actions()
+    assert "trình xem PDF mặc định" in ctl.act_set_default.text()
+
+    # Lần đầu chạy bản cài: hỏi một lần → đăng ký .exe đang chạy + mở Cài đặt Windows
+    ctl.prompt_once()
+    assert len(questions) == 1 and registered == [Path(sys.executable).resolve()] and opened == [1]
+    assert AppSettings.load().default_app_prompted is True
+    ctl.prompt_once()
+    assert len(questions) == 1  # không hỏi lại
+
+    # Đã đăng ký → chỉ mở Cài đặt; đã là mặc định → báo, không mở
+    state["registered"] = True
+    ctl.act_set_default.trigger()
+    assert len(registered) == 1 and opened == [1, 1]
+    state["default"] = True
+    ctl.act_set_default.trigger()
+    assert opened == [1, 1] and "đã là trình mở PDF mặc định" in infos[-1]
+
+    # Chạy từ mã nguồn, chưa có bản cài → hướng dẫn dùng QTPdfPro_Setup.exe
+    state.update(default=False, registered=False)
+    monkeypatch.setattr(uc, "is_frozen", lambda: False)
+    assert ctl.make_default() is False and "QTPdfPro_Setup.exe" in infos[-1]
     win.close()

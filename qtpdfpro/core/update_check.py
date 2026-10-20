@@ -1,16 +1,18 @@
 """Kiểm tra & cài bản cập nhật QT PDF Pro từ GitHub Release (mục V4 — không phụ thuộc PySide6).
 
 Luồng:
-1. `check_for_update()` đọc `https://api.github.com/repos/<kho>/releases/latest`, so thẻ (`v0.5.0`) với
-   `__version__` theo SemVer (bỏ qua bản nháp / pre-release) và chọn tệp `QTPdfPro-v<x.y.z>-win64.zip`.
-2. `download_asset()` tải vào `<thư mục dữ liệu>/updates/` (có tiến trình, huỷ được), kiểm kích thước và
-   SHA-256 (trường `digest` của asset).
+1. `check_for_update()` đọc `https://api.github.com/repos/<kho>/releases/latest`, so thẻ (`v1.0.0`) với
+   `__version__` theo SemVer (bỏ qua bản nháp / pre-release) và chọn tệp `QTPdfPro_Update.zip` (bản phát hành
+   trước v1.0.0 dùng tên `QTPdfPro-v<x.y.z>-win64.zip` — vẫn nhận).
+2. `download_asset()` tải vào `%LOCALAPPDATA%\\QT PDF Pro\\updates\\` (có tiến trình, huỷ được), kiểm kích thước
+   và SHA-256 (trường `digest` của asset).
 3. Bản đóng gói onedir (`sys.frozen`): `prepare_install()` giải nén vào thư mục tạm + sinh script PowerShell;
    `launch_install()` chạy script khi ứng dụng thoát — script đợi tiến trình thoát, đổi thư mục cài thành
-   `.old` (bản dự phòng, khôi phục nếu lỗi), đưa bản mới vào rồi mở lại ứng dụng. Lần khởi động sau
+   `.old` (bản dự phòng, khôi phục nếu lỗi), đưa bản mới vào, chép lại tệp gỡ cài đặt `unins*` của bộ cài
+   Inno Setup, cập nhật `DisplayVersion` trong «Apps & features» rồi mở lại ứng dụng. Lần khởi động sau
    `cleanup_previous_update()` xoá `.old`. Chạy từ mã nguồn thì chỉ báo có bản mới.
 
-Chỉ tải và cài khi người dùng bấm. Chỉ nhận https và host GitHub (kể cả từng bước chuyển hướng).
+Điều phối tự tải ngầm nằm ở `core/updater.py`. Chỉ nhận https và host GitHub (kể cả từng bước chuyển hướng).
 Biến môi trường `QT_PDF_PRO_UPDATE_API` (chỉ dùng khi kiểm thử) thay địa chỉ API và cho phép thêm
 máy cục bộ `127.0.0.1` / `localhost`.
 """
@@ -52,6 +54,11 @@ CHUNK_SIZE = 256 * 1024
 USER_AGENT = f"QTPdfPro/{__version__} (+https://github.com/{__github_repo__})"
 
 APP_EXE_NAME = "QTPdfPro.exe"
+UPDATE_ASSET_NAME = "QTPdfPro_Update.zip"  # tệp cập nhật ngầm đính kèm mỗi bản phát hành (từ v1.0.0)
+SETUP_ASSET_NAME = "QTPdfPro_Setup.exe"  # bộ cài Inno Setup (installer.iss) — người dùng mới tải tay
+UPDATES_ROOT_NAME = "QT PDF Pro"  # %LOCALAPPDATA%\QT PDF Pro\updates
+# AppId của bộ cài (installer.iss) — khoá gỡ cài đặt HKCU\...\Uninstall\<AppId>_is1; đổi thì phải đổi cả hai nơi
+INNO_APP_ID = "{A23779E2-FE6A-4983-9D0C-82D2465C4D8B}"
 UPDATE_SCRIPT_NAME = "apply_update.ps1"
 UPDATE_LOG_NAME = "update.log"
 PENDING_MARKER_NAME = "pending_update.json"
@@ -193,36 +200,45 @@ class InstallPlan:
 
 
 def expected_asset_name(version: str) -> str:
-    """Quy ước đặt tên tệp phát hành (CLAUDE.md mục 6) — đổi tên thì trình cập nhật không nhận ra."""
+    """Tên tệp theo phiên bản của các bản phát hành trước v1.0.0 (bản v0.5.0 chỉ nhận tên này).
+
+    Từ v1.0.0 tệp cập nhật chính là `UPDATE_ASSET_NAME`; bản phát hành vẫn đính kèm thêm tệp tên cũ để
+    người dùng v0.5.0 tự cập nhật được (CLAUDE.md mục 6).
+    """
     return f"QTPdfPro-v{version}-win64.zip"
 
 
-_SAFE_ASSET_RE = re.compile(r"^QTPdfPro-v[0-9A-Za-z.+-]+-win64\.zip$", re.IGNORECASE)
+_SAFE_ASSET_RE = re.compile(r"^(?:QTPdfPro_Update|QTPdfPro-v[0-9A-Za-z.+-]+-win64)\.zip$", re.IGNORECASE)
 
 
 def select_asset(assets: Any, version: str) -> Optional[ReleaseAsset]:
-    """Chọn đúng tệp `QTPdfPro-v<version>-win64.zip` trong danh sách asset của API."""
-    want = expected_asset_name(version).lower()
-    for item in assets if isinstance(assets, list) else []:
-        if not isinstance(item, dict) or str(item.get("name") or "").lower() != want:
-            continue
-        url = str(item.get("browser_download_url") or "").strip()
-        if not url:
-            continue
-        algo, _, value = str(item.get("digest") or "").partition(":")
-        sha = value.lower() if algo.lower() == "sha256" and re.fullmatch(r"[0-9a-fA-F]{64}", value) else ""
-        try:
-            size = max(0, int(item.get("size") or 0))
-        except (TypeError, ValueError):
-            size = 0
-        return ReleaseAsset(
-            name=str(item["name"]),
-            url=url,
-            size=size,
-            sha256=sha,
-            content_type=str(item.get("content_type") or ""),
-        )
+    """Chọn tệp cập nhật trong danh sách asset của API: ưu tiên `QTPdfPro_Update.zip`, sau đó tên cũ
+    `QTPdfPro-v<version>-win64.zip`."""
+    items = [item for item in (assets if isinstance(assets, list) else []) if isinstance(item, dict)]
+    for want in (UPDATE_ASSET_NAME.lower(), expected_asset_name(version).lower()):
+        found = _asset_from_item(next((i for i in items if str(i.get("name") or "").lower() == want), None))
+        if found is not None:
+            return found
     return None
+
+
+def _asset_from_item(item: Optional[dict]) -> Optional[ReleaseAsset]:
+    url = str(item.get("browser_download_url") or "").strip() if item is not None else ""
+    if not url:
+        return None
+    algo, _, value = str(item.get("digest") or "").partition(":")
+    sha = value.lower() if algo.lower() == "sha256" and re.fullmatch(r"[0-9a-fA-F]{64}", value) else ""
+    try:
+        size = max(0, int(item.get("size") or 0))
+    except (TypeError, ValueError):
+        size = 0
+    return ReleaseAsset(
+        name=str(item["name"]),
+        url=url,
+        size=size,
+        sha256=sha,
+        content_type=str(item.get("content_type") or ""),
+    )
 
 
 def parse_release(data: dict) -> ReleaseInfo:
@@ -372,7 +388,13 @@ def should_auto_check(last_check: str, now: Optional[datetime] = None, interval:
 
 
 def updates_dir() -> Path:
-    path = get_data_dir() / "updates"
+    """`%LOCALAPPDATA%\\QT PDF Pro\\updates` — ngoài thư mục cài `%LOCALAPPDATA%\\Programs\\QT PDF Pro` để script
+    hoán đổi được cả thư mục cài. Khi đặt `QT_PDF_PRO_DATA` (kiểm thử) thì nằm trong thư mục dữ liệu đó."""
+    if os.environ.get("QT_PDF_PRO_DATA", "").strip():
+        path = get_data_dir() / "updates"
+    else:
+        local_app_data = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
+        path = Path(local_app_data) / UPDATES_ROOT_NAME / "updates"
     path.mkdir(parents=True, exist_ok=True)
     return path
 
@@ -533,11 +555,14 @@ _PS_APPLY_UPDATE = r"""param(
     [Parameter(Mandatory = $true)][string]$TargetDir,
     [string]$ExeName = 'QTPdfPro.exe',
     [string]$LogFile = '',
+    [string]$Version = '',
+    [string]$AppId = '',
     [switch]$NoRestart
 )
 # Trình cập nhật QT PDF Pro — sinh bởi qtpdfpro/core/update_check.py; `param` phải là câu lệnh đầu tiên.
-# Đợi ứng dụng thoát -> đổi thư mục cài thành «.old» (bản dự phòng) -> đưa bản mới vào -> mở lại ứng dụng.
-# Lỗi giữa chừng thì khôi phục thư mục cũ. Ứng dụng xoá thư mục «.old» ở lần khởi động sau.
+# Đợi ứng dụng thoát -> đổi thư mục cài thành «.old» (bản dự phòng) -> đưa bản mới vào -> giữ tệp gỡ cài
+# đặt của bộ cài -> mở lại ứng dụng. Lỗi giữa chừng thì khôi phục thư mục cũ. Ứng dụng xoá «.old» ở lần
+# khởi động sau.
 $ErrorActionPreference = 'Stop'
 
 function Write-Log([string]$Text) {
@@ -615,7 +640,25 @@ try {
     exit 5
 }
 
-# 4. Mở lại ứng dụng
+# 4. Bản cài bằng QTPdfPro_Setup.exe: chép lại trình gỡ cài đặt (unins000.exe/.dat) và báo phiên bản mới
+#    cho «Apps & features». Lỗi ở bước này không làm hỏng bản cập nhật.
+try {
+    Get-ChildItem -LiteralPath $Backup -File -Filter 'unins*' -ErrorAction SilentlyContinue | ForEach-Object {
+        $dest = Join-Path $TargetDir $_.Name
+        if (-not (Test-Path -LiteralPath $dest)) { Copy-Item -LiteralPath $_.FullName -Destination $dest }
+    }
+    if ($Version -and $AppId) {
+        $key = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\$($AppId)_is1"
+        if (Test-Path -LiteralPath $key) {
+            Set-ItemProperty -LiteralPath $key -Name 'DisplayVersion' -Value $Version
+            Write-Log "Đã ghi DisplayVersion = $Version"
+        }
+    }
+} catch {
+    Write-Log "Không giữ được thông tin gỡ cài đặt: $($_.Exception.Message)"
+}
+
+# 5. Mở lại ứng dụng
 Start-App $TargetDir
 Write-Log 'Hoàn tất cập nhật.'
 exit 0
@@ -680,6 +723,8 @@ def build_launch_command(plan: InstallPlan, pid: int, relaunch: bool = True) -> 
         "-TargetDir", str(plan.target_dir),
         "-ExeName", plan.exe_name,
         "-LogFile", str(plan.log_path),
+        "-Version", plan.version,
+        "-AppId", INNO_APP_ID,
     ]  # fmt: skip
     if not relaunch:
         cmd.append("-NoRestart")
@@ -775,6 +820,10 @@ def cleanup_previous_update(install_dir: Optional[Path] = None, current_version:
     current = parse_version(current_version)
     for f in folder.iterdir():
         if not f.is_file():
+            continue
+        if f.name.lower() in (UPDATE_ASSET_NAME.lower(), f"{UPDATE_ASSET_NAME}.part".lower()):
+            f.unlink(missing_ok=True)  # tên không kèm phiên bản: lúc khởi động thì chắc chắn là tệp của lần trước
+            removed.append(f)
             continue
         m = re.fullmatch(r"QTPdfPro-v(.+)-win64\.zip(\.part)?", f.name, re.IGNORECASE)
         if not m:

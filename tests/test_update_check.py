@@ -70,9 +70,13 @@ def release_json(
     payload: bytes = b"",
     digest: str | None = None,
     asset_url: str = ASSET_URL,
+    update_zip: bool = False,
 ) -> dict:
+    """`update_zip=True`: tệp chính tên `QTPdfPro_Update.zip` (từ v1.0.0), kèm tệp tên cũ trỏ tới URL khác."""
     sha = hashlib.sha256(payload).hexdigest()
     version = tag.lstrip("v")
+    main_name = uc.UPDATE_ASSET_NAME if update_zip else f"QTPdfPro-v{version}-win64.zip"
+    legacy = [{"name": f"QTPdfPro-v{version}-win64.zip", "browser_download_url": asset_url + "-legacy", "size": 1}]
     return {
         "tag_name": tag,
         "name": f"QT PDF Pro {tag} — Cập nhật tự động",
@@ -86,9 +90,10 @@ def release_json(
              "size": 64},
             {"name": f"QTPdfPro-v{version}-src.zip", "browser_download_url": asset_url.replace("win64", "src"),
              "size": 10},
-            {"name": f"QTPdfPro-v{version}-win64.zip", "browser_download_url": asset_url, "size": len(payload),
+            {"name": uc.SETUP_ASSET_NAME, "browser_download_url": asset_url + "-setup", "size": 99},
+            {"name": main_name, "browser_download_url": asset_url, "size": len(payload),
              "digest": f"sha256:{sha}" if digest is None else digest, "content_type": "application/zip"},
-        ],
+        ] + (legacy if update_zip else []),
     }  # fmt: skip
 
 
@@ -180,6 +185,14 @@ def test_select_asset_requires_exact_release_name() -> None:
     no_digest = uc.select_asset([{"name": ASSET_NAME, "browser_download_url": ASSET_URL, "size": 3}], "0.9.0")
     assert no_digest is not None and no_digest.sha256 == ""
     assert uc.expected_asset_name("0.5.0") == "QTPdfPro-v0.5.0-win64.zip"
+    # Từ v1.0.0: ưu tiên QTPdfPro_Update.zip, bỏ qua bộ cài QTPdfPro_Setup.exe
+    new_assets = release_json(tag="v1.2.0", payload=b"abc", update_zip=True)["assets"]
+    chosen = uc.select_asset(new_assets, "1.2.0")
+    assert chosen.name == uc.UPDATE_ASSET_NAME and chosen.url == ASSET_URL
+    assert chosen.sha256 == hashlib.sha256(b"abc").hexdigest()
+    only_legacy = [a for a in new_assets if a["name"] != uc.UPDATE_ASSET_NAME]
+    assert uc.select_asset(only_legacy, "1.2.0").name == "QTPdfPro-v1.2.0-win64.zip"
+    assert uc.select_asset([a for a in new_assets if a["name"] == uc.SETUP_ASSET_NAME], "1.2.0") is None
 
 
 # ─── Tải về ────────────────────────────────────────────────────────────────
@@ -428,6 +441,9 @@ def test_update_script_content_and_encoding(tmp_path: Path) -> None:
     assert cmd[cmd.index("-ProcessId") + 1] == "4321"
     assert cmd[cmd.index("-TargetDir") + 1] == str(plan.target_dir)
     assert "-NoRestart" not in cmd and "-NoRestart" in uc.build_launch_command(plan, 4321, relaunch=False)
+    assert cmd[cmd.index("-Version") + 1] == "0.9.0" and cmd[cmd.index("-AppId") + 1] == uc.INNO_APP_ID
+    for needle in ("unins*", "DisplayVersion", "_is1"):
+        assert needle in text, needle
 
 
 @pytest.mark.skipif(sys.platform != "win32" or shutil.which("powershell") is None, reason="Cần Windows PowerShell")
@@ -435,6 +451,8 @@ def test_update_script_swaps_fake_install_folders(tmp_path: Path) -> None:
     """Chạy script thật trên thư mục giả trong tmp (không đụng bản cài thật, không mở lại ứng dụng)."""
     script = uc.write_update_script(tmp_path / "apply_update.ps1")
     target = _fake_install(tmp_path / "Ứng dụng" / "QTPdfPro", "ban cu")
+    (target / "unins000.exe").write_text("trinh go")  # bản cài bằng QTPdfPro_Setup.exe (Inno Setup)
+    (target / "unins000.dat").write_text("nhat ky go")
     source = _fake_install(tmp_path / "staging" / "QTPdfPro", "ban moi")
     log = tmp_path / "update.log"
 
@@ -447,6 +465,7 @@ def test_update_script_swaps_fake_install_folders(tmp_path: Path) -> None:
     assert (target / "QTPdfPro.exe").read_text() == "ban moi"
     backup = target.with_name("QTPdfPro.old")
     assert (backup / "QTPdfPro.exe").read_text() == "ban cu"
+    assert (target / "unins000.exe").read_text() == "trinh go" and (target / "unins000.dat").is_file()
     assert not source.exists()
     assert "Hoàn tất cập nhật" in log.read_text(encoding="utf-8-sig")
 
@@ -477,13 +496,20 @@ def test_pending_marker_and_cleanup(tmp_path: Path, isolated_app_data: Path) -> 
     old = _fake_install(tmp_path / "QTPdfPro.old", "ban cu")
     (upd / "staging" / "QTPdfPro").mkdir(parents=True)
     for name in ("QTPdfPro-v0.4.0-win64.zip", "QTPdfPro-v0.9.0-win64.zip", "QTPdfPro-v1.0.0-win64.zip.part",
-                 "QTPdfPro-v1.0.0-win64.zip", "ghi_chu.txt"):  # fmt: skip
+                 "QTPdfPro-v1.0.0-win64.zip", "ghi_chu.txt", uc.UPDATE_ASSET_NAME, f"{uc.UPDATE_ASSET_NAME}.part"):  # fmt: skip
         (upd / name).write_bytes(b"x")
     uc.cleanup_previous_update(install, current_version="0.9.0")
     assert not old.exists() and install.exists() and not (upd / "staging").exists()
     left = sorted(p.name for p in upd.iterdir())
     assert left == ["QTPdfPro-v1.0.0-win64.zip", "ghi_chu.txt"]
     assert upd.parent == get_data_dir()
+
+
+def test_updates_dir_default_location(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Không đặt QT_PDF_PRO_DATA: tải về %LOCALAPPDATA%/QT PDF Pro/updates (ngoài thư mục cài Programs)."""
+    monkeypatch.delenv("QT_PDF_PRO_DATA", raising=False)
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    assert uc.updates_dir() == tmp_path / "QT PDF Pro" / "updates" and uc.updates_dir().is_dir()
 
 
 def test_format_size_vietnamese() -> None:
@@ -498,22 +524,23 @@ def test_cli_update_check_and_download(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture, tmp_path: Path
 ) -> None:
     payload = make_app_zip()
+    url = f"https://github.com/{__github_repo__}/releases/download/v9.0.0/{uc.UPDATE_ASSET_NAME}"
     fake_network(monkeypatch, {
-        API_URL: api_route(release_json(payload=payload)),
-        ASSET_URL: lambda: FakeResponse(payload, CDN_URL),
+        API_URL: api_route(release_json(tag="v9.0.0", payload=payload, asset_url=url, update_zip=True)),
+        url: lambda: FakeResponse(payload, CDN_URL),
     })  # fmt: skip
     assert cli_main(["update", "--check", "--json"]) == 0
     data = json.loads(capsys.readouterr().out)
-    assert data["update_available"] is True and data["latest"]["asset"]["name"] == ASSET_NAME
+    assert data["update_available"] is True and data["latest"]["asset"]["name"] == uc.UPDATE_ASSET_NAME
 
     assert cli_main(["update"]) == 0
-    assert "Đã có bản v0.9.0" in capsys.readouterr().out
+    assert "Đã có bản v9.0.0" in capsys.readouterr().out
 
     out_dir = tmp_path / "tai_ve"
     assert cli_main(["update", "--download", "-o", str(out_dir), "--json"]) == 0
     data = json.loads(capsys.readouterr().out)
-    assert Path(data["downloaded"]) == out_dir / ASSET_NAME
-    assert (out_dir / ASSET_NAME).read_bytes() == payload
+    assert Path(data["downloaded"]) == out_dir / uc.UPDATE_ASSET_NAME
+    assert (out_dir / uc.UPDATE_ASSET_NAME).read_bytes() == payload
 
     fake_network(monkeypatch, {API_URL: api_route(release_json(tag=f"v{__version__}"))})
     assert cli_main(["update", "--download", "-o", str(out_dir)]) == 0

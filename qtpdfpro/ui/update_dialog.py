@@ -1,8 +1,10 @@
-"""Cập nhật ứng dụng từ GitHub Release (mục V4): tự kiểm tra lúc khởi động, thông báo, hộp thoại tải & cài.
+"""Cập nhật ứng dụng từ GitHub Release (mục V4): tự kiểm tra lúc khởi động, tải ngầm, thông báo, hộp thoại.
 
 - `UpdateController` gắn vào `MainWindow`: thêm hành động «Kiểm tra cập nhật...» vào menu Trợ giúp, tự kiểm tra
-  tối đa 1 lần/ngày bằng `QThread` (không làm chậm lúc mở), hiện thông báo nổi «Đã có bản vX.Y.Z — Cập nhật»,
-  và khi người dùng chọn cài thì chạy script cập nhật lúc cửa sổ đóng (sau khi `closeEvent` đã hỏi lưu các tab).
+  tối đa 1 lần/ngày bằng `QThread` (không làm chậm lúc mở). Bản đóng gói ghi được thư mục cài thì tải ngầm
+  `QTPdfPro_Update.zip` (`core/updater.py`) rồi báo «Bản vX.Y.Z đã sẵn sàng — Khởi động lại để cập nhật»; không
+  bấm thì bản mới được cài khi thoát. Ngược lại hiện «Đã có bản vX.Y.Z — Cập nhật» để mở hộp thoại. Script cập
+  nhật chạy lúc cửa sổ đóng (sau khi `closeEvent` đã hỏi lưu các tab).
 - `UpdateDialog`: ghi chú phát hành, dung lượng, «Tải về & cập nhật» / «Để sau» / «Bỏ qua bản này»,
   thanh tiến trình, nút Huỷ. Chạy từ mã nguồn thì chỉ mở trang phát hành.
 """
@@ -36,6 +38,7 @@ from PySide6.QtWidgets import (
 
 from qtpdfpro import __app_name__, __github_repo__, __version__
 from qtpdfpro.core import update_check as uc
+from qtpdfpro.core import updater
 from qtpdfpro.core.settings import AppSettings
 
 STARTUP_CHECK_DELAY_MS = 4000
@@ -120,13 +123,52 @@ class UpdateDownloadWorker(QThread):
             self.failed.emit(f"Lỗi ngoài dự kiến: {exc}")
 
 
+class BackgroundUpdateWorker(QThread):
+    """Tải ngầm + giải nén bản mới (`updater.download_and_prepare`) khi tự kiểm tra thấy bản mới."""
+
+    ready = Signal(object)  # updater.PreparedUpdate
+    failed = Signal(str)
+    cancelled = Signal()
+
+    def __init__(
+        self,
+        release: uc.ReleaseInfo,
+        install_dir: Path,
+        wait_for: Optional[threading.Thread] = None,
+        parent: QObject | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self.release = release
+        self.install_dir = install_dir
+        self.wait_for = wait_for
+        self._cancel = False
+
+    def request_cancel(self) -> None:
+        self._cancel = True
+
+    def run(self) -> None:
+        try:
+            if self.wait_for is not None:
+                self.wait_for.join(60)  # dọn thư mục tạm của lần cập nhật trước xong rồi mới giải nén bản mới
+            prepared = updater.download_and_prepare(
+                self.release, self.install_dir, should_cancel=lambda: self._cancel
+            )
+            self.ready.emit(prepared)
+        except uc.UpdateCancelled:
+            self.cancelled.emit()
+        except uc.UpdateError as exc:
+            self.failed.emit(str(exc))
+        except Exception as exc:  # pragma: no cover - lỗi ngoài dự kiến không được làm sập ứng dụng
+            self.failed.emit(f"Lỗi ngoài dự kiến: {exc}")
+
+
 class UpdateDialog(QDialog):
     """Thông tin bản mới + tải về & cập nhật. Kết quả ở `outcome`: None | "later" | "skip" | "restart" | "on_exit"."""
 
     MODE_INSTALL = "install"  # bản đóng gói, thư mục cài ghi được → tự thay bản mới
     MODE_MANUAL = "manual"  # bản đóng gói, thư mục cài không ghi được → tải về rồi hướng dẫn chép tay
     MODE_SOURCE = "source"  # chạy từ mã nguồn → chỉ mở trang phát hành
-    MODE_NO_ASSET = "no_asset"  # bản phát hành thiếu tệp QTPdfPro-v<x.y.z>-win64.zip
+    MODE_NO_ASSET = "no_asset"  # bản phát hành thiếu tệp QTPdfPro_Update.zip
 
     def __init__(
         self,
@@ -248,7 +290,7 @@ class UpdateDialog(QDialog):
         return btn
 
     def _mode_hint(self) -> str:
-        asset_name = uc.expected_asset_name(self.release.version)
+        asset_name = self.release.asset.name if self.release.asset is not None else uc.UPDATE_ASSET_NAME
         if self.mode == self.MODE_INSTALL:
             check = "mã SHA-256" if self.release.asset and self.release.asset.sha256 else "dung lượng"
             return (
@@ -441,7 +483,8 @@ class UpdateDialog(QDialog):
 
 
 class UpdateNotice(QFrame):
-    """Thông báo nổi không chặn ở góc dưới bên phải: «Đã có bản vX.Y.Z — Cập nhật»."""
+    """Thông báo nổi không chặn ở góc dưới bên phải: «Đã có bản vX.Y.Z — Cập nhật» hoặc (đã tải ngầm xong)
+    «Bản vX.Y.Z đã sẵn sàng — Khởi động lại». `ready` cho biết đang ở dạng nào."""
 
     updateClicked = Signal()
 
@@ -473,11 +516,25 @@ class UpdateNotice(QFrame):
         self.btn_close.setToolTip("Ẩn thông báo (xem lại qua ☰ Menu › Trợ giúp › Kiểm tra cập nhật...)")
         self.btn_close.clicked.connect(self.hide)
         lay.addWidget(self.btn_close)
+        self.ready = False
         self.hide()
         parent.installEventFilter(self)
 
     def show_for(self, release: uc.ReleaseInfo) -> None:
+        self.ready = False
         self.label.setText(f"🎉 Đã có bản v{release.version}")
+        self.btn_update.setText("Cập nhật")
+        self.btn_close.setToolTip("Ẩn thông báo (xem lại qua ☰ Menu › Trợ giúp › Kiểm tra cập nhật...)")
+        self._popup(release)
+
+    def show_ready(self, release: uc.ReleaseInfo) -> None:
+        self.ready = True
+        self.label.setText(f"✅ Bản v{release.version} đã tải xong")
+        self.btn_update.setText("Khởi động lại để cập nhật")
+        self.btn_close.setToolTip("Ẩn thông báo — bản mới được cài khi bạn thoát QT PDF Pro")
+        self._popup(release)
+
+    def _popup(self, release: uc.ReleaseInfo) -> None:
         self.setToolTip(release.title)
         self.adjustSize()
         self.reposition()
@@ -508,23 +565,30 @@ class UpdateController(QObject):
         self.settings = settings
         self.latest: Optional[uc.ReleaseInfo] = None
         self.pending_plan: Optional[uc.InstallPlan] = None
+        self.prepared: Optional[updater.PreparedUpdate] = None  # bản đã tải ngầm xong, cài khi thoát
         self.relaunch_after_install = True
         self._check_worker: Optional[UpdateCheckWorker] = None
+        self._bg_worker: Optional[BackgroundUpdateWorker] = None
         self._manual = False
         self._closing = False
         self._cleanup_thread: Optional[threading.Thread] = None
         self.notice = UpdateNotice(window)
-        self.notice.updateClicked.connect(lambda: self.open_dialog())
+        self.notice.updateClicked.connect(self._on_notice_clicked)
         self.act_check = QAction("Kiểm tra cập nhật...", window)
         self.act_check.triggered.connect(self.check_now)
         self.act_auto = QAction("Tự kiểm tra cập nhật khi khởi động", window)
         self.act_auto.setCheckable(True)
         self.act_auto.setChecked(settings.auto_check_updates)
         self.act_auto.toggled.connect(self._on_auto_toggled)
+        self.act_auto_download = QAction("Tự tải bản mới ở chế độ nền && cài khi thoát", window)
+        self.act_auto_download.setCheckable(True)
+        self.act_auto_download.setChecked(settings.auto_download_updates)
+        self.act_auto_download.toggled.connect(self._on_auto_download_toggled)
 
     def add_menu_actions(self, menu: QMenu) -> None:
         menu.addAction(self.act_check)
         menu.addAction(self.act_auto)
+        menu.addAction(self.act_auto_download)
 
     # ─── Khởi động ────────────────────────────────────────────────────────
 
@@ -606,14 +670,90 @@ class UpdateController(QObject):
             return
         self.latest = result.latest if result.update_available else None
         if self.latest is None:
-            self.notice.hide()
+            if self.prepared is None:
+                self.notice.hide()
             if manual:
                 QMessageBox.information(self.window, "Kiểm tra cập nhật", result.message)
             return
         if manual:
-            self.open_dialog(self.latest)
+            if self.is_downloading():
+                self._toast(f"Đang tải ngầm bản v{self.latest.version} — sẽ báo khi xong.", 5000)
+            else:
+                self.open_dialog(self.latest)
         elif self.latest.version != self.settings.skipped_update_version:
-            self.notice.show_for(self.latest)
+            if not self.start_background_download(self.latest):
+                self.notice.show_for(self.latest)
+
+    # ─── Tải ngầm (core/updater.py) ───────────────────────────────────────
+
+    def is_downloading(self) -> bool:
+        return self._bg_worker is not None and self._bg_worker.isRunning()
+
+    def wait_for_background(self, timeout_ms: int = 10000) -> bool:
+        """Chờ luồng tải ngầm kết thúc (dùng khi kiểm thử). Tín hiệu còn xếp hàng cần `processEvents()`."""
+        return self._bg_worker.wait(timeout_ms) if self._bg_worker is not None else True
+
+    def start_background_download(
+        self, release: uc.ReleaseInfo, install_dir: Optional[Path] = None, frozen: Optional[bool] = None
+    ) -> bool:
+        """Tải ngầm + chuẩn bị cài nếu bật «Tự tải» và bản đang chạy tự thay được; False = chỉ thông báo."""
+        if self._closing or not self.settings.auto_download_updates:
+            return False
+        if self.prepared is not None and self.prepared.version == release.version:
+            self.notice.show_ready(release)
+            return True
+        if self.is_downloading():
+            return True
+        install_dir = install_dir if install_dir is not None else uc.current_install_dir()
+        if updater.auto_install_blocker(release, install_dir, frozen):
+            return False
+        self._bg_worker = BackgroundUpdateWorker(release, Path(install_dir), self._cleanup_thread, self)
+        self._bg_worker.ready.connect(self._on_background_ready)
+        self._bg_worker.failed.connect(lambda msg, rel=release: self._on_background_failed(rel, msg))
+        self._bg_worker.cancelled.connect(self._finish_background)
+        self._bg_worker.start()
+        return True
+
+    def _finish_background(self) -> None:
+        if self._bg_worker is not None:
+            self._bg_worker.wait(10000)
+
+    def _on_background_ready(self, prepared: updater.PreparedUpdate) -> None:
+        self._finish_background()
+        if self._closing:
+            return
+        self.prepared = prepared
+        self.pending_plan = prepared.plan
+        self.relaunch_after_install = False  # tự cài khi thoát; chỉ mở lại khi người dùng bấm «Khởi động lại»
+        self.notice.show_ready(prepared.release)
+
+    def _on_background_failed(self, release: uc.ReleaseInfo, message: str) -> None:
+        self._finish_background()
+        if self._closing:
+            return
+        self.window.statusBar().showMessage(f"Không tải ngầm được bản v{release.version}: {message}", 8000)
+        self.notice.show_for(release)  # lùi về hộp thoại cập nhật thủ công
+
+    def _on_notice_clicked(self) -> None:
+        if self.notice.ready and self.prepared is not None:
+            self.restart_to_update()
+        else:
+            self.open_dialog()
+
+    def restart_to_update(self) -> bool:
+        """Đóng ứng dụng (hỏi lưu các tab), thay bản mới đã tải ngầm rồi mở lại. False nếu người dùng huỷ."""
+        if self.pending_plan is None:
+            return False
+        self.notice.hide()
+        self.relaunch_after_install = True
+        if self.window.close():
+            return True
+        self.relaunch_after_install = False
+        version = self.prepared.version if self.prepared is not None else self.pending_plan.version
+        self._toast(f"Chưa đóng ứng dụng — bản v{version} sẽ được cài khi bạn thoát.", 6000)
+        if self.prepared is not None:
+            self.notice.show_ready(self.prepared.release)
+        return False
 
     def _on_check_failed(self, message: str) -> None:
         manual = self._finish_check()
@@ -628,12 +768,27 @@ class UpdateController(QObject):
         self.settings.auto_check_updates = bool(checked)
         self.settings.save()
 
+    def _on_auto_download_toggled(self, checked: bool) -> None:
+        self.settings.auto_download_updates = bool(checked)
+        self.settings.save()
+
     # ─── Hộp thoại & cài đặt ──────────────────────────────────────────────
 
     def open_dialog(self, release: Optional[uc.ReleaseInfo] = None) -> Optional[str]:
         release = release or self.latest
         if release is None:
             return None
+        if self.prepared is not None and self.prepared.version == release.version:
+            answer = QMessageBox.question(
+                self.window,
+                "Cập nhật QT PDF Pro",
+                f"Bản v{release.version} đã được tải về và sẵn sàng.\n\n"
+                "Khởi động lại ngay để cập nhật? (Chọn «No» thì bản mới được cài khi bạn thoát.)",
+            )
+            if answer == QMessageBox.StandardButton.Yes:
+                self.restart_to_update()
+                return "restart"
+            return "on_exit"
         if self._cleanup_thread is not None and self._cleanup_thread.is_alive():
             self._cleanup_thread.join(30)  # dọn thư mục tạm của lần trước xong rồi mới giải nén bản mới
         self.notice.hide()
@@ -662,6 +817,9 @@ class UpdateController(QObject):
         self.notice.hide()
         if self.is_checking():
             self._check_worker.wait(int((uc.API_TIMEOUT + 2) * 1000))  # type: ignore[union-attr]
+        if self.is_downloading():  # tải ngầm chưa xong: huỷ, lần mở sau kiểm tra lại
+            self._bg_worker.request_cancel()  # type: ignore[union-attr]
+            self._bg_worker.wait(15000)  # type: ignore[union-attr]
         plan, self.pending_plan = self.pending_plan, None
         if plan is None:
             return

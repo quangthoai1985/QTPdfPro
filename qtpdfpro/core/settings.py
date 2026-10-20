@@ -45,8 +45,10 @@ class AppSettings:
     batch_output_dir: str = ""  # Thư mục lưu của «Chuyển đổi hàng loạt»; trống = lưu cạnh từng tệp PDF gốc
     annot_author: str = ""  # Tên người chú thích ghi vào PDF; trống = tên đăng nhập Windows
     auto_check_updates: bool = True  # Tự kiểm tra bản mới trên GitHub Release lúc khởi động (tối đa 1 lần/ngày)
+    auto_download_updates: bool = True  # Bản đóng gói: thấy bản mới thì tải ngầm + cài khi thoát (core/updater.py)
     last_update_check: str = ""  # Thời điểm kiểm tra cập nhật thành công gần nhất (ISO 8601, UTC)
     skipped_update_version: str = ""  # Bản người dùng chọn «Bỏ qua bản này» (không tự báo nữa)
+    default_app_prompted: bool = False  # Đã hỏi «Đặt làm trình xem PDF mặc định» lần đầu chạy bản cài (ui/default_app.py)
     print_settings: Dict[str, Any] = field(default_factory=dict)  # Thiết lập in lần trước (PrintOptions.to_settings)
 
     @classmethod

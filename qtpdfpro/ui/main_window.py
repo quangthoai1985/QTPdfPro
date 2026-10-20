@@ -66,6 +66,7 @@ from qtpdfpro.ui.print_dialog import PrintDialog
 from qtpdfpro.ui.pdf_tools_dialog import PDF_TOOL_DIALOGS
 from qtpdfpro.ui.theme import get_stylesheet
 from qtpdfpro.ui.tool_catalog import CATEGORIES, COMING_SOON_LABEL, TOOLS, get_tool
+from qtpdfpro.ui.default_app import DefaultAppController
 from qtpdfpro.ui.update_dialog import UpdateController
 
 
@@ -831,6 +832,7 @@ class MainWindow(QMainWindow):
         self._mode_category = "all"
         self._toast: Optional[QLabel] = None
         self.updater = UpdateController(self, self.settings)
+        self.default_app = DefaultAppController(self, self.settings)
 
         self._build_actions_and_menus()
         central = QWidget()
@@ -1023,6 +1025,8 @@ class MainWindow(QMainWindow):
         help_menu.addAction(act_about)
         help_menu.addSeparator()
         self.updater.add_menu_actions(help_menu)
+        help_menu.addSeparator()
+        self.default_app.add_menu_actions(help_menu)
 
         # Menu nằm trong nút «☰ Menu» nên phải gắn hành động vào cửa sổ để phím tắt hoạt động
         for menu in (file_menu, view_menu, tools_menu, edit_menu, help_menu):

@@ -21,6 +21,10 @@ Chỉnh sửa PDF (tổ chức trang & chú thích):
 Cập nhật (GitHub Release):
   python -m qtpdfpro.cli update --check [--json]
   python -m qtpdfpro.cli update --download [-o thu_muc] [--json]
+Liên kết tệp .pdf với Windows (theo người dùng, không cần quyền quản trị):
+  python -m qtpdfpro.cli assoc [--status] [--json]                 # đã đăng ký / đã là trình mở PDF mặc định chưa
+  python -m qtpdfpro.cli assoc --register --exe dist/QTPdfPro/QTPdfPro.exe     # ghi ProgID + Capabilities (HKCU)
+  python -m qtpdfpro.cli assoc --open-settings                     # mở trang «Ứng dụng mặc định» của QT PDF Pro
 In tài liệu:
   python -m qtpdfpro.cli print in.pdf --pages "1-3,5,8-" --to-pdf ban_in.pdf     # dựng bản in ra PDF, không cần máy in
   python -m qtpdfpro.cli print in.pdf --printer "Canon LBP2900" [--copies 2] [--duplex long] [--grayscale]
@@ -50,7 +54,7 @@ from qtpdfpro.core import annotations as annots_mod
 from qtpdfpro.core import compress as compress_mod
 from qtpdfpro.core import page_ops, page_stamp, pdf_security
 from qtpdfpro.core import printing
-from qtpdfpro.core import update_check
+from qtpdfpro.core import file_assoc, update_check
 from qtpdfpro.core.pdf_io import PdfToolError, ToolResult, format_size
 from qtpdfpro.core.batch import (
     STATUS_FAILED,
@@ -206,6 +210,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     _add_edit_commands(sub)
     _add_update_command(sub)
+    _add_assoc_command(sub)
     _add_print_command(sub)
     _add_office_commands(sub)
     return parser
@@ -312,8 +317,60 @@ def _add_update_command(sub) -> None:
     grp = p_upd.add_mutually_exclusive_group()
     grp.add_argument("--check", action="store_true", help="Chỉ kiểm tra có bản mới hay không (mặc định)")
     grp.add_argument("--download", action="store_true", help="Tải tệp .zip bản mới (kiểm SHA-256)")
-    p_upd.add_argument("-o", "--output-dir", help="Thư mục lưu tệp tải về (mặc định: <dữ liệu>/updates)")
+    p_upd.add_argument("-o", "--output-dir", help="Thư mục lưu tệp tải về (mặc định: %%LOCALAPPDATA%%\\QT PDF Pro\\updates)")
     p_upd.add_argument("--json", action="store_true", help="In kết quả dạng JSON")
+
+
+def _add_assoc_command(sub) -> None:
+    """Lệnh «assoc»: đăng ký QT PDF Pro làm trình mở .pdf với Windows (HKCU)."""
+    p_as = sub.add_parser("assoc", help="Đăng ký QT PDF Pro làm trình mở tệp .pdf với Windows (theo người dùng)")
+    grp = p_as.add_mutually_exclusive_group()
+    grp.add_argument("--status", action="store_true", help="Xem trạng thái đăng ký (mặc định)")
+    grp.add_argument("--register", action="store_true", help="Ghi ProgID, Open with, Capabilities vào HKCU")
+    grp.add_argument("--open-settings", action="store_true", help="Mở Cài đặt › Ứng dụng mặc định của QT PDF Pro")
+    p_as.add_argument("--exe", help="Đường dẫn QTPdfPro.exe để đăng ký (mặc định: tệp .exe đang chạy)")
+    p_as.add_argument("--json", action="store_true", help="In kết quả dạng JSON")
+
+
+def _assoc_status() -> dict:
+    return {
+        "registered": file_assoc.is_registered(),
+        "registered_exe": file_assoc.registered_exe(),
+        "default_progid": file_assoc.current_default_progid(),
+        "is_default": file_assoc.is_default_pdf_app(),
+        "prog_id": file_assoc.PROG_ID,
+    }
+
+
+def _run_assoc(args: argparse.Namespace) -> int:
+    if sys.platform != "win32":
+        print("Lỗi: lệnh assoc chỉ hỗ trợ Windows.", file=sys.stderr)
+        return 1
+    if args.register:
+        exe = Path(args.exe) if args.exe else (Path(sys.executable) if update_check.is_frozen() else None)
+        if exe is None or exe.name.lower() != file_assoc.APP_EXE_NAME.lower() or not exe.is_file():
+            print(f"Lỗi: cần --exe trỏ tới {file_assoc.APP_EXE_NAME} đã đóng gói.", file=sys.stderr)
+            return 1
+        try:
+            file_assoc.register_pdf_handler(exe.resolve())
+        except OSError as exc:
+            print(f"Lỗi: không ghi được registry: {exc}", file=sys.stderr)
+            return 1
+    if args.open_settings and not file_assoc.open_default_apps_settings():
+        print("Lỗi: không mở được Cài đặt Windows.", file=sys.stderr)
+        return 1
+    status = _assoc_status()
+    if args.json:
+        print(json.dumps(status, ensure_ascii=False, indent=2))
+        return 0
+    if args.register:
+        print(f"Đã đăng ký {status['registered_exe']} làm trình mở .pdf (ProgID {file_assoc.PROG_ID}).")
+    if args.open_settings:
+        print("Đã mở Cài đặt Windows — bấm «Đặt mặc định» cho QT PDF Pro.")
+    print(f"  - Đã đăng ký với Windows : {'có' if status['registered'] else 'chưa'}")
+    print(f"  - Trình mở PDF mặc định  : {status['default_progid'] or '(Windows tự chọn)'}")
+    print(f"  - QT PDF Pro là mặc định : {'có' if status['is_default'] else 'chưa'}")
+    return 0
 
 
 def _run_update(args: argparse.Namespace) -> int:
@@ -344,7 +401,7 @@ def _run_update(args: argparse.Namespace) -> int:
         return 0
     if rel.asset is None:
         print(
-            f"Lỗi: bản v{rel.version} chưa có tệp {update_check.expected_asset_name(rel.version)} — "
+            f"Lỗi: bản v{rel.version} chưa có tệp {update_check.UPDATE_ASSET_NAME} — "
             f"tải thủ công tại {rel.html_url}",
             file=sys.stderr,
         )
@@ -845,6 +902,8 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     if args.command == "update":
         return _run_update(args)
+    if args.command == "assoc":
+        return _run_assoc(args)
     if args.command in OFFICE_COMMANDS:
         return _run_office_command(args)
 
