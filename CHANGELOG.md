@@ -7,6 +7,24 @@
 
 ## [Chưa phát hành]
 
+### Việc còn dở / Ưu tiên kế tiếp cho Agent phiên sau
+1. **Kiểm thử engine NĐ30 trên văn bản thật** (PDF ký số VGCA, PDF xuất từ phần mềm quản lý văn bản, PDF in từ LibreOffice): chạy `python -m qtpdfpro.cli convert <tệp> --mode nd30 --verify-layout` (hoặc `cli batch <thư mục> --verify-layout`) và xử lý các trường hợp «Lệch nhỏ».
+2. **Xem 2 trang song song** (v0.5) và **OCR Tiếng Việt cho PDF ảnh quét** (`Tesseract vie+eng` / `VietOCR`, v1.1) — đang «Coming Soon».
+   - «Chỉnh sửa PDF» mở rộng: đổi cỡ hộp chữ/hình bằng tay nắm, sửa kiểu dáng chú thích đã có, che thông tin (redaction), dấu đóng có ảnh chữ ký.
+3. Tuỳ chọn: chuyển hàng loạt song song bằng nhiều tiến trình (`ProcessPoolExecutor`, cần `multiprocessing.freeze_support()` cho bản PyInstaller).
+
+---
+
+## [0.4.0] — 2026-10-20 (Chỉnh sửa PDF: tô màu, đánh dấu, chú thích & sắp xếp / cắt ghép trang)
+
+### 2026-10-20 — Phát hành bản Release v0.4.0 trên GitHub
+- Gói chức năng «Chỉnh sửa PDF» (mục dưới) thành bản **v0.4.0** — bản có tính năng mới nên tăng số phụ theo SemVer; «Xem 2 trang song song» (trước dự kiến v0.4) dời sang **v0.5**.
+- `__version__` = `0.4.0`; đóng gói bằng `build.bat` → `QTPdfPro-v0.4.0-win64.zip`; tag `v0.4.0`; GitHub Release: https://github.com/quangthoai1985/QTPdfPro/releases/tag/v0.4.0.
+- Đóng gói: PyInstaller 6.22.3, Python 3.14.0, PySide6 6.11.2, PyMuPDF 1.28.2 — thư mục 303 MB / 319 tệp, nén còn 123,6 MB. `QTPdfPro.spec` sinh lại không đổi.
+- Chạy thử `dist\QTPdfPro\QTPdfPro.exe` (dữ liệu tạm): tiêu đề «QT PDF Pro v0.4.0»; mở `samples/nd30/cong_van_mau.pdf` → đóng dấu «ĐÃ DUYỆT», tô sáng một dòng bằng chuột, `Ctrl+S` → tệp lưu có chú thích, hình hiển thị dùng phông TrueType nhúng (`/FontFile2`) — `insert_htmlbox`/`Story`/`subset_fonts` chạy được trong bản đóng gói (nhúng tập con dùng hàm của MuPDF, không cần `fontTools`).
+- **Sửa trước khi phát hành — thanh công cụ chỉnh sửa ép cửa sổ rộng tràn màn hình**: khi bật chế độ chỉnh sửa trên cửa sổ ~1376 px, hàng nút (16 công cụ + Hoàn tác/Lưu…) và dòng gợi ý dài làm chiều rộng tối thiểu của cửa sổ vượt màn hình. Thêm `FlowLayout` (`ui/annotation_tools.py`) — nút công cụ và nhóm kiểu dáng tự xuống dòng; dòng gợi ý `QSizePolicy.Ignored` (thiếu chỗ thì ẩn, xem ở tooltip); các khung chứa nền trong suốt (`QWidget#editToolbarBox`). Chiều rộng tối thiểu của thanh công cụ còn ~370 px; `test_edit_ui` kiểm tra thêm (< 500 px, cửa sổ ≤ 1400 px).
+- **62/62** `pytest`.
+
 ### 2026-10-20 — Chức năng «Chỉnh sửa PDF»: tô màu, đánh dấu, chú thích & sắp xếp / cắt ghép trang
 
 #### Thêm mới — Engine (`qtpdfpro/core/`, không phụ thuộc PySide6)
@@ -38,12 +56,6 @@
 - **62/62** `pytest` (thêm `test_page_ops.py` 8 bài, `test_annotations.py` 8 bài, `test_edit_ui.py` 5 bài — thao tác chuột thật qua `PDFScrollViewer`: tô sáng, vẽ, đóng dấu, kéo di chuyển, hộp chữ, ghi chú, tẩy, hoàn tác, lưu; hộp thoại sắp xếp: xoay/nhân bản/xoá/trang trắng/di chuyển/kéo thả (`moveRow`)/ghép tệp/điểm cắt/lưu/tách/ghi đè tệp đang mở). `test_ui.py`: kiểm tra «Coming Soon» chuyển sang công cụ OCR.
 - Kiểm chứng NĐ30 (MS Word) 3 văn bản mẫu sau khi sửa `core/`: cả 3 «Trùng khớp PDF gốc» (công văn 26/26 dòng, lệch ≤ 0,48 pt; quyết định 51/51, ≤ 0,72 pt; kế hoạch 78/78, ≤ 0,84 pt).
 - Chạy thử GUI với `QT_PDF_PRO_DATA` tạm (Sáng/Tối): thanh chỉnh sửa, ngăn Chú thích, hộp thoại sắp xếp hiển thị đúng tiếng Việt; **kéo thả thật bằng chuột** trong lưới trang đổi đúng thứ tự (nhấp/rê nhẹ không đổi), Ctrl+Z hoàn tác. Dấu đóng/hộp chữ đứng thẳng và đúng tâm trên trang xoay 0/90/180/270°.
-
-### Việc còn dở / Ưu tiên kế tiếp cho Agent phiên sau
-1. **Kiểm thử engine NĐ30 trên văn bản thật** (PDF ký số VGCA, PDF xuất từ phần mềm quản lý văn bản, PDF in từ LibreOffice): chạy `python -m qtpdfpro.cli convert <tệp> --mode nd30 --verify-layout` (hoặc `cli batch <thư mục> --verify-layout`) và xử lý các trường hợp «Lệch nhỏ».
-2. **Xem 2 trang song song** (v0.4) và **OCR Tiếng Việt cho PDF ảnh quét** (`Tesseract vie+eng` / `VietOCR`, v1.1) — đang «Coming Soon».
-   - «Chỉnh sửa PDF» mở rộng: đổi cỡ hộp chữ/hình bằng tay nắm, sửa kiểu dáng chú thích đã có, che thông tin (redaction), dấu đóng có ảnh chữ ký.
-3. Tuỳ chọn: chuyển hàng loạt song song bằng nhiều tiến trình (`ProcessPoolExecutor`, cần `multiprocessing.freeze_support()` cho bản PyInstaller).
 
 ---
 

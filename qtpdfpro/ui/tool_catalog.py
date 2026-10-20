@@ -96,7 +96,7 @@ TOOLS: list[ToolSpec] = [
     ToolSpec("doc_info", "Thuộc tính tài liệu", "ℹ️", "Metadata · Phông chữ · Bảo mật", "read",
              needs_document=True, keywords="metadata thong tin"),
     ToolSpec("two_up", "Xem 2 trang song song", "📰", "Two-up · Trang bìa riêng", "read",
-             ready=False, milestone="v0.4", keywords="hai trang"),
+             ready=False, milestone="v0.5", keywords="hai trang"),
     # ── Chỉnh sửa ──
     ToolSpec("edit_pdf", "Chỉnh sửa PDF", "✏️", "Tô màu · Đánh dấu · Vẽ · Chèn chữ (Ctrl+E)", "edit",
              needs_document=True, keywords="sua chinh sua annotate to mau danh dau ve chen chu"),

@@ -15,7 +15,7 @@ from typing import Dict, List, Optional, Tuple
 
 import fitz  # PyMuPDF
 
-from PySide6.QtCore import QObject, QPointF, QRectF, QSize, Qt, Signal
+from PySide6.QtCore import QObject, QPoint, QPointF, QRect, QRectF, QSize, Qt, Signal
 from PySide6.QtGui import (
     QBrush,
     QColor,
@@ -40,9 +40,12 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QInputDialog,
     QLabel,
+    QLayout,
+    QLayoutItem,
     QListWidget,
     QListWidgetItem,
     QPushButton,
+    QSizePolicy,
     QSlider,
     QVBoxLayout,
     QWidget,
@@ -511,8 +514,87 @@ def _swatch_style(color: str) -> str:
     )
 
 
+class FlowLayout(QLayout):
+    """Bố cục xếp hàng ngang, tự xuống dòng khi hết chỗ (thanh công cụ không ép cửa sổ rộng ra)."""
+
+    def __init__(self, parent: QWidget | None = None, hspacing: int = 4, vspacing: int = 4) -> None:
+        super().__init__(parent)
+        self._items: List[QLayoutItem] = []
+        self._h = hspacing
+        self._v = vspacing
+        self.setContentsMargins(0, 0, 0, 0)
+
+    def addItem(self, item: QLayoutItem) -> None:  # noqa: N802 - API Qt
+        self._items.append(item)
+
+    def count(self) -> int:
+        return len(self._items)
+
+    def itemAt(self, index: int) -> Optional[QLayoutItem]:  # noqa: N802 - API Qt
+        return self._items[index] if 0 <= index < len(self._items) else None
+
+    def takeAt(self, index: int) -> Optional[QLayoutItem]:  # noqa: N802 - API Qt
+        return self._items.pop(index) if 0 <= index < len(self._items) else None
+
+    def expandingDirections(self) -> Qt.Orientation:  # noqa: N802 - API Qt
+        return Qt.Orientation(0)
+
+    def hasHeightForWidth(self) -> bool:  # noqa: N802 - API Qt
+        return True
+
+    def heightForWidth(self, width: int) -> int:  # noqa: N802 - API Qt
+        return self._do_layout(QRect(0, 0, width, 0), apply=False)
+
+    def setGeometry(self, rect: QRect) -> None:  # noqa: N802 - API Qt
+        super().setGeometry(rect)
+        self._do_layout(rect, apply=True)
+
+    def sizeHint(self) -> QSize:  # noqa: N802 - API Qt
+        """Kích thước mong muốn = xếp tất cả trên một hàng."""
+        visible = [it.sizeHint() for it in self._items if not it.isEmpty()]
+        m = self.contentsMargins()
+        w = sum(sz.width() for sz in visible) + self._h * max(0, len(visible) - 1)
+        h = max((sz.height() for sz in visible), default=0)
+        return QSize(w + m.left() + m.right(), h + m.top() + m.bottom())
+
+    def minimumSize(self) -> QSize:  # noqa: N802 - API Qt
+        size = QSize()
+        for it in self._items:
+            if not it.isEmpty():
+                size = size.expandedTo(it.minimumSize())
+        m = self.contentsMargins()
+        return size + QSize(m.left() + m.right(), m.top() + m.bottom())
+
+    def _do_layout(self, rect: QRect, apply: bool) -> int:
+        m = self.contentsMargins()
+        area = rect.adjusted(m.left(), m.top(), -m.right(), -m.bottom())
+        lines: List[List[Tuple[QLayoutItem, QSize]]] = [[]]
+        x = 0
+        for it in self._items:
+            if it.isEmpty():
+                continue
+            hint = it.sizeHint()
+            if lines[-1] and x + hint.width() > area.width():
+                lines.append([])
+                x = 0
+            lines[-1].append((it, hint))
+            x += hint.width() + self._h
+        y = area.y()
+        for line in lines:
+            if not line:
+                continue
+            line_h = max(h.height() for _it, h in line)
+            if apply:
+                lx = area.x()
+                for it, hint in line:
+                    it.setGeometry(QRect(QPoint(lx, y + (line_h - hint.height()) // 2), hint))
+                    lx += hint.width() + self._h
+            y += line_h + self._v
+        return max(0, y - self._v - rect.y()) + m.bottom()
+
+
 class EditToolbar(QFrame):
-    """Thanh công cụ chế độ chỉnh sửa (2 tầng) đặt phía trên khung đọc PDF."""
+    """Thanh công cụ chế độ chỉnh sửa (2 tầng) đặt phía trên khung đọc PDF; các nút tự xuống dòng khi hẹp."""
 
     saveRequested = Signal()
     organizeRequested = Signal()
@@ -528,13 +610,14 @@ class EditToolbar(QFrame):
         root.setContentsMargins(8, 5, 8, 5)
         root.setSpacing(4)
 
-        # Tầng 1: công cụ + hoàn tác + lưu
+        # Tầng 1: công cụ (tự xuống dòng) + hoàn tác + lưu
         row1 = QHBoxLayout()
         row1.setSpacing(3)
+        self.tools_box = QWidget()
+        tools_flow = FlowLayout(self.tools_box, hspacing=3, vspacing=3)
         title = QLabel("✏️ <b>Chỉnh sửa</b>")
         title.setObjectName("editToolbarTitle")
-        row1.addWidget(title)
-        row1.addSpacing(6)
+        tools_flow.addWidget(title)
         self.tool_group = QButtonGroup(self)
         self.tool_group.setExclusive(True)
         self.tool_buttons: Dict[str, QPushButton] = {}
@@ -543,7 +626,8 @@ class EditToolbar(QFrame):
                 sep = QFrame()
                 sep.setFrameShape(QFrame.Shape.VLine)
                 sep.setObjectName("editToolbarSep")
-                row1.addWidget(sep)
+                sep.setFixedHeight(22)
+                tools_flow.addWidget(sep)
             btn = QPushButton(td.label)
             btn.setObjectName("annotToolBtn")
             btn.setCheckable(True)
@@ -558,8 +642,8 @@ class EditToolbar(QFrame):
             btn.clicked.connect(lambda _c=False, k=td.key: self.controller.set_tool(k))
             self.tool_group.addButton(btn, i)
             self.tool_buttons[td.key] = btn
-            row1.addWidget(btn)
-        row1.addStretch(1)
+            tools_flow.addWidget(btn)
+        row1.addWidget(self.tools_box, 1)
 
         self.btn_undo = QPushButton("↶")
         self.btn_undo.setObjectName("annotToolBtn")
@@ -582,18 +666,20 @@ class EditToolbar(QFrame):
         self.btn_exit.setToolTip("Thoát chế độ chỉnh sửa (thay đổi chưa lưu vẫn được giữ)")
         self.btn_exit.clicked.connect(self.exitRequested)
         for w in (self.btn_undo, self.btn_redo, self.btn_organize, self.btn_save, self.btn_exit):
-            row1.addWidget(w)
+            row1.addWidget(w, 0, Qt.AlignmentFlag.AlignTop)
         root.addLayout(row1)
 
         # Tầng 2: kiểu dáng theo công cụ
         row2 = QHBoxLayout()
         row2.setSpacing(5)
         self.style_box = QWidget()
-        sb = QHBoxLayout(self.style_box)
-        sb.setContentsMargins(0, 0, 0, 0)
-        sb.setSpacing(5)
+        sb = FlowLayout(self.style_box, hspacing=8, vspacing=3)
+        self.color_box = QWidget()
+        cl = QHBoxLayout(self.color_box)
+        cl.setContentsMargins(0, 0, 0, 0)
+        cl.setSpacing(5)
         self.lbl_color = QLabel("Màu")
-        sb.addWidget(self.lbl_color)
+        cl.addWidget(self.lbl_color)
         self.swatch_group = QButtonGroup(self)
         self.swatch_group.setExclusive(True)
         self.swatches: Dict[str, QPushButton] = {}
@@ -606,16 +692,17 @@ class EditToolbar(QFrame):
             sw.clicked.connect(lambda _c=False, c=hex_color: self._on_color(c))
             self.swatch_group.addButton(sw)
             self.swatches[hex_color] = sw
-            sb.addWidget(sw)
+            cl.addWidget(sw)
         self.btn_custom_color = QPushButton("＋")
         self.btn_custom_color.setObjectName("ghostIconBtn")
         self.btn_custom_color.setToolTip("Chọn màu khác…")
         self.btn_custom_color.clicked.connect(self._pick_color)
-        sb.addWidget(self.btn_custom_color)
+        cl.addWidget(self.btn_custom_color)
+        sb.addWidget(self.color_box)
 
         self.width_box = QWidget()
         wl = QHBoxLayout(self.width_box)
-        wl.setContentsMargins(6, 0, 0, 0)
+        wl.setContentsMargins(0, 0, 0, 0)
         wl.addWidget(QLabel("Nét"))
         self.width_spin = QDoubleSpinBox()
         self.width_spin.setRange(0.5, 40.0)
@@ -627,7 +714,7 @@ class EditToolbar(QFrame):
 
         self.opacity_box = QWidget()
         ol = QHBoxLayout(self.opacity_box)
-        ol.setContentsMargins(6, 0, 0, 0)
+        ol.setContentsMargins(0, 0, 0, 0)
         ol.addWidget(QLabel("Độ đậm"))
         self.opacity_slider = QSlider(Qt.Orientation.Horizontal)
         self.opacity_slider.setRange(10, 100)
@@ -641,7 +728,7 @@ class EditToolbar(QFrame):
 
         self.font_box = QWidget()
         fl = QHBoxLayout(self.font_box)
-        fl.setContentsMargins(6, 0, 0, 0)
+        fl.setContentsMargins(0, 0, 0, 0)
         self.font_combo = QComboBox()
         for key, name in an.FONT_FAMILIES:
             self.font_combo.addItem(name, key)
@@ -671,7 +758,7 @@ class EditToolbar(QFrame):
 
         self.stamp_box = QWidget()
         stl = QHBoxLayout(self.stamp_box)
-        stl.setContentsMargins(6, 0, 0, 0)
+        stl.setContentsMargins(0, 0, 0, 0)
         stl.addWidget(QLabel("Mẫu dấu"))
         self.stamp_combo = QComboBox()
         for label, color in an.STAMP_PRESETS:
@@ -685,9 +772,13 @@ class EditToolbar(QFrame):
         stl.addWidget(self.stamp_date_chk)
         sb.addWidget(self.stamp_box)
 
-        row2.addWidget(self.style_box)
+        # Hàng kiểu dáng lấy đủ chỗ cho một hàng trước; gợi ý chỉ dùng phần còn trống
+        self.style_box.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Preferred)
+        row2.addWidget(self.style_box, 0)
         self.hint_lbl = QLabel()
         self.hint_lbl.setObjectName("mutedLabel")
+        # Gợi ý dài không được ép chiều rộng tối thiểu của cửa sổ: thiếu chỗ thì bị cắt, xem đủ ở tooltip
+        self.hint_lbl.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         row2.addWidget(self.hint_lbl, 1)
         root.addLayout(row2)
 
@@ -699,6 +790,10 @@ class EditToolbar(QFrame):
             sc.activated.connect(lambda k=td.key: self.controller.set_tool(k))
             sc.setEnabled(False)
             self._shortcuts.append(sc)
+
+        for box in (self.tools_box, self.style_box, self.color_box, self.width_box, self.opacity_box,
+                    self.font_box, self.stamp_box):
+            box.setObjectName("editToolbarBox")  # nền trong suốt (theme.py), không lệch màu với thanh công cụ
 
         controller.toolChanged.connect(lambda _k: self.sync_from_controller())
         controller.styleChanged.connect(self.sync_from_controller)
@@ -728,6 +823,7 @@ class EditToolbar(QFrame):
             if tool == "stamp":
                 hint = f"Nhấp vào trang để đóng dấu «{self.controller.stamp_label}»."
             self.hint_lbl.setText(hint)
+            self.hint_lbl.setToolTip(hint)
             creating = tool in CREATE_TOOLS
             self.style_box.setVisible(creating)
             if not creating:

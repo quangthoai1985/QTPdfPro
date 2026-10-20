@@ -57,6 +57,9 @@ def test_edit_mode_annotate_with_mouse_undo_save(sample_vietnamese_pdf: Path, mo
     app.processEvents()
     assert tab.edit_mode is True and tab.edit_toolbar.isVisible()
     assert tab.annot_controller.tool == "highlight"
+    # Thanh công cụ tự xuống dòng — không được ép cửa sổ rộng hơn màn hình laptop
+    assert tab.edit_toolbar.minimumSizeHint().width() < 500
+    assert win.minimumSizeHint().width() <= 1400
 
     # Tô sáng: kéo qua cụm "Độc lập - Tự do" ở dòng tiêu ngữ
     page = tab.reader.doc[0]

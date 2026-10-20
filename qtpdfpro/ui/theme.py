@@ -134,6 +134,7 @@ QListWidget#paletteList::item:selected { background-color: @accent_soft; color: 
 QTableWidget { background-color: @card; gridline-color: @border; border: 1px solid @border; }
 QFrame#editToolbar { background-color: @bar; border: none; border-bottom: 1px solid @border; }
 QFrame#editToolbar QLabel { color: @text; }
+QWidget#editToolbarBox { background-color: transparent; }
 QFrame#editToolbar QLabel#mutedLabel { color: @muted; }
 QPushButton#annotToolBtn {
     background-color: transparent; color: @text; border: 1px solid transparent; border-radius: 6px;

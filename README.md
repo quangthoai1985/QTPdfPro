@@ -23,7 +23,7 @@
 - Bảng kết quả từng tệp: trạng thái, chế độ engine, số trang, **điểm chuẩn xác**, **điểm thể thức NĐ30**, kết luận kiểm chứng Word; một tệp lỗi không dừng cả lượt, có nút «Dừng».
 - Lưu báo cáo `.csv` (mở đúng tiếng Việt trong Excel) hoặc `.json`; dùng được qua dòng lệnh `cli batch`.
 
-### 1.0c. Chỉnh sửa PDF: tô màu, đánh dấu, cắt ghép trang (chưa phát hành — sẽ có ở bản kế tiếp)
+### 1.0c. Chỉnh sửa PDF: tô màu, đánh dấu, cắt ghép trang (mới ở `v0.4.0`)
 - **Chế độ chỉnh sửa ngay trên khung đọc** (`Ctrl+E` hoặc chế độ «Chỉnh sửa» trên thanh trên cùng): tô sáng / gạch chân / gạch ngang / gạch sóng chữ bằng cách **kéo chuột qua chữ như bôi đen trong Word** (giữ `Alt` để chọn theo vùng, trang ảnh quét thì tô theo vùng), bút vẽ tay, **bút dạ quang** (trong suốt, không che chữ), khung, elip, đường thẳng, mũi tên, **hộp chữ tiếng Việt**, ghi chú dán, **dấu đóng** «ĐÃ DUYỆT», «BẢN SAO», «MẬT», «KHẨN»… (kèm ngày tuỳ chọn), tẩy; chọn – kéo để di chuyển, nhấp đúp để sửa nội dung; 9 màu nhanh + màu tuỳ chọn, độ dày nét, độ đậm.
 - **Hoàn tác / Làm lại** mọi thao tác (`Ctrl+Z` / `Ctrl+Y`); ngăn **«Chú thích»** liệt kê mọi chú thích (đi tới, sửa, xoá).
 - **Lưu kiểu ghi bổ sung (incremental)** vào chính tệp gốc → chữ ký số VGCA đã có vẫn kiểm tra được phần đã ký; «Lưu thành…», «Xuất bản làm phẳng chú thích»; hỏi lưu khi đóng tab/ứng dụng.
