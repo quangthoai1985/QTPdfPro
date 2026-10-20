@@ -326,12 +326,15 @@ def assemble_pdf(
     return out
 
 
-def save_pdf(doc: fitz.Document, path: Union[str, Path]) -> Path:
-    """Ghi tài liệu ra tệp (nén, dọn đối tượng thừa) qua tệp tạm rồi đổi tên — không để lại tệp hỏng."""
+def save_pdf(doc: fitz.Document, path: Union[str, Path], **save_options) -> Path:
+    """Ghi tài liệu ra tệp (nén, dọn đối tượng thừa) qua tệp tạm rồi đổi tên — không để lại tệp hỏng.
+
+    `save_options` thêm / thay tham số của `Document.save` (vd `encryption=fitz.PDF_ENCRYPT_KEEP`).
+    """
     target = Path(path).resolve()
     target.parent.mkdir(parents=True, exist_ok=True)
     tmp = target.with_name(f".{target.stem}.qtpdfpro-tmp.pdf")
-    doc.save(str(tmp), garbage=3, deflate=True)
+    doc.save(str(tmp), **{"garbage": 3, "deflate": True, **save_options})
     try:
         os.replace(tmp, target)
     except OSError:

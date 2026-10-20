@@ -7,6 +7,33 @@
 
 ## [Chưa phát hành]
 
+### 2026-10-20 — Công cụ văn phòng: Nén PDF, Đóng dấu nước, Đánh số trang, Đặt / Gỡ mật khẩu (A2, A3 một phần, A4 một phần)
+Chỉ dùng PyMuPDF 1.28 có sẵn (không Ghostscript, không thêm thư viện). Học ý tưởng từ cit-pdf, **không chép mã** (AGPL).
+
+#### Thêm mới — Engine (`qtpdfpro/core/`, không phụ thuộc PySide6)
+- **`pdf_io.py`** — hàm dùng chung: `open_pdf` (đăng nhập mật khẩu; tệp hạn chế quyền sửa chỉ xử lý khi có **mật khẩu chủ**), `resolve_output` (mặc định `<tên><hậu tố>.pdf`, **từ chối ghi đè tệp nguồn** kể cả khác hoa/thường), `check_signature` (tệp có chữ ký số → `SignedDocumentError` trừ khi `allow_signed`), `write_pdf_bytes` (qua tệp tạm), `ToolResult` (`to_dict()` cho `--json`), `format_size` («1,25 MB»).
+- **`compress.py`** — `compress_pdf`: `rewrite_images` theo 3 mức **Nhẹ** (> 250 → 200 dpi, JPEG 85) / **Vừa** (> 180 → 150 dpi, JPEG 75) / **Mạnh** (> 120 → 96 dpi, JPEG 60), `subset_fonts()`, `tobytes(garbage=4, deflate, clean, use_objstms=1)`; báo dung lượng trước/sau; **không ghi** khi kết quả không nhỏ hơn; tệp có mật khẩu giữ nguyên mật khẩu. PDF có ảnh 1200×1600 px (~260 dpi): 5,14 MB → 903 KB (Nhẹ) / 463 KB (Vừa) / 32,7 KB (Mạnh).
+- **`page_stamp.py`** — **dấu nước chữ** (`watermark_pdf`/`apply_watermark`: tiếng Việt nhiều dòng, cỡ, độ mờ, góc bất kỳ, màu, giữa trang hoặc **lát gạch so le**, khoảng trang, đặt trên/dưới nội dung) và **đánh số trang** (`number_pages`/`apply_page_numbers`: 6 vị trí, mẫu `{n}` / `Trang {n}` / `{n} / {total}`…, bắt đầu từ số bất kỳ, bỏ trang đầu vẫn tính số, lề mm, Times New Roman / Arial; mẫu **«Chuẩn NĐ30»** = giữa lề trên, Times New Roman 13, không hiện số trang 1). Chữ vẽ trên tài liệu tạm bằng phông Windows (`insert_text` + `fontfile`, mọi nhãn dùng chung 1 phông) → `subset_fonts()` → thu gọn `/W` và `ToUnicode` về đúng ký tự đã dùng → `show_pdf_page` lên từng trang (toạ độ trang hiển thị × `derotation_matrix`, góc + `/Rotate`) — **đúng chiều trên trang xoay 90/180/270°**, chữ tìm kiếm / chép được, không lỗi «Ỷ» → «Ý».
+- **`pdf_security.py`** — `protect_pdf` (**AES-256**, mật khẩu mở + mật khẩu chủ, quyền in / sao chép / sửa / chú thích; hạn chế quyền bắt buộc có mật khẩu chủ khác mật khẩu mở), `unlock_pdf` (gỡ khi biết mật khẩu; tệp hạn chế quyền cần mật khẩu chủ), `security_info`.
+- `page_ops.save_pdf(doc, path, **save_options)` nhận thêm tham số `Document.save` (vd giữ mã hoá); `reader.password`.
+
+#### Thêm mới — Dòng lệnh
+- `compress`, `watermark`, `number` (`--preset nd30`), `protect`, `unlock` — đều có `--json`, `--password` (tệp nguồn có mật khẩu), `--force` (tệp có chữ ký số); lỗi → mã thoát 1.
+
+#### Thêm mới — Giao diện
+- **`ui/pdf_tools_dialog.py`**: khung `PdfToolDialog` (tệp nguồn = tệp của tab đang đọc hoặc chọn tệp, hỏi mật khẩu; nơi lưu mặc định cạnh tệp gốc; chạy `QThread`; **hỏi trước khi xử lý tệp có chữ ký số**; tệp hạn chế quyền → hỏi mật khẩu chủ rồi chạy lại) và 5 hộp thoại `CompressDialog`, `WatermarkDialog` (mẫu nhanh BẢN SAO / MẬT / DỰ THẢO…, **xem trước** trang), `PageNumberDialog` (nút «Dùng mẫu Chuẩn NĐ30», xem trước đúng số của trang), `ProtectDialog` (nhập lại mật khẩu, hiện mật khẩu, 4 quyền), `UnlockDialog` (tình trạng bảo vệ của tệp).
+- `tool_catalog.py`: `compress`, `protect` → dùng được; thêm `watermark`, `page_numbers`, `unlock` (40 công cụ — 29 dùng được). `MainWindow.run_tool` → `action_pdf_tool` (tab có chú thích chưa lưu → hỏi «Lưu rồi tiếp tục / Dùng bản đã lưu»; xong → **hỏi mở tệp kết quả thành tab mới**, kèm mật khẩu). Cột trái của tab: mục «CÔNG CỤ VĂN PHÒNG» và «BẢO MẬT» (tín hiệu `PDFDocumentTab.toolRequested`); menu «Chỉnh sửa PDF» thêm 5 mục.
+
+#### Lỗi gặp phải & cách xử lý
+- **MuPDF 1.28: đọc `doc.needs_pass` sau `doc.authenticate()` làm hỏng khoá giải mã** → lần lưu sau ghi luồng nội dung rác («aes padding out of range», trang trắng). `pdf_io` chỉ đọc `needs_pass` một lần trước khi đăng nhập; sau đó dùng `is_encrypted` / `metadata["encryption"]`.
+- `ToUnicode` MuPDF sinh cho Arial/Times ánh xạ glyph dấu cách → U+00A0 (chép ra «BẢN\xa0SAO»), và ghi `/W` + `ToUnicode` cho **cả phông** (~25 KB mỗi lần). Tự viết lại 2 bảng theo các ký tự đã dùng: đánh số 10 trang chỉ thêm ~21 KB/tệp (phông Times nhúng tập con), dấu nước ~17 KB, thay vì ~45 KB.
+- `insert_htmlbox` trên nhiều trang của cùng tài liệu tạm nhúng **mỗi trang một bản phông** → dùng `insert_text` + `fontfile` (một phông chung) cho nhãn số trang / dấu nước.
+- `QDoubleSpinBox` chưa có kiểu trong QSS giao diện Tối → ô lề dùng `QSpinBox` (mm nguyên).
+
+#### Kiểm thử
+- `tests/test_pdf_tools.py` (10 bài: nén nhỏ hơn với ảnh lớn, không ghi khi không nhỏ hơn, từ chối tệp ký số / ghi đè nguồn, dấu nước tiếng Việt + trang chọn + trang xoay + lát gạch, số trang mẫu/bắt đầu/bỏ trang đầu/vị trí mm/trang xoay, mẫu NĐ30, đặt/gỡ mật khẩu & quyền, công cụ trên tệp có mật khẩu giữ mã hoá, CLI) và `tests/test_pdf_tools_ui.py` (8 bài: danh mục, nén → mở tab kết quả, xem trước, mẫu NĐ30, hỏi chữ ký số, đặt/gỡ mật khẩu, hỏi mật khẩu chủ trên tab hạn chế quyền). **80/80** `pytest`.
+- Chạy thử GUI với `QT_PDF_PRO_DATA` tạm: chụp 5 hộp thoại ở giao diện Sáng/Tối và cột công cụ — chữ tiếng Việt hiển thị đúng.
+
 ### 2026-10-20 — Lộ trình v0.5 → v2.0 sau khi khảo sát cit-pdf (chỉ tài liệu)
 - Khảo sát [cit-pdf](https://github.com/Cuongyd196/cit-pdf) (bản desktop Electron của BentoPDF, AGPL-3.0): chuyển PDF → Word của ta vượt xa (họ dùng PyMuPDF/pdf2docx mặc định, không có tuỳ chọn); giữ nguyên công nghệ Python + PySide6 + PyMuPDF native (nhanh, nhẹ hơn Electron + WASM). Chỉ học ý tưởng, không chép mã AGPL.
 - `docs/DE_XUAT_TINH_NANG.md`: thêm mục **«Lộ trình gần»** — bảng mốc v0.5 / v0.6 / v0.7 / v0.8 / v1.1 / v2.0 và 14 mục có mã: nhóm **A** công cụ văn phòng (A1 In PDF — hiện chưa có chức năng in, A2 Nén, A3 Dấu nước / Đánh số trang / Đầu – chân trang / Bates, A4 Mật khẩu – metadata – làm sạch, A5 Chèn ảnh chữ ký / con dấu), nhóm **B** (B1 áp công cụ ngay trên tab có Hoàn tác, B2 So sánh 2 PDF, B3 OCR → DOCX NĐ30, B4 ký số USB token & xác thực đầy đủ), **vỏ ứng dụng** (V1 một cửa sổ duy nhất, V2 thông báo «Đã lưu», V3 bộ cài + «Mở bằng», V4 kiểm tra cập nhật, V5 tải mô-đun khi cần). Ghi rõ **không làm** nhóm tiện ích scan (người dùng đã có app scan riêng). Giai đoạn 2/4 trỏ tới B3/B4; «Chuyển đổi hàng loạt» đánh dấu đã xong (v0.3.0); «Đặt mật khẩu» dời lên v0.6.
@@ -15,7 +42,7 @@
 
 ### Việc còn dở / Ưu tiên kế tiếp cho Agent phiên sau
 1. **Kiểm thử engine NĐ30 trên văn bản thật** (PDF ký số VGCA, PDF xuất từ phần mềm quản lý văn bản, PDF in từ LibreOffice): chạy `python -m qtpdfpro.cli convert <tệp> --mode nd30 --verify-layout` (hoặc `cli batch <thư mục> --verify-layout`) và xử lý các trường hợp «Lệch nhỏ».
-2. **v0.5** theo «Lộ trình gần» (`docs/DE_XUAT_TINH_NANG.md`): **Xem 2 trang song song**, **A1** In PDF, **V1** một cửa sổ duy nhất, **V2** thông báo «Đã lưu»; sau đó v0.6 (A2–A5), v0.7 (B1, B2), v0.8 (V3–V5), **OCR Tiếng Việt** (B3, v1.1).
+2. **v0.5** theo «Lộ trình gần» (`docs/DE_XUAT_TINH_NANG.md`): **Xem 2 trang song song**, **A1** In PDF, **V1** một cửa sổ duy nhất, **V2** thông báo «Đã lưu»; sau đó phần còn lại của v0.6 (A3: đầu – chân trang, Bates, dấu nước ảnh; A4: metadata, làm sạch `scrub`; A5), v0.7 (B1, B2), v0.8 (V3–V5), **OCR Tiếng Việt** (B3, v1.1). A2 Nén, dấu nước chữ, đánh số trang, đặt/gỡ mật khẩu đã xong (mục trên).
    - «Chỉnh sửa PDF» mở rộng: đổi cỡ hộp chữ/hình bằng tay nắm, sửa kiểu dáng chú thích đã có, che thông tin (redaction), dấu đóng có ảnh chữ ký.
 3. Tuỳ chọn: chuyển hàng loạt song song bằng nhiều tiến trình (`ProcessPoolExecutor`, cần `multiprocessing.freeze_support()` cho bản PyInstaller).
 

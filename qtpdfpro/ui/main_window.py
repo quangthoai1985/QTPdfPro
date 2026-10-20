@@ -62,6 +62,7 @@ from qtpdfpro.ui.home_page import HomePage
 from qtpdfpro.ui.nd30_dialog import LayoutVerifyDialog, ND30ReportDialog
 from qtpdfpro.ui.organizer_dialog import PageOrganizerDialog
 from qtpdfpro.ui.pdf_canvas import PDFScrollViewer
+from qtpdfpro.ui.pdf_tools_dialog import PDF_TOOL_DIALOGS
 from qtpdfpro.ui.theme import get_stylesheet
 from qtpdfpro.ui.tool_catalog import CATEGORIES, COMING_SOON_LABEL, TOOLS, get_tool
 
@@ -77,6 +78,7 @@ class PDFDocumentTab(QWidget):
     modifiedChanged = Signal(bool)
     editModeChanged = Signal(bool)
     statusMessage = Signal(str)
+    toolRequested = Signal(str)  # khoá công cụ trong tool_catalog (MainWindow.run_tool)
 
     def __init__(
         self,
@@ -336,6 +338,27 @@ class PDFDocumentTab(QWidget):
         for b in (self.tool_btn_edit_mode, self.tool_btn_highlight, self.tool_btn_stamp,
                   self.tool_btn_organize, self.tool_btn_save):
             body_layout.addWidget(b)
+
+        # Công cụ văn phòng & bảo mật: thẻ phát `toolRequested` → MainWindow.run_tool mở hộp thoại tương ứng
+        self.office_tool_buttons: dict[str, QPushButton] = {}
+        office_sections = [
+            ("CÔNG CỤ VĂN PHÒNG", "edit", [
+                ("compress", "🗜️ Nén PDF\nNhẹ · Vừa · Mạnh, báo dung lượng"),
+                ("watermark", "💧 Đóng dấu nước\nBẢN SAO, MẬT… · độ mờ, góc xoay"),
+                ("page_numbers", "🔢 Đánh số trang\n6 vị trí · mẫu chuẩn NĐ30"),
+            ]),
+            ("BẢO MẬT", "sign", [
+                ("protect", "🔐 Đặt mật khẩu\nAES-256 · quyền in / sao chép / sửa"),
+                ("unlock", "🔓 Gỡ mật khẩu\nKhi biết mật khẩu"),
+            ]),
+        ]
+        for title, cat, cards in office_sections:
+            body_layout.addWidget(self._make_section_label(title, cat))
+            for key, text in cards:
+                btn = self._make_tool_card(text, category=cat)
+                btn.clicked.connect(lambda _c=False, k=key: self.toolRequested.emit(k))
+                self.office_tool_buttons[key] = btn
+                body_layout.addWidget(btn)
 
         lbl_inspect = self._make_section_label("SOI BỐ CỤC & VĂN BẢN", "read")
         body_layout.addWidget(lbl_inspect)
@@ -965,6 +988,13 @@ class MainWindow(QMainWindow):
         act_extract.triggered.connect(lambda: self.run_tool("extract_pages"))
         edit_menu.addAction(act_extract)
         edit_menu.addSeparator()
+        for key, text in (("compress", "Nén PDF..."), ("watermark", "Đóng dấu nước..."),
+                          ("page_numbers", "Đánh số trang..."), ("protect", "Đặt mật khẩu PDF..."),
+                          ("unlock", "Gỡ mật khẩu PDF...")):
+            act = QAction(text, self)
+            act.triggered.connect(lambda _c=False, k=key: self.run_tool(k))
+            edit_menu.addAction(act)
+        edit_menu.addSeparator()
         self.act_save = QAction("Lưu thay đổi", self)
         self.act_save.setShortcut(QKeySequence.StandardKey.Save)
         self.act_save.triggered.connect(self.action_save)
@@ -1316,6 +1346,7 @@ class MainWindow(QMainWindow):
         tab.tool_btn_doc_info.clicked.connect(self.action_show_doc_info)
         tab.tool_btn_all_tools.clicked.connect(lambda: self.action_command_palette(""))
         tab.tool_btn_organize.clicked.connect(lambda: self.run_tool("organize"))
+        tab.toolRequested.connect(self.run_tool)
         tab.tool_btn_save.clicked.connect(self.action_save)
         tab.edit_toolbar.saveRequested.connect(self.action_save)
         tab.edit_toolbar.organizeRequested.connect(lambda: self.run_tool("organize"))
@@ -1431,6 +1462,8 @@ class MainWindow(QMainWindow):
             "split": lambda: self.action_organize("split"),
             "extract_pages": lambda: self.action_organize("extract"),
         }
+        for tool_key in PDF_TOOL_DIALOGS:
+            handlers[tool_key] = lambda k=tool_key: self.action_pdf_tool(k)
         fn = handlers.get(key)
         if fn is not None:
             fn()
@@ -1598,6 +1631,64 @@ class MainWindow(QMainWindow):
             self._show_toast(f"✂ Đã tách thành {len(paths)} tệp trong {folder}")
             if dlg.open_results:
                 QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder)))
+
+    # ─── Công cụ văn phòng: nén, dấu nước, đánh số trang, mật khẩu ───────
+
+    def _tool_source(self) -> Optional[tuple[Optional[Path], Optional[str]]]:
+        """Tệp nguồn cho công cụ PDF = tệp của tab đang đọc (hỏi lưu chú thích chưa lưu); None = huỷ."""
+        tab = self.active_tab()
+        if tab is None or not tab.reader.is_pdf:
+            return None, None
+        if tab.reader.has_unsaved_changes:
+            box = QMessageBox(self)
+            box.setIcon(QMessageBox.Icon.Question)
+            box.setWindowTitle("Chú thích chưa lưu")
+            box.setText(f"«{tab.reader.path.name}» có chú thích / chỉnh sửa chưa lưu.")
+            box.setInformativeText("Công cụ đọc tệp trên đĩa — lưu trước để kết quả có cả các chỉnh sửa này?")
+            btn_save = box.addButton("Lưu rồi tiếp tục", QMessageBox.ButtonRole.AcceptRole)
+            btn_skip = box.addButton("Dùng bản đã lưu", QMessageBox.ButtonRole.DestructiveRole)
+            box.addButton("Huỷ", QMessageBox.ButtonRole.RejectRole)
+            box.setDefaultButton(btn_save)
+            box.exec()
+            clicked = box.clickedButton()
+            if clicked is btn_save:
+                if not self._save_tab(tab):
+                    return None
+            elif clicked is not btn_skip:
+                return None
+        return tab.reader.path, tab.reader.password
+
+    def action_pdf_tool(self, key: str) -> None:
+        """Mở hộp thoại công cụ PDF (`compress`, `watermark`, `page_numbers`, `protect`, `unlock`)."""
+        dialog_cls = PDF_TOOL_DIALOGS.get(key)
+        if dialog_cls is None:
+            return
+        picked = self._tool_source()
+        if picked is None:
+            return
+        source, password = picked
+        if source is None:
+            chosen, _ = QFileDialog.getOpenFileName(
+                self, f"{dialog_cls.TOOL_TITLE} — chọn tệp PDF", "", "Tài liệu PDF (*.pdf)"
+            )
+            if not chosen:
+                return
+            source = Path(chosen)
+        dlg = dialog_cls(self, source=source, password=password,
+                         is_locked=lambda p: self._tab_for_path(p) is not None)
+        if not dlg.exec() or dlg.tool_result is None or not dlg.tool_result.written:
+            return
+        self._offer_open_result(dlg.TOOL_TITLE, dlg.result_summary(), Path(dlg.tool_result.output_path),
+                                dlg.result_password)
+
+    def _offer_open_result(self, title: str, summary: str, out: Path, password: Optional[str] = None) -> None:
+        answer = QMessageBox.question(
+            self, title, f"{summary}\n\nĐã lưu: {out}\n\nMở tệp kết quả thành tab mới?",
+        )
+        if answer == QMessageBox.StandardButton.Yes:
+            self.open_pdf_path(out, password=password)
+        else:
+            self._show_toast(f"💾 Đã lưu {out.name} ({out.parent})")
 
     def _overwrite_open_document(self, path: Path, data: bytes) -> bool:
         """Ghi đè một tệp đang mở trong tab bằng kết quả sắp xếp trang rồi mở lại đúng vị trí."""

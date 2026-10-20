@@ -122,6 +122,11 @@ class PDFDocumentReader:
         return bool(self._doc.is_pdf)
 
     @property
+    def password(self) -> Optional[str]:
+        """Mật khẩu đã dùng để mở tệp (None nếu tệp không cần mật khẩu)."""
+        return self._password
+
+    @property
     def has_edit_session(self) -> bool:
         return self._edit_session is not None
 
