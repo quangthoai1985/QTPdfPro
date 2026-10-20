@@ -95,6 +95,8 @@ TOOLS: list[ToolSpec] = [
              needs_document=True, keywords="xoay rotate"),
     ToolSpec("doc_info", "Thuộc tính tài liệu", "ℹ️", "Metadata · Phông chữ · Bảo mật", "read",
              needs_document=True, keywords="metadata thong tin"),
+    ToolSpec("print", "In tài liệu", "🖨️", "Xem trước · Khổ giấy · 2 mặt · Đen trắng (Ctrl+P)", "read",
+             needs_document=True, keywords="in print may in printer kho giay a4 a5 a3 hai mat den trang ban sao"),
     ToolSpec("two_up", "Xem 2 trang song song", "📰", "Two-up · Trang bìa riêng", "read",
              ready=False, milestone="v0.5", keywords="hai trang"),
     # ── Chỉnh sửa ──

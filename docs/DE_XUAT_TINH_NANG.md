@@ -56,7 +56,7 @@ Mọi mục đều theo quy tắc của `CLAUDE.md`: phần xử lý viết tron
 
 ### Nhóm A — Công cụ văn phòng (chỉ cần PyMuPDF 1.28 có sẵn, không thêm thư viện)
 
-- [ ] **A1. In PDF (`Ctrl+P`)** — *v0.5*. Hiện ứng dụng **chưa có chức năng in** (không có `QPrinter`), đây là lỗ hổng lớn nhất của một trình đọc PDF.
+- [x] **A1. In PDF (`Ctrl+P`)** — *v0.5* — **xong 2026-10-20** (chưa phát hành): `core/printing.py`, `ui/print_job.py`, `ui/print_dialog.py`, `cli print`. Chưa chạy thử in ra giấy (cần người dùng đồng ý).
   - Lõi `core/printing.py`: phân tích khoảng trang (`1-3,5,8-`, trang hiện tại), lập kế hoạch in (tự xoay theo trang ngang/dọc, «Vừa khổ giấy» / «Cỡ thật»), kết xuất trang bằng PyMuPDF ở DPI máy in (giới hạn 300–600 dpi, `annots=True`), tuỳ chọn đen trắng (pixmap xám).
   - Giao diện: hộp thoại in tiếng Việt — chọn máy in (mặc định của Windows), số bản, khoảng trang, khổ A4/A5/A3/Letter, hướng giấy, in 2 mặt, màu/đen trắng, **xem trước từng trang**; nhớ thiết lập lần trước trong `settings.json`; in trong `QThread` có tiến trình.
   - Xong khi: test in ra PDF bằng `QPrinter` (`OutputFormat.PdfFormat`) đúng số trang & hướng; chạy thử in thật một trang.

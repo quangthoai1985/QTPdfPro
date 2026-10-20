@@ -10,7 +10,7 @@ import json
 import os
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import List
+from typing import Any, Dict, List
 
 
 def get_data_dir() -> Path:
@@ -47,6 +47,7 @@ class AppSettings:
     auto_check_updates: bool = True  # Tự kiểm tra bản mới trên GitHub Release lúc khởi động (tối đa 1 lần/ngày)
     last_update_check: str = ""  # Thời điểm kiểm tra cập nhật thành công gần nhất (ISO 8601, UTC)
     skipped_update_version: str = ""  # Bản người dùng chọn «Bỏ qua bản này» (không tự báo nữa)
+    print_settings: Dict[str, Any] = field(default_factory=dict)  # Thiết lập in lần trước (PrintOptions.to_settings)
 
     @classmethod
     def settings_file(cls) -> Path:
