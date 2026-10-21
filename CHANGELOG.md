@@ -7,17 +7,26 @@
 
 ## [Chưa phát hành]
 
-### 2026-10-21 — Gọn khung xem tài liệu: ẩn cột công cụ trái, thêm thanh công cụ nhanh trên cùng
-- **Cột «Tất cả công cụ» bên trái mặc định ẩn** khi xem tài liệu (khung đọc rộng thêm ~255 px). Bật lại bằng **F3**, nút **«◧ Bảng công cụ»** hoặc ☰ Menu › Xem; tắt bằng ✕ trên cột. Lựa chọn áp cho mọi tab và **được ghi nhớ** (`settings.show_tools_panel`, mặc định `False`). Đổi chế độ trên thanh chế độ **không còn tự bật** cột trái; chế độ đọc tập trung (F11) khôi phục theo lựa chọn đã nhớ.
-- **Thanh công cụ nhanh** (`MainWindow.tool_strip`, tầng 3 dưới thanh chế độ, chỉ hiện khi xem tài liệu, ẩn ở Trang chủ và F11): nút đổi theo chế độ đang chọn — `STRIP_TOOLS` trong `ui/main_window.py`: *Tất cả công cụ* (Word NĐ30, Kiểm tra NĐ30, Chỉnh sửa, Sắp xếp trang, Nén, Dấu nước, Số trang, Mật khẩu, In), *Đọc* (Tìm kiếm, Trích văn bản, Mục lục, Xoay trái/phải, Đọc tập trung, Thuộc tính, In), *Chuyển đổi* (Word NĐ30 / 1:1 / dòng chảy, Tuỳ chỉnh xuất…, Kiểm tra NĐ30, Kiểm chứng DOCX, Hàng loạt), *Chỉnh sửa* (Sắp xếp trang, Ghép, Tách, Trích trang, Nén, Dấu nước, Số trang — công cụ chú thích vẫn ở thanh chỉnh sửa), *Ký số & Bảo mật* (Soi chữ ký số, Đặt / Gỡ mật khẩu, Ký số và Xác thực chữ ký hiện mờ «Coming Soon»). Nút gọi `run_tool(khoá)` (hoặc lệnh riêng `:rotate_left`, `:convert_dialog`), chú thích khi trỏ chuột lấy từ danh mục. Dùng `FlowLayout` nên tự xuống dòng, **không tăng** chiều rộng tối thiểu cửa sổ (vẫn 1376 px). QSS `toolStrip` / `stripToolBtn` / `stripToolSoonBtn` cho cả Sáng/Tối.
-- Đã chụp thử cửa sổ (dữ liệu tạm) ở các chế độ Tất cả / Chuyển đổi / Chỉnh sửa, Sáng/Tối, bật/tắt cột trái: tiếng Việt hiển thị đúng. Lỗi gặp khi làm: đổi chế độ thì nút cũ còn đè nút mới (`deleteLater` chỉ xoá khi về vòng lặp sự kiện) → ẩn nút cũ ngay trước khi xoá.
-- **131/132** `pytest` (1 bài in qua trình điều khiển bỏ qua mặc định). Thêm `test_tool_strip_replaces_left_panel_and_remembers_choice`; sửa `test_ui.py`/`test_edit_ui.py` theo hành vi mới (cột trái ẩn → kiểm lọc thẻ bằng `isHidden`).
-
 ### Việc còn dở / Ưu tiên kế tiếp cho Agent phiên sau
 1. **Kiểm thử engine NĐ30 trên văn bản thật** (PDF ký số VGCA, PDF xuất từ phần mềm quản lý văn bản, PDF in từ LibreOffice): chạy `python -m qtpdfpro.cli convert <tệp> --mode nd30 --verify-layout` (hoặc `cli batch <thư mục> --verify-layout`) và xử lý các trường hợp «Lệch nhỏ».
 2. **v1.1+** (các mục v0.6–v0.8 còn lại) theo «Lộ trình gần» (`docs/DE_XUAT_TINH_NANG.md`): **Xem 2 trang song song**, **V1** một cửa sổ duy nhất, **V2** thông báo «Đã lưu», phần còn lại của **A3** (đầu – chân trang, Bates, dấu nước ảnh), **A4** (metadata, làm sạch `scrub`), **A5** chèn ảnh chữ ký / con dấu; sau đó v0.7 (B1, B2), v0.8 (V3, V5), **OCR Tiếng Việt** (B3, v1.1). Còn in thử 1 trang ra giấy trên máy in thật khi người dùng đồng ý.
    - «Chỉnh sửa PDF» mở rộng: đổi cỡ hộp chữ/hình bằng tay nắm, sửa kiểu dáng chú thích đã có, che thông tin (redaction), dấu đóng có ảnh chữ ký.
 3. Tuỳ chọn: chuyển hàng loạt song song bằng nhiều tiến trình (`ProcessPoolExecutor`, cần `multiprocessing.freeze_support()` cho bản PyInstaller).
+
+---
+
+## [1.0.1] — 2026-10-21 (Khung xem tài liệu gọn hơn: thanh công cụ nhanh thay cột trái)
+
+### 2026-10-21 — Phát hành v1.0.1 trên GitHub
+- `__version__` = `1.0.1`. Đóng gói bằng `python tools/build_release.py` (PyInstaller 6.22.3, Python 3.14; Inno Setup 6.7.3 chưa có trên máy nên script tự cài bằng `winget --scope user`; ISCC không cảnh báo; `QTPdfPro.spec` không đổi): `QTPdfPro_Setup.exe` **86,8 MB** (SHA-256 `27b5400c489e0d0f6f14238dea983fc4a7ab5827bb8462236f8bc39bdecba1fd`), `QTPdfPro_Update.zip` = `QTPdfPro-v1.0.1-win64.zip` **123,3 MB** (SHA-256 `7e627164190b2db66988fa31d70909551cd8c9720c8cabc58334e377777b78d3`, 321 mục, thư mục gốc `QTPdfPro/` có `QTPdfPro.exe` + `_internal/`).
+- Chạy thử `dist\QTPdfPro\QTPdfPro.exe --skip-default-prompt <PDF mẫu>` với dữ liệu tạm: cửa sổ «QT PDF Pro v1.0.1 — …». **Không** cài thử / gỡ im lặng bộ cài lần này: máy đang có bản QT PDF Pro cài thật (cùng `AppId`), gỡ bản thử sẽ xoá khoá gỡ cài đặt & liên kết `.pdf` của bản thật — muốn thử bộ cài thì dùng máy ảo / tài khoản Windows khác.
+- Người dùng v1.0.0 nhận bản này qua trình tải cập nhật ngầm (`QTPdfPro_Update.zip`); v0.5.0 qua `QTPdfPro-v1.0.1-win64.zip`.
+
+### 2026-10-21 — Gọn khung xem tài liệu: ẩn cột công cụ trái, thêm thanh công cụ nhanh trên cùng
+- **Cột «Tất cả công cụ» bên trái mặc định ẩn** khi xem tài liệu (khung đọc rộng thêm ~255 px). Bật lại bằng **F3**, nút **«◧ Bảng công cụ»** hoặc ☰ Menu › Xem; tắt bằng ✕ trên cột. Lựa chọn áp cho mọi tab và **được ghi nhớ** (`settings.show_tools_panel`, mặc định `False`). Đổi chế độ trên thanh chế độ **không còn tự bật** cột trái; chế độ đọc tập trung (F11) khôi phục theo lựa chọn đã nhớ.
+- **Thanh công cụ nhanh** (`MainWindow.tool_strip`, tầng 3 dưới thanh chế độ, chỉ hiện khi xem tài liệu, ẩn ở Trang chủ và F11): nút đổi theo chế độ đang chọn — `STRIP_TOOLS` trong `ui/main_window.py`: *Tất cả công cụ* (Word NĐ30, Kiểm tra NĐ30, Chỉnh sửa, Sắp xếp trang, Nén, Dấu nước, Số trang, Mật khẩu, In), *Đọc* (Tìm kiếm, Trích văn bản, Mục lục, Xoay trái/phải, Đọc tập trung, Thuộc tính, In), *Chuyển đổi* (Word NĐ30 / 1:1 / dòng chảy, Tuỳ chỉnh xuất…, Kiểm tra NĐ30, Kiểm chứng DOCX, Hàng loạt), *Chỉnh sửa* (Sắp xếp trang, Ghép, Tách, Trích trang, Nén, Dấu nước, Số trang — công cụ chú thích vẫn ở thanh chỉnh sửa), *Ký số & Bảo mật* (Soi chữ ký số, Đặt / Gỡ mật khẩu, Ký số và Xác thực chữ ký hiện mờ «Coming Soon»). Nút gọi `run_tool(khoá)` (hoặc lệnh riêng `:rotate_left`, `:convert_dialog`), chú thích khi trỏ chuột lấy từ danh mục. Dùng `FlowLayout` nên tự xuống dòng, **không tăng** chiều rộng tối thiểu cửa sổ (vẫn 1376 px). QSS `toolStrip` / `stripToolBtn` / `stripToolSoonBtn` cho cả Sáng/Tối.
+- Đã chụp thử cửa sổ (dữ liệu tạm) ở các chế độ Tất cả / Chuyển đổi / Chỉnh sửa, Sáng/Tối, bật/tắt cột trái: tiếng Việt hiển thị đúng. Lỗi gặp khi làm: đổi chế độ thì nút cũ còn đè nút mới (`deleteLater` chỉ xoá khi về vòng lặp sự kiện) → ẩn nút cũ ngay trước khi xoá.
+- **131/132** `pytest` (1 bài in qua trình điều khiển bỏ qua mặc định). Thêm `test_tool_strip_replaces_left_panel_and_remembers_choice`; sửa `test_ui.py`/`test_edit_ui.py` theo hành vi mới (cột trái ẩn → kiểm lọc thẻ bằng `isHidden`).
 
 ---
 
