@@ -26,11 +26,15 @@ def test_main_window_open_pdf_search_and_layout_overlay(sample_vietnamese_pdf: P
     assert win.doc_tabs.count() == 1
     assert tab.reader.page_count == 2
 
-    # Kiểm tra bố cục 3 cột kiểu PdfCraft (Cột trái Tất cả công cụ, Cột giữa Viewer, Cột phải Sidebar + Right Rail)
-    assert tab.tools_panel.isVisible() is True
+    # Bố cục kiểu PdfCraft: cột trái «Tất cả công cụ» mặc định ẩn, công cụ nằm trên thanh công cụ nhanh
+    assert tab.tools_panel.isVisible() is False
+    assert win.tool_strip.isVisible() is True
     assert tab.right_rail.isVisible() is True
 
-    # Lọc công cụ ở cột bên trái
+    # F3 bật cột trái rồi lọc công cụ
+    win.action_toggle_left_tools()
+    app.processEvents()
+    assert tab.tools_panel.isVisible() is True
     tab.tool_filter_input.setText("Xoay")
     app.processEvents()
     assert tab.tool_btn_rot_left.isVisible() is True
@@ -201,14 +205,14 @@ def test_home_page_pdfcraft_layout_and_coming_soon(sample_vietnamese_pdf: Path) 
     assert win.stack.currentWidget() is win.doc_tabs
     assert win.doc_controls.isVisible() is True
 
-    # Lọc thẻ công cụ trong khung tài liệu theo chế độ
+    # Lọc thẻ công cụ trong khung tài liệu theo chế độ (cột trái ẩn → kiểm bằng isHidden)
     win.set_mode_category("convert")
     app.processEvents()
-    assert tab.tool_btn_convert_nd30.isVisible() is True
-    assert tab.tool_btn_rot_left.isVisible() is False
+    assert tab.tool_btn_convert_nd30.isHidden() is False
+    assert tab.tool_btn_rot_left.isHidden() is True
     win.set_mode_category("all")
     app.processEvents()
-    assert tab.tool_btn_rot_left.isVisible() is True
+    assert tab.tool_btn_rot_left.isHidden() is False
 
     # Về Trang chủ và quay lại tài liệu
     win.action_go_home()
@@ -231,6 +235,81 @@ def test_home_page_pdfcraft_layout_and_coming_soon(sample_vietnamese_pdf: Path) 
     app.processEvents()
     assert win.doc_tab_bar.count() == 0
     assert win.stack.currentWidget() is win.home_page
+    win.close()
+    app.processEvents()
+
+
+def test_tool_strip_replaces_left_panel_and_remembers_choice(sample_vietnamese_pdf: Path, monkeypatch) -> None:
+    """Xem tài liệu: cột trái ẩn mặc định, công cụ lên thanh công cụ nhanh theo chế độ; F3 / ✕ được ghi nhớ."""
+    from qtpdfpro.ui.main_window import STRIP_TOOLS
+    from qtpdfpro.ui.tool_catalog import get_tool
+
+    # Mọi khoá trên thanh công cụ nhanh đều là công cụ trong danh mục hoặc lệnh riêng «:...»
+    for entries in STRIP_TOOLS.values():
+        for _label, key in entries:
+            assert key.startswith(":") or get_tool(key) is not None, key
+
+    app = QApplication.instance() or QApplication([])
+    win = MainWindow(settings=AppSettings.load())
+    win.show()
+    app.processEvents()
+    assert win.tool_strip.isVisible() is False  # Trang chủ không có thanh công cụ nhanh
+
+    tab = win.open_pdf_path(sample_vietnamese_pdf)
+    app.processEvents()
+    assert win.tool_strip.isVisible() is True
+    assert tab.tools_panel.isVisible() is False
+    assert win.btn_strip_panel.isChecked() is False
+    assert set(win.strip_buttons) == {k for _l, k in STRIP_TOOLS["all"]}
+
+    # Đổi chế độ → đổi nút; nút cũ ẩn ngay; cột trái không tự bật
+    old_btn = win.strip_buttons["pdf_to_word_nd30"]
+    win.set_mode_category("convert")
+    app.processEvents()
+    assert set(win.strip_buttons) == {k for _l, k in STRIP_TOOLS["convert"]}
+    assert old_btn.isHidden() is True
+    assert tab.tools_panel.isVisible() is False
+    win.set_mode_category("sign")
+    app.processEvents()
+    assert win.strip_buttons["sign_pdf"].objectName() == "stripToolSoonBtn"  # Coming Soon
+    assert win.strip_buttons["protect"].objectName() == "stripToolBtn"
+
+    # Nút trên thanh gọi đúng công cụ
+    called: list[str] = []
+    monkeypatch.setattr(win, "action_pdf_tool", lambda key: called.append(key))
+    win.strip_buttons["protect"].click()
+    assert called == ["protect"]
+    win.set_mode_category("read")
+    app.processEvents()
+    win.strip_buttons[":rotate_left"].click()
+    app.processEvents()
+    assert tab.reader._page_rotations.get(tab.viewer.current_page) == 270
+
+    # Nút «◧ Bảng công cụ» bật cột trái ở mọi tab và ghi nhớ; tab mở sau theo lựa chọn đó
+    win.btn_strip_panel.click()
+    app.processEvents()
+    assert tab.tools_panel.isVisible() is True
+    assert AppSettings.load().show_tools_panel is True
+    second_pdf = sample_vietnamese_pdf.with_name("ban_sao.pdf")
+    second_pdf.write_bytes(sample_vietnamese_pdf.read_bytes())
+    tab2 = win.open_pdf_path(second_pdf)
+    app.processEvents()
+    assert tab2 is not None and tab2.tools_panel.isVisible() is True
+
+    # ✕ trên cột trái tắt ở mọi tab và ghi nhớ; F3 bật lại
+    tab2.toolsPanelHideRequested.emit()
+    app.processEvents()
+    assert tab2.tools_panel.isHidden() is True and tab.tools_panel.isHidden() is True
+    assert win.btn_strip_panel.isChecked() is False
+    assert AppSettings.load().show_tools_panel is False
+    win.action_toggle_left_tools()
+    app.processEvents()
+    assert tab2.tools_panel.isVisible() is True and win.btn_strip_panel.isChecked() is True
+
+    # Về Trang chủ → ẩn thanh công cụ nhanh
+    win.action_go_home()
+    app.processEvents()
+    assert win.tool_strip.isVisible() is False
     win.close()
     app.processEvents()
 

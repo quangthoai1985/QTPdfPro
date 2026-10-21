@@ -152,7 +152,8 @@ def test_mode_bar_edit_category_toggles_edit_mode(sample_vietnamese_pdf: Path) -
     tab = win.open_pdf_path(sample_vietnamese_pdf)
     win.set_mode_category("edit")
     app.processEvents()
-    assert tab.edit_mode and tab.tool_btn_organize.isVisible() and not tab.tool_btn_rot_left.isVisible()
+    assert tab.edit_mode and not tab.tool_btn_organize.isHidden() and tab.tool_btn_rot_left.isHidden()
+    assert "organize" in win.strip_buttons and "print" not in win.strip_buttons
     win.set_mode_category("read")
     app.processEvents()
     assert not tab.edit_mode

@@ -53,7 +53,7 @@ from qtpdfpro.core.converter import is_admin_document
 from qtpdfpro.core.reader import PDFDocumentReader, SearchHit
 from qtpdfpro.core.settings import AppSettings
 from qtpdfpro.core.word_com_bridge import is_ms_word_available
-from qtpdfpro.ui.annotation_tools import AnnotationController, AnnotationListPanel, EditToolbar
+from qtpdfpro.ui.annotation_tools import AnnotationController, AnnotationListPanel, EditToolbar, FlowLayout
 from qtpdfpro.ui.batch_dialog import BatchConvertDialog
 from qtpdfpro.ui.command_palette import SEARCH_IN_DOCUMENT_KEY, CommandPaletteDialog
 from qtpdfpro.ui.convert_dialog import ConvertToDocxDialog
@@ -69,10 +69,46 @@ from qtpdfpro.ui.tool_catalog import CATEGORIES, COMING_SOON_LABEL, TOOLS, get_t
 from qtpdfpro.ui.default_app import DefaultAppController
 from qtpdfpro.ui.update_dialog import UpdateController
 
+# Thanh công cụ nhanh khi xem tài liệu (thay cho cột trái): nút theo chế độ đang chọn trên thanh chế độ.
+# Mỗi mục = (nhãn ngắn, khoá công cụ trong tool_catalog | lệnh riêng bắt đầu bằng «:», chú thích khi trỏ chuột).
+STRIP_COMMAND_TIPS = {
+    ":rotate_left": "Xoay trang hiện tại sang trái 90° khi xem",
+    ":convert_dialog": "Tuỳ chỉnh xuất DOCX — chọn trang, chế độ, chính sách NĐ30, kiểm chứng (Ctrl+Shift+W)",
+}
+STRIP_TOOLS: dict[str, list[tuple[str, str]]] = {
+    "all": [
+        ("🏛️ Word NĐ30", "pdf_to_word_nd30"), ("✅ Kiểm tra NĐ30", "nd30_check"),
+        ("✏️ Chỉnh sửa", "edit_pdf"), ("🧩 Sắp xếp trang", "organize"), ("🗜️ Nén", "compress"),
+        ("💧 Dấu nước", "watermark"), ("🔢 Số trang", "page_numbers"), ("🔐 Mật khẩu", "protect"),
+        ("🖨️ In", "print"),
+    ],
+    "read": [
+        ("🔎 Tìm kiếm", "search"), ("📋 Trích văn bản", "extract_text"), ("📑 Mục lục", "bookmarks"),
+        ("↺ Xoay trái", ":rotate_left"), ("↻ Xoay phải", "rotate_view"), ("📖 Đọc tập trung", "read_mode"),
+        ("ℹ️ Thuộc tính", "doc_info"), ("🖨️ In", "print"),
+    ],
+    "convert": [
+        ("🏛️ Word NĐ30", "pdf_to_word_nd30"), ("📐 Word giữ vị trí 1:1", "pdf_to_word_exact"),
+        ("📝 Word dòng chảy", "pdf_to_word_flow"), ("⚙️ Tuỳ chỉnh xuất…", ":convert_dialog"),
+        ("✅ Kiểm tra NĐ30", "nd30_check"), ("🔬 Kiểm chứng DOCX", "verify_docx"),
+        ("🗂️ Hàng loạt", "batch_convert"),
+    ],
+    "edit": [
+        ("🧩 Sắp xếp trang", "organize"), ("🧷 Ghép tệp", "combine"), ("✂️ Tách tệp", "split"),
+        ("📤 Trích trang", "extract_pages"), ("🗜️ Nén", "compress"), ("💧 Dấu nước", "watermark"),
+        ("🔢 Số trang", "page_numbers"),
+    ],
+    "sign": [
+        ("🛡️ Soi chữ ký số", "sig_inspect"), ("🔐 Đặt mật khẩu", "protect"), ("🔓 Gỡ mật khẩu", "unlock"),
+        ("✍️ Ký số", "sign_pdf"), ("🔏 Xác thực chữ ký", "verify_signature"),
+    ],
+}
+
 
 class PDFDocumentTab(QWidget):
     """Một tab tài liệu PDF hoàn chỉnh theo bố cục 3 cột kiểu PdfCraft:
-    - Cột trái: Bảng 'Tất cả công cụ' (All Tools) có ô lọc nhanh & thẻ thao tác 1 chạm
+    - Cột trái: Bảng 'Tất cả công cụ' (All Tools) có ô lọc nhanh & thẻ thao tác 1 chạm — mặc định ẩn
+      (công cụ nằm trên thanh công cụ nhanh của `MainWindow`), F3 bật lại theo `settings.show_tools_panel`
     - Cột giữa: Thanh thông báo chữ ký số/con dấu + Khung vẽ PDF tốc độ cao (PDFScrollViewer)
     - Cột phải: Ngăn thông tin 5 tab (Trang, Mục lục, Tìm kiếm, Soi bố cục, Chú thích) + Thanh điều khiển dọc
     - Chế độ «Chỉnh sửa» (Ctrl+E): thanh công cụ chú thích phía trên khung đọc (tô màu, đánh dấu, vẽ, chèn chữ…)
@@ -82,6 +118,7 @@ class PDFDocumentTab(QWidget):
     editModeChanged = Signal(bool)
     statusMessage = Signal(str)
     toolRequested = Signal(str)  # khoá công cụ trong tool_catalog (MainWindow.run_tool)
+    toolsPanelHideRequested = Signal()  # nút ✕ của cột công cụ → MainWindow ẩn ở mọi tab & ghi nhớ
 
     def __init__(
         self,
@@ -267,8 +304,8 @@ class PDFDocumentTab(QWidget):
         title_lbl = QLabel("<b>🛠️ Tất cả công cụ</b>")
         btn_hide_tools = QPushButton("✕")
         btn_hide_tools.setFixedSize(26, 26)
-        btn_hide_tools.setToolTip("Thu gọn bảng công cụ bên trái")
-        btn_hide_tools.clicked.connect(lambda: panel.setVisible(False))
+        btn_hide_tools.setToolTip("Thu gọn bảng công cụ bên trái (F3)")
+        btn_hide_tools.clicked.connect(self.toolsPanelHideRequested)
         header_row.addWidget(title_lbl, 1)
         header_row.addWidget(btn_hide_tools)
         layout.addLayout(header_row)
@@ -820,6 +857,8 @@ class MainWindow(QMainWindow):
     - Tầng 1 (dải tiêu đề): nút Trang chủ, các tab tài liệu, «＋ Mở», Trợ giúp, nút Sáng/Tối.
     - Tầng 2 (thanh chế độ): «☰ Menu», các chế độ Tất cả công cụ · Đọc · Chuyển đổi · Chỉnh sửa ·
       Ký số & Bảo mật, điều hướng trang/thu phóng (khi mở tài liệu), ô tìm công cụ (Ctrl+K), xuất Word.
+    - Tầng 3 (chỉ khi xem tài liệu): thanh công cụ nhanh `tool_strip` — nút của chế độ đang chọn
+      (`STRIP_TOOLS`), tự xuống dòng; nút «◧ Bảng công cụ» (F3) bật cột trái.
     - Thân: Trang chủ (`HomePage`) hoặc vùng tài liệu (`PDFDocumentTab`).
     """
 
@@ -842,6 +881,7 @@ class MainWindow(QMainWindow):
         root.setSpacing(0)
         root.addWidget(self._build_title_strip())
         root.addWidget(self._build_mode_bar())
+        root.addWidget(self._build_tool_strip())
         self._build_central_area()
         root.addWidget(self.stack, 1)
         self.setCentralWidget(central)
@@ -1121,7 +1161,7 @@ class MainWindow(QMainWindow):
         self.mode_buttons["all"].setChecked(True)
         # Giữ tên cũ cho các thành phần khác tham chiếu
         self.btn_mode_tools = self.mode_buttons["all"]
-        self.btn_mode_tools.setToolTip("Hiện bảng Tất cả công cụ (F3)")
+        self.btn_mode_tools.setToolTip("Công cụ hay dùng — F3: bảng Tất cả công cụ bên trái")
         lay.addStretch(1)
 
         # Cụm điều khiển tài liệu (chỉ hiện khi đang xem PDF)
@@ -1193,6 +1233,78 @@ class MainWindow(QMainWindow):
         lay.addWidget(self.btn_convert_docx)
         return bar
 
+    # ─── Tầng 3: Thanh công cụ nhanh (khi xem tài liệu) ───────────────────
+
+    def _build_tool_strip(self) -> QFrame:
+        self.tool_strip = QFrame()
+        self.tool_strip.setObjectName("toolStrip")
+        self._strip_layout = FlowLayout(self.tool_strip, hspacing=4, vspacing=4)
+        self._strip_layout.setContentsMargins(10, 4, 10, 4)
+
+        self.btn_strip_panel = QPushButton("◧ Bảng công cụ")
+        self.btn_strip_panel.setObjectName("stripToolBtn")
+        self.btn_strip_panel.setCheckable(True)
+        self.btn_strip_panel.setChecked(self.settings.show_tools_panel)
+        self.btn_strip_panel.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_strip_panel.setToolTip("Hiện/Ẩn bảng Tất cả công cụ bên trái (F3)")
+        self.btn_strip_panel.clicked.connect(self.set_tools_panel_visible)
+        self._strip_layout.addWidget(self.btn_strip_panel)
+
+        sep = QFrame()
+        sep.setObjectName("toolStripSep")
+        sep.setFrameShape(QFrame.Shape.VLine)
+        sep.setFixedHeight(self.btn_strip_panel.sizeHint().height())
+        self._strip_layout.addWidget(sep)
+
+        self.strip_buttons: dict[str, QPushButton] = {}
+        self._refresh_tool_strip()
+        self.tool_strip.setVisible(False)
+        return self.tool_strip
+
+    def _refresh_tool_strip(self) -> None:
+        """Dựng lại các nút của thanh công cụ nhanh theo chế độ đang chọn."""
+        for btn in self.strip_buttons.values():
+            self._strip_layout.removeWidget(btn)
+            btn.hide()  # deleteLater chỉ xoá khi về vòng lặp sự kiện — ẩn ngay để không đè nút mới
+            btn.deleteLater()
+        self.strip_buttons = {}
+        for label, key in STRIP_TOOLS.get(self._mode_category, STRIP_TOOLS["all"]):
+            btn = QPushButton(label)
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            tool = get_tool(key)
+            if tool is not None:
+                ready = tool.ready
+                tip = f"{tool.name} — {tool.summary}"
+                if not ready:
+                    tip += f"  ·  {COMING_SOON_LABEL} (dự kiến {tool.milestone})"
+            else:
+                ready, tip = True, STRIP_COMMAND_TIPS.get(key, label)
+            btn.setObjectName("stripToolBtn" if ready else "stripToolSoonBtn")
+            btn.setToolTip(tip)
+            btn.clicked.connect(lambda _c=False, k=key: self._run_strip_command(k))
+            self._strip_layout.addWidget(btn)
+            self.strip_buttons[key] = btn
+
+    def _run_strip_command(self, key: str) -> None:
+        if key == ":rotate_left":
+            self._with_active_tab(lambda t: t.viewer.rotate_current_page(-90))
+        elif key == ":convert_dialog":
+            self.action_convert_to_docx()
+        else:
+            self.run_tool(key)
+
+    def set_tools_panel_visible(self, visible: bool) -> None:
+        """Hiện/ẩn cột «Tất cả công cụ» ở mọi tab tài liệu và ghi nhớ cho lần mở sau."""
+        visible = bool(visible)
+        if self.settings.show_tools_panel != visible:
+            self.settings.show_tools_panel = visible
+            self.settings.save()
+        self.btn_strip_panel.setChecked(visible)
+        for i in range(self.doc_tabs.count()):
+            w = self.doc_tabs.widget(i)
+            if isinstance(w, PDFDocumentTab):
+                w.tools_panel.setVisible(visible)
+
     # ─── Thân cửa sổ ───────────────────────────────────────────────────────
 
     def _build_central_area(self) -> None:
@@ -1253,6 +1365,7 @@ class MainWindow(QMainWindow):
         self.stack.setCurrentWidget(self.home_page)
         self.btn_home.setChecked(True)
         self.doc_controls.setVisible(False)
+        self.tool_strip.setVisible(False)
         self._refresh_welcome_recent_list()
         self.status_doc_lbl.setText(
             f"Trang chủ — {self.doc_tabs.count()} tài liệu đang mở." if self.doc_tabs.count() else
@@ -1266,10 +1379,12 @@ class MainWindow(QMainWindow):
         self.stack.setCurrentWidget(self.doc_tabs)
         self.btn_home.setChecked(False)
         self.doc_controls.setVisible(True)
+        self.tool_strip.setVisible(True)
         self._sync_toolbar_with_active_tab()
 
     def set_mode_category(self, category: str) -> None:
-        """Chọn chế độ (nhóm công cụ) trên thanh chế độ — lọc bảng công cụ ở Trang chủ & tài liệu."""
+        """Chọn chế độ (nhóm công cụ) trên thanh chế độ — lọc bảng công cụ ở Trang chủ & tài liệu,
+        đổi nút trên thanh công cụ nhanh (cột trái giữ nguyên trạng thái ẩn/hiện của người dùng)."""
         self._mode_category = category
         btn = self.mode_buttons.get(category)
         if btn is not None and not btn.isChecked():
@@ -1280,9 +1395,9 @@ class MainWindow(QMainWindow):
             w = self.doc_tabs.widget(i)
             if isinstance(w, PDFDocumentTab):
                 w.set_tool_category(category)
+        self._refresh_tool_strip()
         tab = self.active_tab()
         if tab is not None and self.stack.currentWidget() is self.doc_tabs:
-            tab.tools_panel.setVisible(True)
             if category == "edit":
                 tab.enter_edit_mode()
             elif category == "read":
@@ -1346,6 +1461,8 @@ class MainWindow(QMainWindow):
 
         tab = PDFDocumentTab(reader, self.settings, self)
         tab.set_tool_category(self._mode_category)
+        tab.tools_panel.setVisible(self.settings.show_tools_panel)
+        tab.toolsPanelHideRequested.connect(lambda: self.set_tools_panel_visible(False))
         tab.viewer.pageChanged.connect(lambda _p: self._sync_toolbar_with_active_tab())
         tab.viewer.zoomChanged.connect(lambda _z: self._sync_toolbar_with_active_tab())
         tab.extract_page_text_btn.clicked.connect(self.action_extract_current_page_text)
@@ -1919,7 +2036,7 @@ class MainWindow(QMainWindow):
             return
         tab = self.active_tab()
         if tab is not None:
-            tab.tools_panel.setVisible(not tab.tools_panel.isVisible())
+            self.set_tools_panel_visible(tab.tools_panel.isHidden())
 
     def action_toggle_sidebar(self) -> None:
         tab = self.active_tab()
@@ -1932,8 +2049,9 @@ class MainWindow(QMainWindow):
         tab = self.active_tab()
         entering = not self.isFullScreen()
         if tab is not None:
-            tab.tools_panel.setVisible(not entering)
+            tab.tools_panel.setVisible(not entering and self.settings.show_tools_panel)
             tab.sidebar_tabs.setVisible(not entering)
+            self.tool_strip.setVisible(not entering)
             tab._sync_rail_buttons()
         if entering:
             self.showFullScreen()

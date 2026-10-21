@@ -64,6 +64,15 @@ QPushButton#pillToggleBtn, QPushButton#pillBtn {
 }
 QPushButton#pillToggleBtn:hover, QPushButton#pillBtn:hover { border-color: @accent; background-color: @card_hover; }
 QPushButton#pillToggleBtn:checked { background-color: @accent_soft; color: @accent_text; border-color: @accent; }
+QFrame#toolStrip { background-color: @bar; border-bottom: 1px solid @border; }
+QPushButton#stripToolBtn, QPushButton#stripToolSoonBtn {
+    background-color: transparent; color: @text; border: 1px solid transparent; border-radius: 6px;
+    padding: 4px 9px; font-weight: 500;
+}
+QPushButton#stripToolSoonBtn { color: @faint; }
+QPushButton#stripToolBtn:hover, QPushButton#stripToolSoonBtn:hover { background-color: @hover; border-color: @border; }
+QPushButton#stripToolBtn:checked { background-color: @accent_soft; color: @accent_text; border-color: @accent; }
+QFrame#toolStripSep { color: @border_strong; margin: 4px 2px; }
 QLineEdit#commandSearch {
     background-color: @card; border: 1px solid @border_strong; border-radius: 16px; padding: 6px 14px; color: @text;
 }
