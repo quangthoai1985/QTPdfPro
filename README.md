@@ -44,12 +44,12 @@
 - Tệp có chữ ký số được hỏi trước khi xử lý (ghi lại tệp làm chữ ký mất hiệu lực). Dòng lệnh: `compress`, `watermark`, `number`, `protect`, `unlock`.
 
 ### 1.0f. Tự cập nhật từ GitHub Release (mới ở `v0.5.0`, tải ngầm từ `v1.0.0`)
-- Ứng dụng tự kiểm tra bản mới tối đa 1 lần/ngày (tắt được ở ☰ Menu › Trợ giúp). Bản cài bằng `QTPdfPro_Setup.exe` **tự tải ngầm** `QTPdfPro_Update.zip` (kiểm mã SHA-256) rồi báo «Bản vX.Y.Z đã tải xong — Khởi động lại để cập nhật»; không bấm thì bản mới được cài khi bạn thoát (giữ bản dự phòng, lỗi thì khôi phục).
-- Kiểm tra bằng tay: ☰ Menu › Trợ giúp › «Kiểm tra cập nhật...», hoặc `cli update --check`.
+- Ứng dụng tự kiểm tra bản mới ngay mỗi khi mở và báo ngay (thông báo nổi + nhãn «🎉 Có bản mới» ở thanh trên cùng; tắt được ở menu Trợ giúp). Bản cài bằng `QTPdfPro_Setup.exe` **tự tải ngầm** `QTPdfPro_Update.zip` (kiểm mã SHA-256) rồi báo «Bản vX.Y.Z đã tải xong — Khởi động lại để cập nhật»; không bấm thì bản mới được cài khi bạn thoát (giữ bản dự phòng, lỗi thì khôi phục).
+- Kiểm tra bằng tay: menu Trợ giúp › «Kiểm tra cập nhật...», hoặc `cli update --check`.
 
 ### 1.0g. Bộ cài & trình xem PDF mặc định (mới ở `v1.0.0`)
 - `QTPdfPro_Setup.exe` cài cho riêng tài khoản của bạn vào `%LOCALAPPDATA%\Programs\QT PDF Pro` — **không cần quyền quản trị**; có lối tắt Start Menu, gỡ cài đặt trong «Apps & features», cài im lặng `/SILENT` hoặc `/VERYSILENT`.
-- Bộ cài đăng ký QT PDF Pro làm trình mở `.pdf` (mục «Open with» và «Ứng dụng mặc định» của Windows). Windows không cho ứng dụng tự đặt mình làm mặc định, nên cuối bộ cài sẽ mở trang cài đặt của QT PDF Pro — bấm **«Đặt mặc định»** một lần. Làm lại bất cứ lúc nào: ☰ Menu › Trợ giúp › «Đặt QT PDF Pro làm trình xem PDF mặc định...».
+- Bộ cài đăng ký QT PDF Pro làm trình mở `.pdf` (mục «Open with» và «Ứng dụng mặc định» của Windows). Windows không cho ứng dụng tự đặt mình làm mặc định, nên cuối bộ cài sẽ mở trang cài đặt của QT PDF Pro — bấm **«Đặt mặc định»** một lần. Làm lại bất cứ lúc nào: menu Trợ giúp › «Đặt QT PDF Pro làm trình xem PDF mặc định...».
 
 ### 1.1. Chuyển đổi PDF sang Word (`.docx`) chuẩn xác (Chức năng chủ đạo)
 Khắc phục triệt để hiện tượng *vỡ khung, nhảy dòng, tràn trang, lỗi phông tiếng Việt* thường gặp ở các công cụ chuyển đổi thông thường nhờ **Kiến trúc Đa Chế độ + Bộ Hậu xử lý Chuẩn xác OpenXML (`lxml`)**:

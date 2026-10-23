@@ -167,6 +167,11 @@ def test_home_page_pdfcraft_layout_and_coming_soon(sample_vietnamese_pdf: Path) 
     assert win.stack.currentWidget() is win.home_page
     assert win.btn_home.isChecked() is True
     assert win.doc_controls.isVisible() is False
+    # Thanh top: Mở + các menu nằm ngang; chưa có tài liệu thì chưa có hàng tab
+    assert win.btn_open.isVisible() and set(win.menu_buttons) == {
+        "Tệp", "Xem", "Công cụ", "Chỉnh sửa PDF", "Trợ giúp"}
+    assert all(b.isVisible() and b.menu() is not None for b in win.menu_buttons.values())
+    assert win.tab_strip.isVisible() is False
 
     # Danh mục: khoá duy nhất, công cụ chưa có đều có mốc phát hành và nhãn Coming Soon
     keys = [t.key for t in TOOLS]
@@ -202,6 +207,7 @@ def test_home_page_pdfcraft_layout_and_coming_soon(sample_vietnamese_pdf: Path) 
     app.processEvents()
     assert tab is not None
     assert win.doc_tab_bar.count() == 1 and win.doc_tabs.count() == 1
+    assert win.tab_strip.isVisible() is True
     assert win.stack.currentWidget() is win.doc_tabs
     assert win.doc_controls.isVisible() is True
 
@@ -233,7 +239,7 @@ def test_home_page_pdfcraft_layout_and_coming_soon(sample_vietnamese_pdf: Path) 
     # Đóng tab cuối → quay về Trang chủ
     win.close_tab_at(0)
     app.processEvents()
-    assert win.doc_tab_bar.count() == 0
+    assert win.doc_tab_bar.count() == 0 and win.tab_strip.isVisible() is False
     assert win.stack.currentWidget() is win.home_page
     win.close()
     app.processEvents()

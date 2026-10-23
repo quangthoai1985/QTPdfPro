@@ -79,20 +79,41 @@ def test_auto_check_once_per_day_and_notice(monkeypatch: pytest.MonkeyPatch) -> 
     geo = ctl.notice.geometry()
     assert win.rect().contains(geo) and geo.bottom() < win.statusBar().geometry().top()
 
-    assert ctl.start_auto_check() is False  # cùng ngày → không hỏi lại
-    assert len(calls) == 1
+    # Nhãn nhắc ở thanh trên cùng hiện cùng lúc với thông báo nổi
+    assert win.btn_update_badge.isVisible() and "v0.9.0" in win.btn_update_badge.text()
+
+    assert ctl.start_auto_check() is True  # mỗi lần mở ứng dụng đều hỏi lại, không chờ qua ngày
+    _wait_check(win)
+    assert len(calls) == 2 and ctl.notice.isVisible()
 
     ctl.notice.hide()
-    settings.last_update_check = ""
     settings.skipped_update_version = "0.9.0"
     assert ctl.start_auto_check() is True
     _wait_check(win)
-    assert len(calls) == 2 and not ctl.notice.isVisible()  # bản đã «Bỏ qua» không báo nữa
+    assert len(calls) == 3 and not ctl.notice.isVisible()  # bản đã «Bỏ qua» không báo nữa
+    assert not win.btn_update_badge.isVisible()
 
-    settings.last_update_check = ""
     settings.auto_check_updates = False
     assert ctl.start_auto_check() is False
-    assert len(calls) == 2
+    assert len(calls) == 3
+    win.close()
+
+
+def test_startup_check_announces_new_version_immediately(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Mở ứng dụng → `on_startup` kiểm tra ngay (kể cả vừa kiểm tra hôm nay) và báo bản mới."""
+    app = _app()
+    rel = _release("9.1.0")
+    monkeypatch.setattr(uc, "check_for_update", lambda *a, **k: uc.UpdateCheckResult(__version__, rel, True, ""))
+    settings = AppSettings.load()
+    settings.last_update_check = uc.now_iso()  # vừa kiểm tra xong — vẫn phải kiểm tra lại
+    win = MainWindow(settings=settings)
+    win.show()
+    app.processEvents()
+    win.updater.on_startup(delay_ms=0)
+    QTest.qWait(300)
+    _wait_check(win)
+    assert win.updater.notice.isVisible() and "9.1.0" in win.updater.notice.label.text()
+    assert win.btn_update_badge.isVisible()
     win.close()
 
 

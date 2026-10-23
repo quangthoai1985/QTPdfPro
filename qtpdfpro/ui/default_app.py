@@ -54,7 +54,7 @@ class DefaultAppController(QObject):
             "Trình xem PDF mặc định",
             f"Đặt {__app_name__} làm ứng dụng mở tệp PDF mặc định?\n\n"
             "Windows sẽ mở trang «Ứng dụng mặc định» của QT PDF Pro — bấm «Đặt mặc định» để hoàn tất.\n"
-            "(Có thể làm lại bất cứ lúc nào: ☰ Menu › Trợ giúp.)",
+            "(Có thể làm lại bất cứ lúc nào: menu Trợ giúp.)",
         )
         if answer == QMessageBox.StandardButton.Yes:
             self.make_default()

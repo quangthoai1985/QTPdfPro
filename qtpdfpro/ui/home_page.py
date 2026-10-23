@@ -1,8 +1,9 @@
 """Trang chủ (Home) theo bố cục PdfCraft.
 
 - Cột trái: bảng "Tất cả công cụ" (`ToolCatalogPanel`) có ô tìm nhanh, lọc theo nhóm chế độ.
-- Nội dung chính: lời chào, thẻ nổi bật văn bản hành chính NĐ30, lưới "Công cụ đề xuất" kèm thẻ
-  "Mở tệp", danh sách "Gần đây" (tên tệp, đường dẫn, số trang, dung lượng) và ghi chú quyền riêng tư.
+- Nội dung chính theo thứ tự việc người dùng hay làm: lời chào gọn → «Bắt đầu» (thẻ «Mở tệp PDF» kéo thả cạnh thẻ
+  văn bản hành chính NĐ30; xếp chồng khi hẹp) → «Gần đây» (tên tệp, đường dẫn, số trang, dung lượng, nút quay lại
+  tài liệu đang mở) → lưới «Công cụ đề xuất» → chân trang (quyền riêng tư, GitHub, bản phát hành).
 - Công cụ chưa phát triển hiển thị nhãn "Coming Soon".
 """
 
@@ -228,7 +229,7 @@ class OpenFileCard(_ClickableFrame):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("openFileCard")
-        self.setMinimumSize(QSize(200, 128))
+        self.setMinimumSize(QSize(200, 150))
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         lay = QVBoxLayout(self)
         lay.setContentsMargins(12, 12, 12, 12)
@@ -236,11 +237,12 @@ class OpenFileCard(_ClickableFrame):
         icon = QLabel("📂")
         icon.setObjectName("openFileIcon")
         icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        title = QLabel("Mở tệp")
-        title.setObjectName("toolCardName")
+        title = QLabel("Mở tệp PDF")
+        title.setObjectName("openFileTitle")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        hint = QLabel("hoặc kéo thả PDF vào đây")
+        hint = QLabel("Kéo thả PDF vào đây hoặc bấm để chọn tệp  ·  Ctrl+O")
         hint.setObjectName("toolCardSummary")
+        hint.setWordWrap(True)
         hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
         lay.addStretch(1)
         lay.addWidget(icon)
@@ -323,23 +325,34 @@ class HomePage(QWidget):
         scroll.setWidget(content)
         root.addWidget(scroll, 1)
 
-        # 1. Lời chào
+        # 1. Lời chào (gọn: tên ứng dụng + nhãn phiên bản + một dòng giới thiệu)
+        title_row = QHBoxLayout()
+        title_row.setSpacing(10)
         title = QLabel(f"Chào mừng đến với {__app_name__}")
         title.setObjectName("homeTitle")
-        subtitle = QLabel(
-            "Bàn làm việc PDF mã nguồn mở — chạy cục bộ, riêng tư và tự động hoá được bằng dòng lệnh. "
-            f"Phiên bản {__version__}."
-        )
+        version_chip = QLabel(f"v{__version__}")
+        version_chip.setObjectName("versionChip")
+        title_row.addWidget(title)
+        title_row.addWidget(version_chip, 0, Qt.AlignmentFlag.AlignBottom)
+        title_row.addStretch(1)
+        subtitle = QLabel("Bàn làm việc PDF mã nguồn mở — chạy cục bộ, riêng tư, tự động hoá được bằng dòng lệnh.")
         subtitle.setObjectName("homeSubtitle")
         subtitle.setWordWrap(True)
-        self._content_lay.addWidget(title)
+        self._content_lay.addLayout(title_row)
         self._content_lay.addWidget(subtitle)
 
-        # 2. Thẻ nổi bật: văn bản hành chính NĐ30
+        # 2. Bắt đầu nhanh: thẻ «Mở tệp» (kéo thả) cạnh thẻ nổi bật văn bản hành chính NĐ30
+        self._start_grid = QGridLayout()
+        self._start_grid.setHorizontalSpacing(16)
+        self._start_grid.setVerticalSpacing(16)
+        self.open_card = OpenFileCard()
+        self.open_card.clicked.connect(self.openRequested.emit)
+        self._start_cols = 0
+
         hero = QFrame()
         hero.setObjectName("homeHero")
         hero_lay = QVBoxLayout(hero)
-        hero_lay.setContentsMargins(20, 18, 20, 18)
+        hero_lay.setContentsMargins(20, 16, 20, 16)
         hero_lay.setSpacing(10)
         hero_head = QHBoxLayout()
         hero_icon = QLabel("🏛️")
@@ -348,9 +361,10 @@ class HomePage(QWidget):
         hero_texts.setSpacing(2)
         hero_title = QLabel("Văn bản hành chính chuẩn Nghị định 30/2020/NĐ-CP")
         hero_title.setObjectName("heroTitle")
+        hero_title.setWordWrap(True)
         hero_desc = QLabel(
-            "Đối chiếu thể thức (lề, cỡ chữ, giãn dòng, cách đoạn, Quốc hiệu – Tiêu ngữ) và chuyển PDF sang Word "
-            "giữ nguyên bố cục: phần đầu & khối ký trong bảng không viền, đường kẻ đúng toạ độ, con dấu, chữ ký số."
+            "Đối chiếu thể thức và chuyển PDF sang Word giữ nguyên bố cục: Quốc hiệu – Tiêu ngữ, khối ký, "
+            "đường kẻ đúng toạ độ, con dấu, chữ ký số."
         )
         hero_desc.setObjectName("heroDesc")
         hero_desc.setWordWrap(True)
@@ -368,20 +382,38 @@ class HomePage(QWidget):
         self.btn_hero_check = QPushButton("✅ Kiểm tra thể thức")
         self.btn_hero_check.setObjectName("pillBtn")
         self.btn_hero_check.clicked.connect(lambda: self.toolActivated.emit("nd30_check"))
-        btn_gh = QPushButton("⟨/⟩ Mã nguồn trên GitHub")
-        btn_gh.setObjectName("pillBtn")
-        btn_gh.clicked.connect(lambda: self.linkRequested.emit(f"https://github.com/{__github_repo__}"))
-        btn_rel = QPushButton("↗ Bản phát hành")
-        btn_rel.setObjectName("pillBtn")
-        btn_rel.clicked.connect(lambda: self.linkRequested.emit(f"https://github.com/{__github_repo__}/releases"))
-        for b in (self.btn_hero_convert, self.btn_hero_check, btn_gh, btn_rel):
+        for b in (self.btn_hero_convert, self.btn_hero_check):
             b.setCursor(Qt.CursorShape.PointingHandCursor)
             hero_btns.addWidget(b)
         hero_btns.addStretch(1)
         hero_lay.addLayout(hero_btns)
-        self._content_lay.addWidget(hero)
+        self.hero = hero
+        self._relayout_start(2)
+        self._content_lay.addLayout(self._start_grid)
 
-        # 3. Công cụ đề xuất
+        # 3. Gần đây — việc người dùng làm nhiều nhất là mở lại tệp vừa dùng nên đặt ngay dưới «Bắt đầu»
+        recent_head = QHBoxLayout()
+        recent_title = QLabel("Gần đây")
+        recent_title.setObjectName("sectionTitle")
+        self.btn_resume = QPushButton("↩ Quay lại tài liệu đang mở")
+        self.btn_resume.setObjectName("pillBtn")
+        self.btn_resume.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_resume.setVisible(False)
+        self.btn_resume.clicked.connect(self.resumeRequested.emit)
+        recent_head.addWidget(recent_title)
+        recent_head.addStretch(1)
+        recent_head.addWidget(self.btn_resume)
+        self._content_lay.addLayout(recent_head)
+
+        self.recent_box = QFrame()
+        self.recent_box.setObjectName("recentBox")
+        self._recent_lay = QVBoxLayout(self.recent_box)
+        self._recent_lay.setContentsMargins(4, 4, 4, 4)
+        self._recent_lay.setSpacing(2)
+        self._content_lay.addWidget(self.recent_box)
+        self.recent_rows: list[RecentRow] = []
+
+        # 4. Công cụ đề xuất
         rec = QFrame()
         rec.setObjectName("sectionCard")
         rec_lay = QVBoxLayout(rec)
@@ -401,47 +433,51 @@ class HomePage(QWidget):
             card = ToolCard(tool)
             card.clicked.connect(lambda key=key: self.toolActivated.emit(key))
             self._cards.append(card)
-        self.open_card = OpenFileCard()
-        self.open_card.clicked.connect(self.openRequested.emit)
-        self._cards.append(self.open_card)
         self._relayout_cards(4)
         self._content_lay.addWidget(rec)
+        self._content_lay.addStretch(1)
 
-        # 4. Gần đây
-        recent_head = QHBoxLayout()
-        recent_title = QLabel("Gần đây")
-        recent_title.setObjectName("sectionTitle")
-        self.btn_resume = QPushButton("↩ Quay lại tài liệu đang mở")
-        self.btn_resume.setObjectName("pillBtn")
-        self.btn_resume.setVisible(False)
-        self.btn_resume.clicked.connect(self.resumeRequested.emit)
-        recent_head.addWidget(recent_title)
-        recent_head.addStretch(1)
-        recent_head.addWidget(self.btn_resume)
-        self._content_lay.addLayout(recent_head)
-
-        self.recent_box = QFrame()
-        self.recent_box.setObjectName("recentBox")
-        self._recent_lay = QVBoxLayout(self.recent_box)
-        self._recent_lay.setContentsMargins(4, 4, 4, 4)
-        self._recent_lay.setSpacing(2)
-        self._content_lay.addWidget(self.recent_box)
-        self.recent_rows: list[RecentRow] = []
-
-        # 5. Quyền riêng tư
-        priv_title = QLabel("QUYỀN RIÊNG TƯ")
-        priv_title.setObjectName("privacyTitle")
+        # 5. Chân trang: quyền riêng tư một dòng + liên kết GitHub
+        footer = QHBoxLayout()
+        footer.setSpacing(6)
         priv = QLabel(
-            f"{__app_name__} hoạt động hoàn toàn ngoại tuyến trên máy của bạn: không thu thập dữ liệu, "
+            f"🔒 {__app_name__} chạy hoàn toàn ngoại tuyến trên máy bạn: không thu thập dữ liệu, "
             "không cần tài khoản, không gửi tài liệu lên đám mây."
         )
         priv.setObjectName("privacyText")
         priv.setWordWrap(True)
-        self._content_lay.addWidget(priv_title)
-        self._content_lay.addWidget(priv)
-        self._content_lay.addStretch(1)
+        footer.addWidget(priv, 1)
+        for text, url in (
+            ("⟨/⟩ GitHub", f"https://github.com/{__github_repo__}"),
+            ("↗ Bản phát hành", f"https://github.com/{__github_repo__}/releases"),
+        ):
+            link = QPushButton(text)
+            link.setObjectName("ghostBtn")
+            link.setCursor(Qt.CursorShape.PointingHandCursor)
+            link.clicked.connect(lambda _c=False, u=url: self.linkRequested.emit(u))
+            footer.addWidget(link)
+        self._content_lay.addLayout(footer)
 
     # ── Lưới thẻ đáp ứng theo chiều rộng ──
+    def _relayout_start(self, cols: int) -> None:
+        """Hàng «Bắt đầu»: 2 cột (Mở tệp | NĐ30) khi đủ rộng, xếp chồng khi hẹp."""
+        cols = 1 if cols < 2 else 2
+        if cols == self._start_cols:
+            return
+        self._start_cols = cols
+        self._start_grid.removeWidget(self.open_card)
+        self._start_grid.removeWidget(self.hero)
+        if cols == 2:
+            self._start_grid.addWidget(self.open_card, 0, 0)
+            self._start_grid.addWidget(self.hero, 0, 1)
+            self._start_grid.setColumnStretch(0, 4)
+            self._start_grid.setColumnStretch(1, 6)
+        else:
+            self._start_grid.addWidget(self.open_card, 0, 0)
+            self._start_grid.addWidget(self.hero, 1, 0)
+            self._start_grid.setColumnStretch(0, 1)
+            self._start_grid.setColumnStretch(1, 0)
+
     def _relayout_cards(self, cols: int) -> None:
         cols = max(1, cols)
         if cols == self._grid_cols:
@@ -456,8 +492,9 @@ class HomePage(QWidget):
 
     def resizeEvent(self, event) -> None:  # noqa: N802 - API Qt
         super().resizeEvent(event)
-        avail = self.width() - (self.catalog.width() if self.catalog.isVisible() else 0) - 120
+        avail = self.width() - (self.catalog.width() if self.catalog.isVisible() else 0) - 80
         self._relayout_cards(max(1, min(4, avail // 230)))
+        self._relayout_start(2 if avail >= 760 else 1)
 
     # ── Danh sách gần đây ──
     def set_recent_files(self, paths: List[str], has_open_docs: bool = False) -> None:
@@ -474,7 +511,7 @@ class HomePage(QWidget):
             empty.setContentsMargins(12, 10, 12, 10)
             self._recent_lay.addWidget(empty)
             return
-        for p in existing[:8]:
+        for p in existing[:6]:
             row = RecentRow(p)
             row.clicked.connect(lambda path=str(p): self.recentActivated.emit(path))
             self._recent_lay.addWidget(row)

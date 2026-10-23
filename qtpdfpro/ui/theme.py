@@ -30,14 +30,36 @@ _DARK_TOKENS = {
 
 _SHELL_TEMPLATE = """
 QWidget#appRoot, QWidget#homeContent, QScrollArea#homeScroll { background-color: @page; }
+QFrame#topBar { background-color: @strip; border: none; }
 QFrame#titleStrip { background-color: @strip; border: none; }
 QFrame#modeBar { background-color: @bar; border-bottom: 1px solid @border; }
 QPushButton#homeTabBtn {
-    background-color: transparent; color: @muted; border: none; border-radius: 6px;
-    font-size: 17px; padding: 2px 10px; min-width: 30px;
+    background-color: transparent; color: @text; border: 1px solid transparent; border-radius: 6px;
+    padding: 5px 12px; font-weight: 600;
 }
-QPushButton#homeTabBtn:hover { background-color: @hover; color: @text; }
-QPushButton#homeTabBtn:checked { background-color: @tab_sel; color: @accent; }
+QPushButton#homeTabBtn:hover { background-color: @hover; border-color: @border; }
+QPushButton#homeTabBtn:checked { background-color: @accent_soft; color: @accent_text; border-color: @accent; }
+QPushButton#openTopBtn {
+    background-color: @accent; color: @on_accent; border: 1px solid @accent; border-radius: 6px;
+    padding: 5px 14px; font-weight: 600;
+}
+QPushButton#openTopBtn:hover { background-color: @accent_text; border-color: @accent_text; }
+QFrame#topBarSep { color: @border_strong; }
+QPushButton#menuBarBtn {
+    background-color: transparent; color: @text; border: 1px solid transparent; border-radius: 6px;
+    padding: 5px 11px; font-weight: 500;
+}
+QPushButton#menuBarBtn:hover, QPushButton#menuBarBtn:pressed, QPushButton#menuBarBtn:open {
+    background-color: @hover; border-color: @border;
+}
+QPushButton#menuBarBtn::menu-indicator { image: none; width: 0px; }
+QPushButton#updateBadgeBtn {
+    background-color: @accent; color: @on_accent; border: none; border-radius: 13px;
+    padding: 4px 12px; font-weight: 700;
+}
+QPushButton#updateBadgeBtn:hover { background-color: @accent_text; }
+QPushButton#updateBadgeBtn[ready="true"] { background-color: #16A34A; }
+QPushButton#updateBadgeBtn[ready="true"]:hover { background-color: #15803D; }
 QTabBar#docTabBar { background: transparent; }
 QTabBar#docTabBar::tab {
     background-color: transparent; color: @muted; border: none; border-top-left-radius: 8px;
@@ -120,7 +142,12 @@ QLabel#soonBadge {
 }
 QFrame#openFileCard { background-color: @page; border: 1px dashed @border_strong; border-radius: 12px; }
 QFrame#openFileCard:hover { border-color: @accent; background-color: @accent_soft; }
-QLabel#openFileIcon { font-size: 26px; }
+QLabel#openFileIcon { font-size: 30px; }
+QLabel#openFileTitle { font-size: 16px; font-weight: 700; color: @text; }
+QLabel#versionChip {
+    font-size: 12px; font-weight: 700; color: @accent_text; background-color: @accent_soft;
+    border-radius: 9px; padding: 2px 10px; margin-bottom: 4px;
+}
 QFrame#recentBox { background-color: transparent; border: none; }
 QFrame#recentRow { background-color: transparent; border: 1px solid transparent; border-radius: 10px; }
 QFrame#recentRow:hover { background-color: @card; border-color: @border; }
@@ -129,7 +156,7 @@ QLabel#recentName { font-size: 14px; font-weight: 600; color: @text; }
 QLabel#recentPath { font-size: 11px; color: @faint; }
 QLabel#recentMeta { font-size: 12px; color: @muted; }
 QLabel#privacyTitle { font-size: 11px; font-weight: 700; color: @faint; }
-QLabel#privacyText { font-size: 13px; color: @muted; }
+QLabel#privacyText { font-size: 12px; color: @muted; }
 QLabel#mutedLabel { color: @muted; }
 QLabel#dialogHeadline { font-size: 14px; color: @text; }
 QLabel#toast {

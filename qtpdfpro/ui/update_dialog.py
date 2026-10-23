@@ -1,10 +1,11 @@
 """Cập nhật ứng dụng từ GitHub Release (mục V4): tự kiểm tra lúc khởi động, tải ngầm, thông báo, hộp thoại.
 
-- `UpdateController` gắn vào `MainWindow`: thêm hành động «Kiểm tra cập nhật...» vào menu Trợ giúp, tự kiểm tra
-  tối đa 1 lần/ngày bằng `QThread` (không làm chậm lúc mở). Bản đóng gói ghi được thư mục cài thì tải ngầm
-  `QTPdfPro_Update.zip` (`core/updater.py`) rồi báo «Bản vX.Y.Z đã sẵn sàng — Khởi động lại để cập nhật»; không
-  bấm thì bản mới được cài khi thoát. Ngược lại hiện «Đã có bản vX.Y.Z — Cập nhật» để mở hộp thoại. Script cập
-  nhật chạy lúc cửa sổ đóng (sau khi `closeEvent` đã hỏi lưu các tab).
+- `UpdateController` gắn vào `MainWindow`: thêm hành động «Kiểm tra cập nhật...» vào menu Trợ giúp, **tự kiểm tra
+  mỗi lần mở ứng dụng** (~0,6 giây sau khi cửa sổ hiện, bằng `QThread` nên không làm chậm lúc mở). Có bản mới là
+  **báo ngay** (thông báo nổi + nhãn «🎉 Có bản mới» ở thanh trên cùng, `MainWindow.show_update_badge`), rồi bản
+  đóng gói ghi được thư mục cài thì tải ngầm `QTPdfPro_Update.zip` (`core/updater.py`) và đổi thành «Bản vX.Y.Z
+  đã sẵn sàng — Khởi động lại để cập nhật»; không bấm thì bản mới được cài khi thoát. Ngược lại nút «Cập nhật» mở
+  hộp thoại. Script cập nhật chạy lúc cửa sổ đóng (sau khi `closeEvent` đã hỏi lưu các tab).
 - `UpdateDialog`: ghi chú phát hành, dung lượng, «Tải về & cập nhật» / «Để sau» / «Bỏ qua bản này»,
   thanh tiến trình, nút Huỷ. Chạy từ mã nguồn thì chỉ mở trang phát hành.
 """
@@ -41,7 +42,7 @@ from qtpdfpro.core import update_check as uc
 from qtpdfpro.core import updater
 from qtpdfpro.core.settings import AppSettings
 
-STARTUP_CHECK_DELAY_MS = 4000
+STARTUP_CHECK_DELAY_MS = 600  # hỏi GitHub ngay sau khi cửa sổ hiện (luồng nền, không làm chậm lúc mở)
 RELEASES_PAGE = f"https://github.com/{__github_repo__}/releases/latest"
 
 
@@ -248,7 +249,7 @@ class UpdateDialog(QDialog):
         self.status_lbl.setVisible(False)
         lay.addWidget(self.status_lbl)
 
-        self.auto_check_box = QCheckBox("Tự kiểm tra bản mới khi khởi động (tối đa 1 lần/ngày)")
+        self.auto_check_box = QCheckBox("Tự kiểm tra bản mới mỗi khi mở ứng dụng")
         self.auto_check_box.setChecked(settings.auto_check_updates)
         self.auto_check_box.toggled.connect(self._on_auto_check_toggled)
         lay.addWidget(self.auto_check_box)
@@ -513,7 +514,7 @@ class UpdateNotice(QFrame):
         lay.addWidget(self.btn_update)
         self.btn_close = QPushButton("✕")
         self.btn_close.setObjectName("updateNoticeClose")
-        self.btn_close.setToolTip("Ẩn thông báo (xem lại qua ☰ Menu › Trợ giúp › Kiểm tra cập nhật...)")
+        self.btn_close.setToolTip("Ẩn thông báo (xem lại qua Trợ giúp › Kiểm tra cập nhật...)")
         self.btn_close.clicked.connect(self.hide)
         lay.addWidget(self.btn_close)
         self.ready = False
@@ -524,13 +525,23 @@ class UpdateNotice(QFrame):
         self.ready = False
         self.label.setText(f"🎉 Đã có bản v{release.version}")
         self.btn_update.setText("Cập nhật")
-        self.btn_close.setToolTip("Ẩn thông báo (xem lại qua ☰ Menu › Trợ giúp › Kiểm tra cập nhật...)")
+        self.btn_update.setVisible(True)
+        self.btn_close.setToolTip("Ẩn thông báo (xem lại qua Trợ giúp › Kiểm tra cập nhật... hoặc nhãn «Có bản mới» ở thanh trên)")
+        self._popup(release)
+
+    def show_downloading(self, release: uc.ReleaseInfo) -> None:
+        """Báo ngay có bản mới trong lúc đang tải ngầm (chưa có nút bấm — xong sẽ đổi sang `show_ready`)."""
+        self.ready = False
+        self.label.setText(f"🎉 Đã có bản v{release.version} — đang tải ngầm…")
+        self.btn_update.setVisible(False)
+        self.btn_close.setToolTip("Ẩn thông báo — sẽ báo lại khi tải xong")
         self._popup(release)
 
     def show_ready(self, release: uc.ReleaseInfo) -> None:
         self.ready = True
         self.label.setText(f"✅ Bản v{release.version} đã tải xong")
         self.btn_update.setText("Khởi động lại để cập nhật")
+        self.btn_update.setVisible(True)
         self.btn_close.setToolTip("Ẩn thông báo — bản mới được cài khi bạn thoát QT PDF Pro")
         self._popup(release)
 
@@ -576,7 +587,7 @@ class UpdateController(QObject):
         self.notice.updateClicked.connect(self._on_notice_clicked)
         self.act_check = QAction("Kiểm tra cập nhật...", window)
         self.act_check.triggered.connect(self.check_now)
-        self.act_auto = QAction("Tự kiểm tra cập nhật khi khởi động", window)
+        self.act_auto = QAction("Tự kiểm tra cập nhật mỗi khi mở ứng dụng", window)
         self.act_auto.setCheckable(True)
         self.act_auto.setChecked(settings.auto_check_updates)
         self.act_auto.toggled.connect(self._on_auto_toggled)
@@ -626,10 +637,11 @@ class UpdateController(QObject):
     # ─── Kiểm tra ─────────────────────────────────────────────────────────
 
     def start_auto_check(self) -> bool:
-        """Tự kiểm tra (nếu bật và đã quá 1 ngày); trả về True nếu đã bắt đầu hỏi GitHub."""
+        """Tự kiểm tra mỗi lần mở ứng dụng (nếu bật); trả về True nếu đã bắt đầu hỏi GitHub.
+
+        Không giới hạn «1 lần/ngày» nữa: có bản mới là phải báo ngay khi mở. Một lần hỏi = 1 yêu cầu GitHub API
+        trong luồng nền (hạn mức 60 yêu cầu/giờ/IP, dư dùng)."""
         if self._closing or not self.settings.auto_check_updates:
-            return False
-        if not uc.should_auto_check(self.settings.last_update_check):
             return False
         return self._start_check(manual=False)
 
@@ -672,6 +684,7 @@ class UpdateController(QObject):
         if self.latest is None:
             if self.prepared is None:
                 self.notice.hide()
+                self._set_badge(None)
             if manual:
                 QMessageBox.information(self.window, "Kiểm tra cập nhật", result.message)
             return
@@ -679,10 +692,52 @@ class UpdateController(QObject):
             if self.is_downloading():
                 self._toast(f"Đang tải ngầm bản v{self.latest.version} — sẽ báo khi xong.", 5000)
             else:
+                self._set_badge(self.latest, ready=self.prepared is not None)
                 self.open_dialog(self.latest)
         elif self.latest.version != self.settings.skipped_update_version:
-            if not self.start_background_download(self.latest):
-                self.notice.show_for(self.latest)
+            self.announce(self.latest)
+        elif self.prepared is None:  # bản đã «Bỏ qua» không báo nữa
+            self.notice.hide()
+            self._set_badge(None)
+
+    # ─── Thông báo bản mới (thông báo nổi + nhãn ở thanh trên cùng) ──────
+
+    def announce(self, release: uc.ReleaseInfo) -> None:
+        """Báo ngay cho người dùng biết có bản mới, rồi (nếu bật «Tự tải» và tự thay được) tải ngầm ở nền."""
+        if self.start_background_download(release):
+            if self.prepared is None or self.prepared.version != release.version:
+                self._show_downloading(release)
+            return
+        self._show_available(release)
+
+    def _set_badge(self, release: Optional[uc.ReleaseInfo], ready: bool = False, downloading: bool = False) -> None:
+        show = getattr(self.window, "show_update_badge", None)
+        if not callable(show):
+            return
+        if release is None:
+            show("", False)
+        elif ready:
+            show(f"✅ v{release.version} sẵn sàng — Khởi động lại", True)
+        elif downloading:
+            show(f"🎉 Có bản mới v{release.version} — đang tải…", False)
+        else:
+            show(f"🎉 Có bản mới v{release.version} — Cập nhật", False)
+
+    def _show_available(self, release: uc.ReleaseInfo) -> None:
+        self.notice.show_for(release)
+        self._set_badge(release)
+
+    def _show_downloading(self, release: uc.ReleaseInfo) -> None:
+        self.notice.show_downloading(release)
+        self._set_badge(release, downloading=True)
+
+    def _show_ready(self, release: uc.ReleaseInfo) -> None:
+        self.notice.show_ready(release)
+        self._set_badge(release, ready=True)
+
+    def on_badge_clicked(self) -> None:
+        """Bấm nhãn «Có bản mới» ở thanh trên cùng."""
+        self._on_notice_clicked()
 
     # ─── Tải ngầm (core/updater.py) ───────────────────────────────────────
 
@@ -700,7 +755,7 @@ class UpdateController(QObject):
         if self._closing or not self.settings.auto_download_updates:
             return False
         if self.prepared is not None and self.prepared.version == release.version:
-            self.notice.show_ready(release)
+            self._show_ready(release)
             return True
         if self.is_downloading():
             return True
@@ -725,18 +780,20 @@ class UpdateController(QObject):
         self.prepared = prepared
         self.pending_plan = prepared.plan
         self.relaunch_after_install = False  # tự cài khi thoát; chỉ mở lại khi người dùng bấm «Khởi động lại»
-        self.notice.show_ready(prepared.release)
+        self._show_ready(prepared.release)
 
     def _on_background_failed(self, release: uc.ReleaseInfo, message: str) -> None:
         self._finish_background()
         if self._closing:
             return
         self.window.statusBar().showMessage(f"Không tải ngầm được bản v{release.version}: {message}", 8000)
-        self.notice.show_for(release)  # lùi về hộp thoại cập nhật thủ công
+        self._show_available(release)  # lùi về hộp thoại cập nhật thủ công
 
     def _on_notice_clicked(self) -> None:
         if self.notice.ready and self.prepared is not None:
             self.restart_to_update()
+        elif self.is_downloading() and self.latest is not None:
+            self._toast(f"Đang tải ngầm bản v{self.latest.version} — sẽ báo khi xong.", 5000)
         else:
             self.open_dialog()
 
@@ -752,7 +809,7 @@ class UpdateController(QObject):
         version = self.prepared.version if self.prepared is not None else self.pending_plan.version
         self._toast(f"Chưa đóng ứng dụng — bản v{version} sẽ được cài khi bạn thoát.", 6000)
         if self.prepared is not None:
-            self.notice.show_ready(self.prepared.release)
+            self._show_ready(self.prepared.release)
         return False
 
     def _on_check_failed(self, message: str) -> None:
@@ -799,6 +856,7 @@ class UpdateController(QObject):
         if outcome == "skip":
             self.settings.skipped_update_version = release.version
             self.settings.save()
+            self._set_badge(None)
             self._toast(f"Sẽ không tự báo bản v{release.version} nữa.")
         elif outcome in ("restart", "on_exit") and dlg.plan is not None:
             self.pending_plan = dlg.plan

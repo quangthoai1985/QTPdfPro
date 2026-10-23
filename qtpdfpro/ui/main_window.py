@@ -854,10 +854,12 @@ class PDFDocumentTab(QWidget):
 class MainWindow(QMainWindow):
     """Cửa sổ chính QT PDF Pro theo bố cục PdfCraft.
 
-    - Tầng 1 (dải tiêu đề): nút Trang chủ, các tab tài liệu, «＋ Mở», Trợ giúp, nút Sáng/Tối.
-    - Tầng 2 (thanh chế độ): «☰ Menu», các chế độ Tất cả công cụ · Đọc · Chuyển đổi · Chỉnh sửa ·
-      Ký số & Bảo mật, điều hướng trang/thu phóng (khi mở tài liệu), ô tìm công cụ (Ctrl+K), xuất Word.
-    - Tầng 3 (chỉ khi xem tài liệu): thanh công cụ nhanh `tool_strip` — nút của chế độ đang chọn
+    - Tầng 1 (thanh top `top_bar`): ⌂ Trang chủ, 📂 Mở, các menu nằm ngang (Tệp · Xem · Công cụ · Chỉnh sửa PDF ·
+      Trợ giúp), nhãn «🎉 Có bản mới», ô tìm công cụ (Ctrl+K), GitHub, nút Sáng/Tối.
+    - Tầng 2 (`tab_strip`, chỉ khi có tài liệu mở): các tab tài liệu.
+    - Tầng 3 (thanh chế độ): các chế độ Tất cả công cụ · Đọc · Chuyển đổi · Chỉnh sửa · Ký số & Bảo mật,
+      điều hướng trang/thu phóng (khi mở tài liệu), xuất Word.
+    - Tầng 4 (chỉ khi xem tài liệu): thanh công cụ nhanh `tool_strip` — nút của chế độ đang chọn
       (`STRIP_TOOLS`), tự xuống dòng; nút «◧ Bảng công cụ» (F3) bật cột trái.
     - Thân: Trang chủ (`HomePage`) hoặc vùng tài liệu (`PDFDocumentTab`).
     """
@@ -879,7 +881,9 @@ class MainWindow(QMainWindow):
         root = QVBoxLayout(central)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
-        root.addWidget(self._build_title_strip())
+        self.tab_strip = self._build_tab_strip()
+        root.addWidget(self._build_top_bar())
+        root.addWidget(self.tab_strip)
         root.addWidget(self._build_mode_bar())
         root.addWidget(self._build_tool_strip())
         self._build_central_area()
@@ -889,7 +893,7 @@ class MainWindow(QMainWindow):
         self._apply_theme(self.settings.theme)
         self._show_home()
 
-    # ─── Hành động & Menu (gắn vào nút «☰ Menu») ───────────────────────────
+    # ─── Hành động & Menu (hiện thành các nút nằm ngang ở thanh top) ─────────────────────────────
 
     def _build_actions_and_menus(self) -> None:
         self.main_menu = QMenu(self)
@@ -982,7 +986,7 @@ class MainWindow(QMainWindow):
         self.act_toggle_theme.triggered.connect(self.action_toggle_theme)
         view_menu.addAction(self.act_toggle_theme)
 
-        tools_menu = self.main_menu.addMenu("Công cụ && Chuyển đổi")
+        tools_menu = self.main_menu.addMenu("Công cụ")
         self.act_palette = QAction("Tìm công cụ và lệnh...", self)
         self.act_palette.setShortcut(QKeySequence("Ctrl+K"))
         self.act_palette.triggered.connect(lambda: self.action_command_palette(""))
@@ -1068,27 +1072,109 @@ class MainWindow(QMainWindow):
         help_menu.addSeparator()
         self.default_app.add_menu_actions(help_menu)
 
-        # Menu nằm trong nút «☰ Menu» nên phải gắn hành động vào cửa sổ để phím tắt hoạt động
+        # Menu là nút thả xuống ở thanh top (không phải QMenuBar) nên phải gắn hành động vào cửa sổ để phím tắt hoạt động
         for menu in (file_menu, view_menu, tools_menu, edit_menu, help_menu):
             self.addActions([a for a in menu.actions() if not a.isSeparator() and a.menu() is None])
         self.menuBar().setVisible(False)
 
     # ─── Tầng 1: Dải tiêu đề & tab tài liệu ────────────────────────────────
 
-    def _build_title_strip(self) -> QFrame:
+    def _build_top_bar(self) -> QFrame:
+        """Hàng trên cùng: ⌂ Trang chủ · 📂 Mở · các menu nằm ngang · ô tìm lệnh · GitHub · Sáng/Tối."""
         strip = QFrame()
-        strip.setObjectName("titleStrip")
+        strip.setObjectName("topBar")
         lay = QHBoxLayout(strip)
-        lay.setContentsMargins(8, 4, 10, 0)
-        lay.setSpacing(4)
+        lay.setContentsMargins(10, 6, 10, 6)
+        lay.setSpacing(2)
 
-        self.btn_home = QPushButton("⌂")
+        self.btn_home = QPushButton("⌂  Trang chủ")
         self.btn_home.setObjectName("homeTabBtn")
         self.btn_home.setCheckable(True)
         self.btn_home.setToolTip("Trang chủ (Alt+Home)")
         self.btn_home.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_home.clicked.connect(self.action_go_home)
         lay.addWidget(self.btn_home)
+
+        self.btn_open = QPushButton("📂  Mở")
+        self.btn_open.setObjectName("openTopBtn")
+        self.btn_open.setToolTip("Mở tệp PDF (Ctrl+O)")
+        self.btn_open.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_open.clicked.connect(self.action_open_pdf)
+        lay.addWidget(self.btn_open)
+
+        sep = QFrame()
+        sep.setObjectName("topBarSep")
+        sep.setFrameShape(QFrame.Shape.VLine)
+        sep.setFixedHeight(20)
+        lay.addSpacing(6)
+        lay.addWidget(sep)
+        lay.addSpacing(6)
+
+        # Mỗi menu con của `main_menu` thành một nút thả xuống nằm ngang (phím tắt vẫn chạy nhờ `addActions`)
+        self.menu_buttons: dict[str, QPushButton] = {}
+        for action in self.main_menu.actions():
+            submenu = action.menu()
+            if submenu is None:
+                continue
+            btn = QPushButton(action.text())
+            btn.setObjectName("menuBarBtn")
+            btn.setMenu(submenu)
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            lay.addWidget(btn)
+            self.menu_buttons[submenu.title().replace("&&", "&")] = btn
+
+        # Nhãn «🎉 Có bản mới» chỉ hiện khi bộ cập nhật phát hiện bản mới (xem `show_update_badge`)
+        self.btn_update_badge = QPushButton("")
+        self.btn_update_badge.setObjectName("updateBadgeBtn")
+        self.btn_update_badge.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_update_badge.setVisible(False)
+        self.btn_update_badge.clicked.connect(self.updater.on_badge_clicked)
+        lay.addSpacing(8)
+        lay.addWidget(self.btn_update_badge)
+        lay.addStretch(1)
+
+        self.toolbar_search_input = QLineEdit()
+        self.toolbar_search_input.setObjectName("commandSearch")
+        self.toolbar_search_input.setPlaceholderText("🔍 Tìm công cụ & lệnh…  Ctrl+K")
+        self.toolbar_search_input.setMinimumWidth(180)
+        self.toolbar_search_input.setMaximumWidth(300)
+        self.toolbar_search_input.returnPressed.connect(self._on_toolbar_quick_search)
+        completer = QCompleter([t.name for t in TOOLS], self.toolbar_search_input)
+        completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+        completer.setFilterMode(Qt.MatchFlag.MatchContains)
+        completer.activated.connect(self._on_completer_activated)
+        self.toolbar_search_input.setCompleter(completer)
+        lay.addWidget(self.toolbar_search_input)
+        lay.addSpacing(6)
+
+        btn_github = QPushButton("⟨/⟩ GitHub")
+        btn_github.setObjectName("ghostBtn")
+        btn_github.setToolTip("Mã nguồn, báo lỗi & góp ý trên GitHub")
+        btn_github.clicked.connect(lambda: self._open_link(f"https://github.com/{__github_repo__}"))
+        lay.addWidget(btn_github)
+
+        self.btn_theme_toggle = QPushButton("☀️ Giao diện Sáng")
+        self.btn_theme_toggle.setObjectName("themeToggleBtn")
+        self.btn_theme_toggle.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_theme_toggle.clicked.connect(self.action_toggle_theme)
+        lay.addWidget(self.btn_theme_toggle)
+        return strip
+
+    def show_update_badge(self, text: str = "", ready: bool = False) -> None:
+        """Hiện/ẩn nhãn nhắc bản mới ở thanh trên cùng (`text` rỗng = ẩn)."""
+        self.btn_update_badge.setText(text)
+        self.btn_update_badge.setProperty("ready", ready)
+        self.btn_update_badge.style().unpolish(self.btn_update_badge)
+        self.btn_update_badge.style().polish(self.btn_update_badge)
+        self.btn_update_badge.setVisible(bool(text))
+
+    def _build_tab_strip(self) -> QFrame:
+        """Hàng tab tài liệu — chỉ hiện khi có tài liệu đang mở."""
+        strip = QFrame()
+        strip.setObjectName("titleStrip")
+        lay = QHBoxLayout(strip)
+        lay.setContentsMargins(10, 4, 10, 0)
+        lay.setSpacing(4)
 
         self.doc_tab_bar = QTabBar()
         self.doc_tab_bar.setObjectName("docTabBar")
@@ -1103,48 +1189,21 @@ class MainWindow(QMainWindow):
         self.doc_tab_bar.tabCloseRequested.connect(self.close_tab_at)
         self.doc_tab_bar.tabMoved.connect(self._on_header_tab_moved)
         lay.addWidget(self.doc_tab_bar, 0, Qt.AlignmentFlag.AlignBottom)
-
-        btn_open = QPushButton("＋  Mở")
-        btn_open.setObjectName("ghostBtn")
-        btn_open.setToolTip("Mở tệp PDF (Ctrl+O)")
-        btn_open.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn_open.clicked.connect(self.action_open_pdf)
-        lay.addWidget(btn_open)
         lay.addStretch(1)
-
-        btn_github = QPushButton("⟨/⟩ GitHub")
-        btn_github.setObjectName("ghostBtn")
-        btn_github.setToolTip("Mã nguồn, báo lỗi & góp ý trên GitHub")
-        btn_github.clicked.connect(lambda: self._open_link(f"https://github.com/{__github_repo__}"))
-        lay.addWidget(btn_github)
-
-        btn_help = QPushButton("？")
-        btn_help.setObjectName("ghostIconBtn")
-        btn_help.setToolTip(f"Giới thiệu {__app_name__}")
-        btn_help.clicked.connect(self.action_show_about)
-        lay.addWidget(btn_help)
-
-        self.btn_theme_toggle = QPushButton("☀️ Giao diện Sáng")
-        self.btn_theme_toggle.setObjectName("themeToggleBtn")
-        self.btn_theme_toggle.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_theme_toggle.clicked.connect(self.action_toggle_theme)
-        lay.addWidget(self.btn_theme_toggle)
+        strip.setVisible(False)
         return strip
 
-    # ─── Tầng 2: Thanh chế độ ──────────────────────────────────────────────
+    def _sync_tab_strip(self) -> None:
+        self.tab_strip.setVisible(self.doc_tab_bar.count() > 0)
+
+    # ─── Tầng 3: Thanh chế độ ──────────────────────────────────────────────
 
     def _build_mode_bar(self) -> QFrame:
         bar = QFrame()
         bar.setObjectName("modeBar")
         lay = QHBoxLayout(bar)
-        lay.setContentsMargins(10, 6, 10, 6)
+        lay.setContentsMargins(10, 4, 10, 4)
         lay.setSpacing(4)
-
-        btn_menu = QPushButton("☰  Menu")
-        btn_menu.setObjectName("ghostBtn")
-        btn_menu.setMenu(self.main_menu)
-        lay.addWidget(btn_menu)
-        lay.addSpacing(10)
 
         self.mode_buttons: dict[str, QPushButton] = {}
         group = QButtonGroup(self)
@@ -1206,19 +1265,6 @@ class MainWindow(QMainWindow):
         dc.addWidget(self.zoom_combo)
         lay.addWidget(self.doc_controls)
         lay.addSpacing(8)
-
-        self.toolbar_search_input = QLineEdit()
-        self.toolbar_search_input.setObjectName("commandSearch")
-        self.toolbar_search_input.setPlaceholderText("🔍 Tìm công cụ & lệnh…  Ctrl+K")
-        self.toolbar_search_input.setMinimumWidth(180)
-        self.toolbar_search_input.setMaximumWidth(300)
-        self.toolbar_search_input.returnPressed.connect(self._on_toolbar_quick_search)
-        completer = QCompleter([t.name for t in TOOLS], self.toolbar_search_input)
-        completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
-        completer.setFilterMode(Qt.MatchFlag.MatchContains)
-        completer.activated.connect(self._on_completer_activated)
-        self.toolbar_search_input.setCompleter(completer)
-        lay.addWidget(self.toolbar_search_input)
 
         btn_info = QPushButton("ℹ")
         btn_info.setObjectName("ghostIconBtn")
@@ -1493,6 +1539,7 @@ class MainWindow(QMainWindow):
         self.doc_tab_bar.insertTab(idx, f"📄 {safe_tab_title}")
         self.doc_tab_bar.setTabToolTip(idx, str(path))
         self.doc_tab_bar.blockSignals(False)
+        self._sync_tab_strip()
         self.doc_tabs.setTabToolTip(idx, str(path))
         self.doc_tabs.setCurrentIndex(idx)
         self._show_documents()
@@ -1513,6 +1560,7 @@ class MainWindow(QMainWindow):
         self.doc_tab_bar.blockSignals(True)
         self.doc_tab_bar.removeTab(index)
         self.doc_tab_bar.blockSignals(False)
+        self._sync_tab_strip()
         if isinstance(w, PDFDocumentTab):
             w.close_document()
             w.deleteLater()
