@@ -68,6 +68,7 @@ from qtpdfpro.ui.convert_dialog import ConvertToDocxDialog
 from qtpdfpro.ui.dialogs import AboutDialog, DocumentInfoDialog, PageTextDialog
 from qtpdfpro.ui.home_page import HomePage
 from qtpdfpro.ui.nd30_dialog import LayoutVerifyDialog, ND30ReportDialog
+from qtpdfpro.ui.ocr_dialog import OcrDialog, OcrModelController
 from qtpdfpro.ui.organizer_dialog import PageOrganizerDialog
 from qtpdfpro.ui.pdf_canvas import PDFScrollViewer
 from qtpdfpro.ui.print_dialog import PrintDialog
@@ -98,7 +99,7 @@ STRIP_TOOLS: dict[str, list[tuple[str, str]]] = {
     ],
     "convert": [
         ("🏛️ Word NĐ30", "pdf_to_word_nd30"), ("📐 Word giữ vị trí 1:1", "pdf_to_word_exact"),
-        ("📝 Word dòng chảy", "pdf_to_word_flow"), ("⚙️ Tuỳ chỉnh xuất…", ":convert_dialog"),
+        ("📝 Word dòng chảy", "pdf_to_word_flow"), ("🔤 OCR tiếng Việt", "ocr"), ("⚙️ Tuỳ chỉnh xuất…", ":convert_dialog"),
         ("✅ Kiểm tra NĐ30", "nd30_check"), ("🔬 Kiểm chứng DOCX", "verify_docx"),
         ("🗂️ Hàng loạt", "batch_convert"),
     ],
@@ -963,6 +964,7 @@ class MainWindow(QMainWindow):
         self._toast: Optional[QLabel] = None
         self.updater = UpdateController(self, self.settings)
         self.default_app = DefaultAppController(self, self.settings)
+        self.ocr_models = OcrModelController(self, notify=lambda text: self._show_toast(text, 6000))
 
         self._build_actions_and_menus()
         central = QWidget()
@@ -1002,6 +1004,11 @@ class MainWindow(QMainWindow):
         self.act_batch_convert.setShortcut(QKeySequence("Ctrl+Shift+B"))
         self.act_batch_convert.triggered.connect(lambda: self.run_tool("batch_convert"))
         file_menu.addAction(self.act_batch_convert)
+
+        self.act_ocr = QAction("OCR tiếng Việt — nhận dạng PDF ảnh quét...", self)
+        self.act_ocr.setShortcut(QKeySequence("Ctrl+Shift+R"))
+        self.act_ocr.triggered.connect(lambda: self.run_tool("ocr"))
+        file_menu.addAction(self.act_ocr)
 
         self.recent_menu = QMenu("Tệp mở gần đây", self)
         file_menu.addMenu(self.recent_menu)
@@ -1725,6 +1732,7 @@ class MainWindow(QMainWindow):
             "nd30_check": self.action_nd30_check,
             "verify_docx": self.action_verify_docx,
             "batch_convert": self.action_batch_convert,
+            "ocr": self.action_ocr,
             "layout_inspect": lambda: self._open_inspector(True),
             "sig_inspect": lambda: self._open_inspector(True),
             "search": lambda: self._with_active_tab(lambda t: t.focus_search()),
@@ -1905,6 +1913,7 @@ class MainWindow(QMainWindow):
                 if not self._confirm_close_tab(w):
                     event.ignore()
                     return
+        self.ocr_models.cancel_and_wait()
         self.updater.on_window_closing()
         super().closeEvent(event)
 
@@ -2071,6 +2080,28 @@ class MainWindow(QMainWindow):
             )
             return
         LayoutVerifyDialog(pdf, docx, self).exec()
+
+    def action_ocr(self) -> None:
+        """Ctrl+Shift+R: OCR tiếng Việt — lần đầu tự tải ngầm bộ mô hình (~88 MB); nhận dạng tệp của tab đang đọc."""
+        self.ocr_models.ensure_started()
+        picked = self._tool_source()
+        if picked is None:
+            return
+        source, password = picked
+        dlg = OcrDialog(self, source=source, password=password, models=self.ocr_models,
+                        is_locked=lambda p: self._tab_for_path(p) is not None)
+        if not dlg.exec() or dlg.ocr_result is None:
+            return
+        res = dlg.ocr_result
+        out = Path(res.output_path)
+        if res.output_kind == "pdf":
+            self._offer_open_result(dlg.TOOL_TITLE, dlg.result_summary(), out, dlg.source_password)
+            return
+        answer = QMessageBox.question(self, dlg.TOOL_TITLE, f"{dlg.result_summary()}\n\nĐã lưu: {out}\n\nMở tệp kết quả?")
+        if answer == QMessageBox.StandardButton.Yes:
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(out)))
+        else:
+            self._show_toast(f"💾 Đã lưu {out.name} ({out.parent})")
 
     def action_batch_convert(self) -> None:
         """Mở hộp thoại chuyển đổi hàng loạt nhiều tệp PDF sang Word."""

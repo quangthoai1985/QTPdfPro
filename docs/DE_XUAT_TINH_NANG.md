@@ -50,7 +50,7 @@
 | **v0.7.0** — Studio & So sánh | Áp công cụ ngay trên tab đang đọc có Hoàn tác · So sánh 2 PDF | B1, B2 |
 | **v0.8.0** — Phát hành chuyên nghiệp | ~~Bộ cài + Portable + «Mở bằng QT PDF Pro»~~ (xong ở v1.0.0) · Tải mô-đun khi cần (kiểm tra cập nhật V4 đã có từ v0.5.0) | ~~V3~~, V5 |
 | **v1.1.0** — *đã phát hành 2026-10-23* | «Điền & Ký» giai đoạn 1 (gõ chữ bắt dòng chấm, ✓ ✕, ngày, chữ ký hình ảnh) | A5, A6 (giai đoạn 1) |
-| **v1.2.0** — OCR | OCR tiếng Việt → PDF tìm kiếm được & DOCX chuẩn NĐ30 (cần V5) | B3 |
+| **v1.2.0** — OCR | OCR tiếng Việt → PDF tìm kiếm được & DOCX chuẩn NĐ30 (*đã làm 2026-10-23, chưa phát hành*) | B3, V5 (mô-đun OCR) |
 | **v2.0.0** — Ký số | Ký số bằng USB token qua kho chứng thư Windows · Xác thực chữ ký đầy đủ | B4 |
 
 Mọi mục đều theo quy tắc của `CLAUDE.md`: phần xử lý viết trong `qtpdfpro/core/` (không import PySide6), có lệnh CLI (hỗ trợ `--json`) và bài test; ghi tệp qua tệp tạm, từ chối ghi đè tệp nguồn đang mở như `page_ops.save_pdf`; chuỗi giao diện tiếng Việt có dấu.
@@ -93,14 +93,16 @@ Mọi mục đều theo quy tắc của `CLAUDE.md`: phần xử lý viết tron
   - Ghép cặp trang theo độ giống nội dung (chịu được trang chèn thêm/bị xoá), so chữ theo từ bằng `difflib` (dùng lại cách `layout_verify.compare_pdf_layouts`), tô **xanh** phần thêm, **đỏ** phần bị xoá trên 2 khung đọc cạnh nhau cuộn đồng bộ.
   - So hình cho trang có ảnh/con dấu: hiệu điểm ảnh bằng `numpy` trên trang đã kết xuất, có ngưỡng.
   - Xuất báo cáo (PDF có chú thích đánh dấu + JSON); lệnh `cli compare a.pdf b.pdf --json`. Dùng để so các bản dự thảo văn bản.
-- [ ] **B3. OCR tiếng Việt → PDF tìm kiếm được & DOCX chuẩn NĐ30** — *v1.2*, cần V5. **Phương án đã chốt bằng thử nghiệm 2026-10-23** (số liệu, phương án bị loại: Giai đoạn 2).
+- [x] **B3. OCR tiếng Việt → PDF tìm kiếm được & DOCX chuẩn NĐ30** — *v1.2* — **xong 2026-10-23 (chưa phát hành)**: `core/ocr.py`, `core/ocr_models.py`, `ui/ocr_dialog.py`, `cli ocr`, `tools/export_ocr_models.py`. Phương án chốt bằng thử nghiệm cùng ngày (số liệu, phương án bị loại: Giai đoạn 2).
   - Phạm vi: **PDF ảnh nhận được** (văn bản scan do nơi khác gửi), không làm khâu scan.
   - **Dây chuyền chỉ dùng ONNX Runtime** (không PyTorch, không Paddle; OpenCV + numpy đã có sẵn trong `requirements.txt`): **PP-OCRv6 det small** tìm dòng chữ → cắt dòng dài → **VietOCR `vgg_seq2seq`** (xuất ONNX) đọc chữ. Đo trên bản scan thật: lỗi ký tự 0,75%, lỗi từ 3,3%, 3 lỗi dấu / 986 từ, **5,1 giây/trang** trên CPU i7-7700.
   - **Giữ lớp chữ sẵn có** của trang (số, ngày do phần mềm cấp số chèn sau khi scan — không có trong ảnh) và chỉ OCR phần ảnh, ghép theo toạ độ.
   - Lọc nét đỏ (con dấu) / xanh (chữ ký) trước khi tìm dòng; giữ ảnh con dấu, chữ ký để neo lại vào DOCX.
   - Đầu ra: PDF có lớp chữ ẩn (tìm kiếm, sao chép) và `TextLine` có toạ độ cho `admin_layout` → `nd30_engine`.
   - **Điểm khác biệt**: đưa kết quả OCR vào engine `nd30` → văn bản hành chính scan thành DOCX đúng thể thức (cit-pdf và các ứng dụng khác không có).
-  - Phần lõi viết ở `core/ocr.py` + `cli ocr` (`--json`); test dùng mô hình giả lập, không tải mạng. Trước khi chốt hẳn: thử thêm bản scan mờ, nghiêng, có bảng biểu, fax.
+  - **Kết quả bản cài đặt** (Thông tư 47, 3 trang 200 dpi): lỗi ký tự theo dòng **0,25%**, lỗi từ **2,2%**, 4 lỗi dấu / 986 từ, ~5,5 giây/trang; DOCX đúng 3 trang, phần đầu 2 cột, đậm / nghiêng, con dấu + chữ ký neo đúng chỗ (Word dựng lại). Thêm so với thử nghiệm: tách 2 cột cùng hàng, khôi phục gạch đầu dòng «-», sửa chữ hoa lạc («BGDĐT NGÀY» → «ngày»), đo chân chữ theo hình chiếu mực, tự chọn dpi theo ảnh quét.
+  - Giao diện: «OCR tiếng Việt» (`Ctrl+Shift+R`, menu Tệp, chế độ Chuyển đổi, Trang chủ) — lần đầu bấm là **tự tải ngầm bộ mô hình** (không hỏi, không chặn giao diện), bấm «Nhận dạng» khi đang tải thì chạy ngay khi tải xong. CLI `ocr in.pdf [-o|--docx|--txt]`, `ocr --status|--install|--remove`.
+  - Còn lại: **đăng GitHub Release `ocr-models-v1`** (pre-release, tệp `QTPdfPro_OCR_vi_v1.zip` 91 937 523 byte, SHA-256 ghim trong `ocr_models.BUNDLE_ASSET`) — chưa đăng thì nút tải báo lỗi 404; thử thêm bản scan mờ / nghiêng / có bảng / fax; bảng biểu trên trang scan chưa dựng thành bảng Word.
 - [ ] **B4. Ký số bằng USB token & Xác thực chữ ký đầy đủ** — *v2.0* (chi tiết ở Giai đoạn 4).
   - cit-pdf chỉ ký bằng tệp PFX/P12 và xác thực không kiểm thu hồi — trong khi ở Việt Nam đa số dùng **USB token** (VGCA, Viettel-CA, VNPT-CA). Ký qua kho chứng thư Windows (driver token đăng ký chứng thư vào đó) hoặc PKCS#11; chuẩn PAdES (B-LT/LTA) bằng `pyHanko`, dấu thời gian TSA, hình hiển thị dùng ảnh con dấu từ A5.
   - Xác thực: `/ByteRange` phủ toàn tệp, phát hiện **«tài liệu đã bị sửa sau khi ký»** (bản ghi bổ sung sau chữ ký), chuỗi chứng thư tới gốc tin cậy (Root CA quốc gia, gốc của Ban Cơ yếu Chính phủ cho VGCA), kiểm OCSP/CRL. Nối với «Soi chữ ký số & con dấu» sẵn có.
@@ -119,9 +121,9 @@ Mọi mục đều theo quy tắc của `CLAUDE.md`: phần xử lý viết tron
   - Tự kiểm tra mỗi lần mở ứng dụng (từ v1.0.2; chạy nền `QThread`, tắt được: menu Trợ giúp hoặc ô trong hộp thoại), thông báo nổi «Đã có bản vX.Y.Z — Cập nhật»; «Kiểm tra cập nhật...» kiểm tra bằng tay. Hộp thoại: ghi chú phát hành, dung lượng, «Tải về & cập nhật» / «Để sau» / «Bỏ qua bản này», thanh tiến trình, Huỷ.
   - **Chỉ tải và cài khi người dùng bấm.** Bản đóng gói: giải nén vào thư mục tạm, script PowerShell đợi ứng dụng thoát (sau khi `closeEvent` hỏi lưu các tab), đổi thư mục cài thành `.old` (khôi phục nếu lỗi), đưa bản mới vào, mở lại ứng dụng; lần mở sau xoá `.old`. Thư mục cài không ghi được (Program Files) → tải về, mở thư mục chứa tệp và hướng dẫn chép tay. Chạy từ mã nguồn → chỉ báo và mở trang phát hành.
   - CLI `update --check [--json]`, `update --download [-o thư_mục]`. Test bằng phản hồi giả lập + HTTP server cục bộ (`QT_PDF_PRO_UPDATE_API`), không gọi mạng thật.
-- [ ] **V5. Tải mô-đun nặng khi cần dùng lần đầu** — *v0.8*, tiền đề cho B3.
-  - `core/modules.py`: bảng kê (tên, URL, kích thước, SHA-256), hỏi người dùng trước khi tải, tải vào `%LOCALAPPDATA%\QTPdfPro\modules\` (theo `QT_PDF_PRO_DATA` khi test), kiểm mã băm, dùng được khi không có mạng sau đó.
-  - Mô-đun đầu tiên: **OCR tiếng Việt** (~140 MB) = `onnxruntime` (wheel giải nén vào `modules/`, thêm vào `sys.path` khi nạp; ~43 MB) + `PP-OCRv6_det_small.onnx` (~10 MB) + VietOCR `vgg_seq2seq` dạng ONNX (bộ mã hoá 84 MB + bước giải mã 5 MB). Dự phòng nhỏ: `tessdata_best/script/Vietnamese.traineddata` (12 MB, Tesseract đã có sẵn trong MuPDF). Trang cài đặt cho xem trạng thái, tải lại hoặc xoá từng mô-đun. Giữ bộ cài nhỏ.
+- [ ] **V5. Tải mô-đun nặng khi cần dùng lần đầu** — *v0.8*, tiền đề cho B3. **Một phần xong 2026-10-23** cho mô-đun OCR.
+  - **Đã làm** (`core/ocr_models.py`): bộ mô hình OCR tiếng Việt `QTPdfPro_OCR_vi_v1.zip` (~88 MB: `PP-OCRv6_det_small.onnx` 10 MB + VietOCR `vgg_seq2seq` ONNX 84 + 5 MB) tải từ GitHub Release `ocr-models-v1`, URL / kích thước / SHA-256 ghim trong mã, chỉ https + host GitHub (dùng lại `update_check._open`), giải nén có chặn zip-slip, kiểm từng tệp theo `manifest.json`, cài vào `%LOCALAPPDATA%\QTPdfPro\modules\ocr-vi-1\` (theo `QT_PDF_PRO_DATA` khi test); dùng được khi không có mạng sau đó. Người dùng yêu cầu **tải ngầm khi bấm lần đầu, không hỏi**. `onnxruntime` (MIT, ~14 MB nén) **đóng trong bộ cài** — chạy thư viện C++ từ wheel tải về trong bản PyInstaller dễ vỡ.
+  - Còn lại: trang cài đặt xem trạng thái / tải lại / xoá từng mô-đun (hiện có CLI `ocr --status|--install|--remove`); mô-đun kế tiếp nếu cần (ví dụ `tessdata_best/script/Vietnamese.traineddata` 12 MB làm dự phòng).
 
 ---
 

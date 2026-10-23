@@ -197,39 +197,7 @@ class _TextStamps:
             self._shrink_font_tables()
 
     def _shrink_font_tables(self) -> None:
-        glyphs: dict = {}  # gid → (mã Unicode, độ rộng /1000 em); dấu cách (32) đứng trước U+00A0
-        for ch in sorted(set("".join(self._cache))):
-            gid = self.font.has_glyph(ord(ch))
-            if gid and gid not in glyphs and ord(ch) <= 0xFFFF:
-                glyphs[gid] = (ord(ch), round(self.font.glyph_advance(ord(ch)) * 1000))
-        if not glyphs:
-            return
-        items = sorted(glyphs.items())
-        widths = "[" + " ".join(f"{g}[{w}]" for g, (_u, w) in items) + "]"
-        blocks = []
-        for i in range(0, len(items), 100):  # mỗi khối bfchar tối đa 100 mục
-            chunk = items[i:i + 100]
-            body = "\n".join(f"<{g:04X}> <{u:04X}>" for g, (u, _w) in chunk)
-            blocks.append(f"{len(chunk)} beginbfchar\n{body}\nendbfchar")
-        cmap = (
-            "/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n"
-            "/CIDSystemInfo <</Registry(Adobe)/Ordering(UCS)/Supplement 0>> def\n"
-            "/CMapName /Adobe-Identity-UCS def\n/CMapType 2 def\n"
-            "1 begincodespacerange\n<0000> <FFFF>\nendcodespacerange\n"
-            + "\n".join(blocks)
-            + "\nendcmap\nCMapName currentdict /CMap defineresource pop\nend\nend\n"
-        ).encode("ascii")
-        doc = self.doc
-        for xref in range(1, doc.xref_length()):
-            if doc.xref_get_key(xref, "Subtype") != ("name", "/Type0"):
-                continue
-            kind, tu = doc.xref_get_key(xref, "ToUnicode")
-            if kind == "xref":
-                doc.update_stream(int(tu.split()[0]), cmap)
-            kind, desc = doc.xref_get_key(xref, "DescendantFonts")
-            ref = _REF_RE.search(desc) if kind in ("array", "xref") else None
-            if ref:
-                doc.xref_set_key(int(ref.group(1)), "W", widths)
+        shrink_font_tables(self.doc, self.font, "".join(self._cache))
 
     def place(self, page: fitz.Page, label: _Label, center: fitz.Point, angle: float = 0.0,
               behind: bool = False) -> None:
@@ -248,6 +216,43 @@ class _TextStamps:
     def close(self) -> None:
         if not self.doc.is_closed:
             self.doc.close()
+
+
+def shrink_font_tables(doc: fitz.Document, font: fitz.Font, used_text: str) -> None:
+    """Viết lại `/W` và `ToUnicode` của MỌI phông Type0 trong `doc` (tài liệu tạm chỉ có một phông Windows nhúng
+    qua `insert_text`) chỉ gồm các ký tự của `used_text`; dấu cách chép ra U+0020 thay vì U+00A0."""
+    glyphs: dict = {}  # gid → (mã Unicode, độ rộng /1000 em); dấu cách (32) đứng trước U+00A0
+    for ch in sorted(set(used_text)):
+        gid = font.has_glyph(ord(ch))
+        if gid and gid not in glyphs and ord(ch) <= 0xFFFF:
+            glyphs[gid] = (ord(ch), round(font.glyph_advance(ord(ch)) * 1000))
+    if not glyphs:
+        return
+    items = sorted(glyphs.items())
+    widths = "[" + " ".join(f"{g}[{w}]" for g, (_u, w) in items) + "]"
+    blocks = []
+    for i in range(0, len(items), 100):  # mỗi khối bfchar tối đa 100 mục
+        chunk = items[i:i + 100]
+        body = "\n".join(f"<{g:04X}> <{u:04X}>" for g, (u, _w) in chunk)
+        blocks.append(f"{len(chunk)} beginbfchar\n{body}\nendbfchar")
+    cmap = (
+        "/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n"
+        "/CIDSystemInfo <</Registry(Adobe)/Ordering(UCS)/Supplement 0>> def\n"
+        "/CMapName /Adobe-Identity-UCS def\n/CMapType 2 def\n"
+        "1 begincodespacerange\n<0000> <FFFF>\nendcodespacerange\n"
+        + "\n".join(blocks)
+        + "\nendcmap\nCMapName currentdict /CMap defineresource pop\nend\nend\n"
+    ).encode("ascii")
+    for xref in range(1, doc.xref_length()):
+        if doc.xref_get_key(xref, "Subtype") != ("name", "/Type0"):
+            continue
+        kind, tu = doc.xref_get_key(xref, "ToUnicode")
+        if kind == "xref":
+            doc.update_stream(int(tu.split()[0]), cmap)
+        kind, desc = doc.xref_get_key(xref, "DescendantFonts")
+        ref = _REF_RE.search(desc) if kind in ("array", "xref") else None
+        if ref:
+            doc.xref_set_key(int(ref.group(1)), "W", widths)
 
 
 # ─── Dấu nước ─────────────────────────────────────────────────────────────

@@ -39,6 +39,10 @@ Công cụ văn phòng (nén, dấu nước, đánh số trang, mật khẩu —
   python -m qtpdfpro.cli protect in.pdf [--user-password MK_MO] [--owner-password MK_CHU] [--no-print] [--no-copy]
                                  [--no-modify] [--no-annotate]
   python -m qtpdfpro.cli unlock in.pdf --password MK [-o out.pdf]
+OCR tiếng Việt cho PDF ảnh quét (mô hình ~88 MB tải một lần vào %LOCALAPPDATA%\\QTPdfPro\\modules):
+  python -m qtpdfpro.cli ocr --status | --install | --remove [--json]
+  python -m qtpdfpro.cli ocr in.pdf [-o out.pdf] [--docx out.docx | --txt out.txt] [--pages 1-3] [--dpi 300]
+                             [--all-pages] [--no-clean] [--password MK] [--json]
 """
 
 from __future__ import annotations
@@ -55,6 +59,8 @@ from qtpdfpro.core import compress as compress_mod
 from qtpdfpro.core import page_ops, page_stamp, pdf_security
 from qtpdfpro.core import printing
 from qtpdfpro.core import file_assoc, fill_sign, update_check
+from qtpdfpro.core import ocr as ocr_mod
+from qtpdfpro.core import ocr_models
 from qtpdfpro.core.pdf_io import PdfToolError, ToolResult, format_size
 from qtpdfpro.core.batch import (
     STATUS_FAILED,
@@ -212,6 +218,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_fill_sign_commands(sub)
     _add_update_command(sub)
     _add_assoc_command(sub)
+    _add_ocr_command(sub)
     _add_print_command(sub)
     _add_office_commands(sub)
     return parser
@@ -381,6 +388,85 @@ def _add_assoc_command(sub) -> None:
     grp.add_argument("--open-settings", action="store_true", help="Mở Cài đặt › Ứng dụng mặc định của QT PDF Pro")
     p_as.add_argument("--exe", help="Đường dẫn QTPdfPro.exe để đăng ký (mặc định: tệp .exe đang chạy)")
     p_as.add_argument("--json", action="store_true", help="In kết quả dạng JSON")
+
+
+def _add_ocr_command(sub) -> None:
+    """Lệnh «ocr»: nhận dạng chữ tiếng Việt cho PDF ảnh quét (mục B3)."""
+    p = sub.add_parser("ocr", help="OCR tiếng Việt: PDF ảnh quét → PDF tìm kiếm được / Word / văn bản")
+    p.add_argument("input_pdf", nargs="?", help="Tệp PDF ảnh quét")
+    p.add_argument("-o", "--output", help="Tệp PDF kết quả (mặc định: <tên>_ocr.pdf)")
+    out = p.add_mutually_exclusive_group()
+    out.add_argument("--docx", metavar="TỆP", help="Xuất Word (.docx) thay vì PDF (văn bản hành chính → chuẩn NĐ30)")
+    out.add_argument("--txt", metavar="TỆP", help="Xuất văn bản UTF-8 (.txt) thay vì PDF")
+    p.add_argument("--pages", default="", help="Trang cần nhận dạng, ví dụ: 1-3,5 (mặc định: tất cả)")
+    p.add_argument("--dpi", type=int, default=0, help="Độ phân giải kết xuất (mặc định: theo ảnh quét, 200–300)")
+    p.add_argument("--all-pages", action="store_true", help="Nhận dạng cả trang đã có lớp chữ")
+    p.add_argument("--no-clean", action="store_true", help="Không xoá nét đỏ / xanh (con dấu, chữ ký) trước khi nhận dạng")
+    p.add_argument("--password", help="Mật khẩu mở tệp (nếu có)")
+    mg = p.add_mutually_exclusive_group()
+    mg.add_argument("--status", action="store_true", help="Xem bộ mô hình OCR đã cài chưa")
+    mg.add_argument("--install", action="store_true", help="Tải và cài bộ mô hình OCR (~88 MB, kiểm SHA-256)")
+    mg.add_argument("--remove", action="store_true", help="Xoá bộ mô hình OCR đã cài")
+    p.add_argument("--json", action="store_true", help="In kết quả dạng JSON")
+
+
+def _run_ocr(args: argparse.Namespace) -> int:
+    def progress(done: int, total: int) -> None:
+        if not args.json and total:
+            print(f"\r  Đang tải mô hình OCR: {format_size(done)} / {format_size(total)} ({done * 100 // total}%)   ",
+                  end="", file=sys.stderr, flush=True)
+
+    if args.status or args.install or args.remove:
+        try:
+            if args.install:
+                ocr_models.install_models(progress_cb=progress)
+                if not args.json:
+                    print(file=sys.stderr)
+            elif args.remove:
+                ocr_models.remove_models()
+        except ocr_models.OcrModelError as exc:
+            print(f"\nLỗi: {exc}", file=sys.stderr)
+            return 1
+        info = ocr_models.status()
+        if args.json:
+            print(json.dumps(info, ensure_ascii=False, indent=2))
+        elif info["installed"]:
+            print(f"Đã cài bộ mô hình OCR v{info['version']}: {info['path']} ({format_size(info['installed_size'])})")
+        else:
+            print(f"Chưa cài bộ mô hình OCR (tải {format_size(info['download_size'])}): python -m qtpdfpro.cli ocr --install")
+        return 0
+    if not args.input_pdf:
+        print("Lỗi: hãy chỉ định tệp PDF (hoặc --status / --install / --remove).", file=sys.stderr)
+        return 2
+
+    def page_progress(done: int, total: int, message: str) -> None:
+        if not args.json:
+            print(f"\r  {message}   ", end="", file=sys.stderr, flush=True)
+
+    common = dict(pages=args.pages, dpi=args.dpi, password=args.password, progress_cb=page_progress)
+    try:
+        if args.docx:
+            res = ocr_mod.ocr_to_docx(args.input_pdf, args.docx, **common)
+        elif args.txt:
+            res = ocr_mod.ocr_to_text(args.input_pdf, args.txt, **common)
+        else:
+            res = ocr_mod.ocr_pdf(args.input_pdf, args.output, skip_text_pages=not args.all_pages,
+                                  clean_ink=not args.no_clean, **common)
+    except (ocr_mod.OcrError, ocr_models.OcrModelError, PdfToolError, FileNotFoundError, PermissionError) as exc:
+        print(f"\nLỗi: {exc}", file=sys.stderr)
+        return 1
+    if not args.json:
+        print(file=sys.stderr)
+    if args.json:
+        print(json.dumps(res.to_dict(), ensure_ascii=False, indent=2))
+    else:
+        print(f"Đã nhận dạng: {res.output_path}")
+        print(f"  - Trang OCR     : {res.pages_ocr}/{res.pages_total}"
+              + (f" (bỏ qua {res.pages_skipped} trang đã có chữ)" if res.pages_skipped else ""))
+        print(f"  - Dòng / ký tự  : {res.lines} / {res.chars} ({res.seconds:.1f} giây)")
+        if res.note:
+            print(f"  * {res.note}")
+    return 0
 
 
 def _assoc_status() -> dict:
@@ -1105,6 +1191,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         return _run_update(args)
     if args.command == "assoc":
         return _run_assoc(args)
+    if args.command == "ocr":
+        return _run_ocr(args)
     if args.command in OFFICE_COMMANDS:
         return _run_office_command(args)
 

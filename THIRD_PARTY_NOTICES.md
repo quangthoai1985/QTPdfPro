@@ -13,3 +13,14 @@
 | **fonttools** | MIT License | Xử lý thông tin bảng mã và phông chữ |
 | **NumPy** | BSD-3-Clause | Tính toán mảng số học |
 | **OpenCV (opencv-python-headless)** | Apache-2.0 | Xử lý ảnh hỗ trợ phân tích bố cục |
+| **ONNX Runtime (onnxruntime)** | MIT License | Chạy mô hình OCR tiếng Việt trên CPU |
+
+## Mô hình OCR tiếng Việt (tải khi dùng lần đầu, không nằm trong bộ cài)
+
+Bộ `QTPdfPro_OCR_vi_v1.zip` (dựng bằng `tools/export_ocr_models.py`, tải từ GitHub Release `ocr-models-v1` vào
+`%LOCALAPPDATA%\QTPdfPro\modules\ocr-vi-1\`, có tệp `NOTICE.txt` đi kèm):
+
+| Mô hình | Giấy phép | Nguồn |
+|---|---|---|
+| **PP-OCRv6 det small** (tìm dòng chữ) | Apache-2.0 | PaddleOCR — https://github.com/PaddlePaddle/PaddleOCR ; bản ONNX của RapidOCR (Apache-2.0) — https://github.com/RapidAI/RapidOCR |
+| **VietOCR vgg_seq2seq** (đọc chữ tiếng Việt, chuyển sang ONNX) | Apache-2.0 | VietOCR — https://github.com/pbcquoc/vietocr |
