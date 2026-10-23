@@ -573,7 +573,8 @@ class PDFScrollViewer(QScrollArea):
             "signature": (QColor("#E11D48"), QColor(225, 29, 72, 42)),  # Đỏ hồng (Chữ ký số / Con dấu)
             "vector": (QColor("#9333EA"), QColor(147, 51, 234, 20)),    # Tím
         }
-        font = QFont("Segoe UI", 8)
+        font = QFont(self.font())  # phông giao diện (Inter — theme.install_ui_fonts)
+        font.setPointSize(8)
         font.setBold(True)
         painter.setFont(font)
 

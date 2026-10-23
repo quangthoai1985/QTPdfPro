@@ -15,6 +15,7 @@ python -m PyInstaller ^
     --distpath "%DIST_DIR%" ^
     --icon qtpdfpro\ui\assets\app_icon.ico ^
     --add-data "qtpdfpro\ui\assets\app_icon.ico;qtpdfpro\ui\assets" ^
+    --add-data "qtpdfpro\ui\assets\fonts;qtpdfpro\ui\assets\fonts" ^
     --exclude-module tkinter ^
     --exclude-module matplotlib ^
     --exclude-module scipy ^

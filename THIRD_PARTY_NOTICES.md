@@ -15,6 +15,12 @@
 | **OpenCV (opencv-python-headless)** | Apache-2.0 | Xử lý ảnh hỗ trợ phân tích bố cục |
 | **ONNX Runtime (onnxruntime)** | MIT License | Chạy mô hình OCR tiếng Việt trên CPU |
 
+## Phông chữ đi kèm
+
+| Phông | Giấy phép | Nguồn |
+|---|---|---|
+| **Inter 4.1** (Regular, Medium, SemiBold, Bold — phông giao diện) | SIL Open Font License 1.1 (`qtpdfpro/ui/assets/fonts/OFL-Inter.txt`) | The Inter Project Authors — https://github.com/rsms/inter |
+
 ## Mô hình OCR tiếng Việt (tải khi dùng lần đầu, không nằm trong bộ cài)
 
 Bộ `QTPdfPro_OCR_vi_v1.zip` (dựng bằng `tools/export_ocr_models.py`, tải từ GitHub Release `ocr-models-v1` vào

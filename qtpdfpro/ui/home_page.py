@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import List, Optional
 
 from PySide6.QtCore import QSize, Qt, Signal
-from PySide6.QtGui import QDragEnterEvent, QDropEvent, QMouseEvent
+from PySide6.QtGui import QDragEnterEvent, QDropEvent, QMouseEvent, QPainter
 from PySide6.QtWidgets import (
     QFrame,
     QGridLayout,
@@ -74,6 +74,22 @@ class _ClickableFrame(QFrame):
 # ─── Bảng "Tất cả công cụ" ─────────────────────────────────────────────────
 
 
+class _ElidedLabel(QLabel):
+    """Nhãn một dòng tự rút gọn «…» khi hẹp: tên công cụ dài không đẩy nhãn «Soon» ra khỏi cột."""
+
+    def minimumSizeHint(self) -> QSize:
+        return QSize(0, super().minimumSizeHint().height())
+
+    def paintEvent(self, event) -> None:
+        rect = self.contentsRect()
+        text = self.fontMetrics().elidedText(self.text(), Qt.TextElideMode.ElideRight, rect.width())
+        painter = QPainter(self)
+        # drawItemText theo vai trò chữ của nhãn để vẫn ăn màu `color:` của QSS
+        self.style().drawItemText(
+            painter, rect, int(self.alignment()), self.palette(), self.isEnabled(), text, self.foregroundRole()
+        )
+
+
 class CatalogRow(_ClickableFrame):
     """Một dòng công cụ trong danh mục: biểu tượng + tên, nhãn «Coming Soon» canh phải."""
 
@@ -86,7 +102,7 @@ class CatalogRow(_ClickableFrame):
         lay.setSpacing(8)
         icon = QLabel(tool.icon)
         icon.setFixedWidth(22)
-        name = QLabel(tool.name)
+        name = _ElidedLabel(tool.name)
         name.setObjectName("catalogRowName" if tool.ready else "catalogRowNameSoon")
         lay.addWidget(icon)
         lay.addWidget(name, 1)

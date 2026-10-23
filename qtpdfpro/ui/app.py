@@ -14,6 +14,7 @@ from PySide6.QtWidgets import QApplication
 from qtpdfpro import __app_name__, __github_repo__, __version__
 from qtpdfpro.core.settings import AppSettings
 from qtpdfpro.ui.main_window import MainWindow
+from qtpdfpro.ui.theme import install_ui_fonts
 
 # Sinh lại bằng `python tools/make_app_icon.py`; build.bat nhúng vào .exe (--icon) và chép kèm (--add-data)
 ICON_PATH = Path(__file__).resolve().parent / "assets" / "app_icon.ico"
@@ -70,6 +71,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     app.setApplicationName(__app_name__)
     app.setApplicationVersion(__version__)
     app.setWindowIcon(app_icon())
+    install_ui_fonts(app)  # Inter như PdfCraft, nạp trước khi dựng cửa sổ
 
     settings = AppSettings.load()
     if args.skip_default_prompt and not settings.default_app_prompted:

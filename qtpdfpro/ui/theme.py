@@ -2,7 +2,48 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
+from PySide6.QtGui import QFont, QFontDatabase
+from PySide6.QtWidgets import QApplication
+
 from qtpdfpro.core.settings import get_data_dir
+
+# Phông giao diện giống PdfCraft: Inter 4.1 (SIL OFL 1.1 — assets/fonts/OFL-Inter.txt), đủ 146 chữ cái
+# tiếng Việt. Ký hiệu / emoji Inter không có (✕ ⌂ ✂ 📂…) thì Qt tự lấy từ Segoe UI Symbol / Emoji.
+UI_FONT_FAMILY = "Inter"
+UI_FONT_FALLBACKS = ("Segoe UI", "Arial")
+FONT_DIR = Path(__file__).resolve().parent / "assets" / "fonts"
+# PdfCraft chỉ dùng Regular / Medium / SemiBold; Bold cho chữ đậm trong hộp thoại (<b>, setBold)
+UI_FONT_FILES = ("Inter-Regular.ttf", "Inter-Medium.ttf", "Inter-SemiBold.ttf", "Inter-Bold.ttf")
+_ui_font_ids: list[int] = []
+
+
+def load_ui_fonts() -> bool:
+    """Nạp các tệp Inter đi kèm vào Qt (một lần); True khi Qt đã có họ phông `UI_FONT_FAMILY`."""
+    if not _ui_font_ids:
+        for name in UI_FONT_FILES:
+            font_id = QFontDatabase.addApplicationFont(str(FONT_DIR / name))
+            if font_id != -1:
+                _ui_font_ids.append(font_id)
+    return UI_FONT_FAMILY in QFontDatabase.families()
+
+
+def install_ui_fonts(app: QApplication) -> bool:
+    """Nạp Inter và đặt làm phông mặc định của ứng dụng (cả hộp thoại không cha, chú giải công cụ).
+
+    Không nắn nét (hinting) như PdfCraft: nắn dọc / nắn đầy đủ của DirectWrite ép Inter 13 px vào lưới
+    điểm ảnh làm mất dấu hỏi trên chữ có mũ («Kiểm» → «Kiếm», «Ổn» → «Ôn») và chữ Medium dính nhau.
+    QSS chỉ đặt họ / cỡ / độ đậm nên mọi widget vẫn kế thừa lựa chọn này từ phông ứng dụng.
+    Thiếu tệp phông thì vẫn đặt danh sách họ phông — Qt lùi về Segoe UI như trước.
+    """
+    loaded = load_ui_fonts()
+    font = app.font()
+    font.setFamilies([UI_FONT_FAMILY, *UI_FONT_FALLBACKS])
+    if loaded:
+        font.setHintingPreference(QFont.HintingPreference.PreferNoHinting)
+    app.setFont(font)
+    return loaded
 
 
 def get_stylesheet(theme: str = "dark") -> str:
@@ -55,7 +96,7 @@ QPushButton#menuBarBtn:hover, QPushButton#menuBarBtn:pressed, QPushButton#menuBa
 QPushButton#menuBarBtn::menu-indicator { image: none; width: 0px; }
 QPushButton#updateBadgeBtn {
     background-color: @accent; color: @on_accent; border: none; border-radius: 13px;
-    padding: 4px 12px; font-weight: 700;
+    padding: 4px 12px; font-weight: 600;
 }
 QPushButton#updateBadgeBtn:hover { background-color: @accent_text; }
 QPushButton#updateBadgeBtn[ready="true"] { background-color: #16A34A; }
@@ -101,14 +142,14 @@ QLineEdit#commandSearch {
 QLineEdit#commandSearch:focus { border-color: @accent; }
 QFrame#catalogPanel { background-color: @bar; border-right: 1px solid @border; }
 QWidget#catalogBody { background-color: @bar; }
-QLabel#panelTitle { font-size: 16px; font-weight: 700; color: @text; }
-QLabel#catalogSection { font-size: 11px; font-weight: 700; color: @faint; padding: 10px 6px 4px 6px; }
+QLabel#panelTitle { font-size: 16px; font-weight: 600; color: @text; }
+QLabel#catalogSection { font-size: 11px; font-weight: 600; color: @faint; padding: 10px 6px 4px 6px; }
 QFrame#catalogRow, QFrame#catalogRowSoon { background-color: transparent; border: none; border-radius: 7px; }
 QFrame#catalogRow:hover, QFrame#catalogRowSoon:hover { background-color: @hover; }
 QLabel#catalogRowName { color: @text; font-size: 13px; font-weight: 500; }
 QLabel#catalogRowNameSoon { color: @faint; font-size: 13px; }
 QLabel#soonBadgeSmall {
-    font-size: 10px; font-weight: 700; color: @soon_text; background-color: @soon_bg;
+    font-size: 10px; font-weight: 600; color: @soon_text; background-color: @soon_bg;
     border-radius: 7px; padding: 1px 6px;
 }
 QPushButton#catalogItemBtn, QPushButton#catalogItemSoonBtn {
@@ -118,17 +159,17 @@ QPushButton#catalogItemBtn, QPushButton#catalogItemSoonBtn {
 QPushButton#catalogItemBtn { color: @text; }
 QPushButton#catalogItemSoonBtn { color: @faint; }
 QPushButton#catalogItemBtn:hover, QPushButton#catalogItemSoonBtn:hover { background-color: @hover; }
-QLabel#homeTitle { font-size: 28px; font-weight: 700; color: @text; }
+QLabel#homeTitle { font-size: 28px; font-weight: 600; color: @text; }
 QLabel#homeSubtitle { font-size: 14px; color: @muted; }
 QFrame#homeHero {
     background-color: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 @hero1, stop:1 @hero2);
     border: 1px solid @border; border-radius: 14px;
 }
 QLabel#heroIcon { font-size: 28px; padding-right: 6px; }
-QLabel#heroTitle { font-size: 16px; font-weight: 700; color: @text; }
+QLabel#heroTitle { font-size: 16px; font-weight: 600; color: @text; }
 QLabel#heroDesc { font-size: 13px; color: @muted; }
 QFrame#sectionCard { background-color: @card; border: 1px solid @border; border-radius: 14px; }
-QLabel#sectionTitle { font-size: 17px; font-weight: 700; color: @text; }
+QLabel#sectionTitle { font-size: 17px; font-weight: 600; color: @text; }
 QFrame#toolCard, QFrame#toolCardSoon { background-color: @card; border: 1px solid @border; border-radius: 12px; }
 QFrame#toolCard:hover { border-color: @accent; background-color: @card_hover; }
 QFrame#toolCardSoon:hover { border-color: @border_strong; }
@@ -137,15 +178,15 @@ QLabel#toolCardName { font-size: 14px; font-weight: 600; color: @text; }
 QLabel#toolCardSummary { font-size: 12px; color: @muted; }
 QLabel#toolCardAction { font-size: 12px; font-weight: 600; color: @accent; }
 QLabel#soonBadge {
-    font-size: 11px; font-weight: 700; color: @soon_text; background-color: @soon_bg;
+    font-size: 11px; font-weight: 600; color: @soon_text; background-color: @soon_bg;
     border-radius: 9px; padding: 2px 9px;
 }
 QFrame#openFileCard { background-color: @page; border: 1px dashed @border_strong; border-radius: 12px; }
 QFrame#openFileCard:hover { border-color: @accent; background-color: @accent_soft; }
 QLabel#openFileIcon { font-size: 30px; }
-QLabel#openFileTitle { font-size: 16px; font-weight: 700; color: @text; }
+QLabel#openFileTitle { font-size: 16px; font-weight: 600; color: @text; }
 QLabel#versionChip {
-    font-size: 12px; font-weight: 700; color: @accent_text; background-color: @accent_soft;
+    font-size: 12px; font-weight: 600; color: @accent_text; background-color: @accent_soft;
     border-radius: 9px; padding: 2px 10px; margin-bottom: 4px;
 }
 QFrame#recentBox { background-color: transparent; border: none; }
@@ -155,7 +196,7 @@ QLabel#recentIcon { font-size: 20px; }
 QLabel#recentName { font-size: 14px; font-weight: 600; color: @text; }
 QLabel#recentPath { font-size: 11px; color: @faint; }
 QLabel#recentMeta { font-size: 12px; color: @muted; }
-QLabel#privacyTitle { font-size: 11px; font-weight: 700; color: @faint; }
+QLabel#privacyTitle { font-size: 11px; font-weight: 600; color: @faint; }
 QLabel#privacyText { font-size: 12px; color: @muted; }
 QLabel#mutedLabel { color: @muted; }
 QLabel#dialogHeadline { font-size: 14px; color: @text; }
@@ -190,7 +231,7 @@ QScrollBar::add-line, QScrollBar::sub-line { width: 0px; height: 0px; }
 QScrollBar::add-page, QScrollBar::sub-page { background: transparent; }
 QHeaderView::section {
     background-color: @page; color: @muted; border: none; border-bottom: 1px solid @border;
-    padding: 6px; font-weight: 700;
+    padding: 6px; font-weight: 600;
 }
 QRadioButton, QCheckBox { spacing: 8px; }
 QRadioButton::indicator, QCheckBox::indicator {
@@ -260,7 +301,7 @@ _DARK_QSS = """
 QMainWindow, QDialog, QWidget {
     background-color: #16181D;
     color: #E6E8EC;
-    font-family: "Segoe UI", Arial, sans-serif;
+    font-family: "Inter", "Segoe UI", Arial, sans-serif;
     font-size: 13px;
 }
 QLabel, QCheckBox {
@@ -502,7 +543,7 @@ _LIGHT_QSS = """
 QMainWindow, QDialog, QWidget {
     background-color: #F1F5F9;
     color: #0F172A;
-    font-family: "Segoe UI", Arial, sans-serif;
+    font-family: "Inter", "Segoe UI", Arial, sans-serif;
     font-size: 13px;
 }
 QLabel, QCheckBox {
