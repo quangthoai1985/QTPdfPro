@@ -7,6 +7,22 @@
 
 ## [Chưa phát hành]
 
+### Việc còn dở / Ưu tiên kế tiếp cho Agent phiên sau
+1. **Kiểm thử engine NĐ30 trên văn bản thật** (PDF ký số VGCA, PDF xuất từ phần mềm quản lý văn bản, PDF in từ LibreOffice): chạy `python -m qtpdfpro.cli convert <tệp> --mode nd30 --verify-layout` (hoặc `cli batch <thư mục> --verify-layout`) và xử lý các trường hợp «Lệch nhỏ».
+2. **v1.1+** (các mục v0.6–v0.8 còn lại) theo «Lộ trình gần» (`docs/DE_XUAT_TINH_NANG.md`): **Xem 2 trang song song**, **V1** một cửa sổ duy nhất, **V2** thông báo «Đã lưu», phần còn lại của **A3** (đầu – chân trang, Bates, dấu nước ảnh), **A4** (metadata, làm sạch `scrub`), **A5** chèn ảnh chữ ký / con dấu; sau đó v0.7 (B1, B2), v0.8 (V3, V5), **OCR Tiếng Việt** (B3 phát hành ở v1.2.0 — còn thử thêm bản scan mờ / nghiêng / có bảng, dựng bảng Word từ trang scan, trang cài đặt quản lý mô-đun của V5). Còn in thử 1 trang ra giấy trên máy in thật khi người dùng đồng ý.
+   - «Chỉnh sửa PDF» mở rộng: đổi cỡ hộp chữ/hình bằng tay nắm, sửa kiểu dáng chú thích đã có, che thông tin (redaction), dấu đóng có ảnh chữ ký.
+3. Tuỳ chọn: chuyển hàng loạt song song bằng nhiều tiến trình (`ProcessPoolExecutor`, cần `multiprocessing.freeze_support()` cho bản PyInstaller).
+
+---
+
+## [1.2.0] — 2026-10-23 (OCR tiếng Việt cho PDF ảnh quét & phông giao diện Inter)
+
+### 2026-10-23 — Phát hành v1.2.0 trên GitHub
+- Đăng bộ mô hình OCR [ocr-models-v1](https://github.com/quangthoai1985/QTPdfPro/releases/tag/ocr-models-v1) (**pre-release**, `QTPdfPro_OCR_vi_v1.zip` 91 937 523 byte, SHA-256 `a9f6ea0f…a71b7` khớp mã ghim); `releases/latest` vẫn trỏ bản ứng dụng. Đã tải thật bằng `ocr --install` vào thư mục dữ liệu tạm (mạng máy phát triển ~140 KB/s → ~11 phút) và nhận dạng thử trang 1 Thông tư 47 (34 dòng).
+- `__version__` 1.2.0; `python tools/build_release.py`: `QTPdfPro_Setup.exe` 95,5 MB (v1.1.0: 86,8 MB — thêm onnxruntime + phông Inter), `QTPdfPro_Update.zip` = `QTPdfPro-v1.2.0-win64.zip` 137,8 MB (gốc `QTPdfPro/`, có `onnxruntime.dll`, `assets/fonts/Inter-*.ttf`).
+- Máy phát triển có bản cài thật (khoá gỡ cài `…_is1` tồn tại) → theo CLAUDE.md **không** chạy thử bộ cài; chạy `dist\QTPdfPro\QTPdfPro.exe --skip-default-prompt` với dữ liệu tạm: cửa sổ «QT PDF Pro v1.2.0» mở bình thường, phông Inter đã nạp, thẻ «OCR tiếng Việt» có ở Trang chủ / «Tất cả công cụ». OCR trong môi trường đóng gói đã chạy thử riêng (PyInstaller cùng cấu hình). 182/184 `pytest`.
+- Phát hành cùng phiên «Font PDFCraft tương tự» (phần phông Inter, commit 8435e59) — phiên OCR dựng và đăng bản phát hành.
+
 ### 2026-10-23 — Phông giao diện Inter giống PdfCraft
 - PdfCraft (`storytold/pdfcraft`, egui) dùng **Inter** Regular / Medium / SemiBold cho giao diện. Nhúng **Inter 4.1** chính thức (`rsms/inter`, tệp trùng kích thước với bản PdfCraft dùng) vào `qtpdfpro/ui/assets/fonts/` — Regular, Medium, SemiBold, Bold (~1,6 MB) + `OFL-Inter.txt` (SIL OFL 1.1, ghi vào `THIRD_PARTY_NOTICES.md`). Đủ **146/146 chữ cái tiếng Việt** ở cả 4 độ đậm; ký hiệu / emoji Inter không có (✕ ⌂ ✂ 📂…) Qt tự lấy từ Segoe UI Symbol / Emoji.
 - `theme.py`: `load_ui_fonts` / `install_ui_fonts(app)` (gọi trong `ui/app.py` trước khi dựng cửa sổ) nạp phông một lần và đặt phông ứng dụng `["Inter", "Segoe UI", "Arial"]` **không nắn nét** (`PreferNoHinting`, giống cách egui vẽ); QSS Sáng/Tối `font-family: "Inter", "Segoe UI", …`, độ đậm tối đa **600** như PdfCraft (tiêu đề, nhãn «Soon», tiêu đề bảng — trước là 700). Thiếu tệp phông thì lùi về Segoe UI như trước.
@@ -33,12 +49,6 @@
 - Loại: bộ đọc chữ PP-OCRv5/v6 (từ điển thiếu 88/146 chữ cái tiếng Việt), Tesseract làm chính (sai dấu gấp 6 lần; qua PyMuPDF còn dính từ — lỗi từ 29%), VLM PaddleOCR-VL-1.6 / SenOCR-Vi trên CPU (30–216 giây mỗi dòng, đọc «BGDĐT» → «BGDDT»), OCR của Windows (thiếu gói tiếng Việt).
 - Phát hiện: văn bản scan có số hiệu / ngày do phần mềm cấp số **chèn dạng chữ thật sau khi scan** — OCR riêng ảnh gốc sẽ mất số hiệu.
 - Cập nhật `docs/DE_XUAT_TINH_NANG.md` (B3, V5, Giai đoạn 2 — bảng số liệu và dây chuyền chi tiết; mốc OCR v1.1 → v1.2), `CLAUDE.md` mục 5 (6 rào cản mới) và mục 6.
-
-### Việc còn dở / Ưu tiên kế tiếp cho Agent phiên sau
-1. **Kiểm thử engine NĐ30 trên văn bản thật** (PDF ký số VGCA, PDF xuất từ phần mềm quản lý văn bản, PDF in từ LibreOffice): chạy `python -m qtpdfpro.cli convert <tệp> --mode nd30 --verify-layout` (hoặc `cli batch <thư mục> --verify-layout`) và xử lý các trường hợp «Lệch nhỏ».
-2. **v1.1+** (các mục v0.6–v0.8 còn lại) theo «Lộ trình gần» (`docs/DE_XUAT_TINH_NANG.md`): **Xem 2 trang song song**, **V1** một cửa sổ duy nhất, **V2** thông báo «Đã lưu», phần còn lại của **A3** (đầu – chân trang, Bates, dấu nước ảnh), **A4** (metadata, làm sạch `scrub`), **A5** chèn ảnh chữ ký / con dấu; sau đó v0.7 (B1, B2), v0.8 (V3, V5), **OCR Tiếng Việt** (B3 đã làm 2026-10-23 — còn đăng GitHub Release `ocr-models-v1` pre-release và thử thêm bản scan mờ / nghiêng / có bảng). Còn in thử 1 trang ra giấy trên máy in thật khi người dùng đồng ý.
-   - «Chỉnh sửa PDF» mở rộng: đổi cỡ hộp chữ/hình bằng tay nắm, sửa kiểu dáng chú thích đã có, che thông tin (redaction), dấu đóng có ảnh chữ ký.
-3. Tuỳ chọn: chuyển hàng loạt song song bằng nhiều tiến trình (`ProcessPoolExecutor`, cần `multiprocessing.freeze_support()` cho bản PyInstaller).
 
 ---
 
