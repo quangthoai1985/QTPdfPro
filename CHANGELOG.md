@@ -7,6 +7,16 @@
 
 ## [Chưa phát hành]
 
+### Việc còn dở / Ưu tiên kế tiếp cho Agent phiên sau
+1. **Kiểm thử engine NĐ30 trên văn bản thật** (PDF ký số VGCA, PDF xuất từ phần mềm quản lý văn bản, PDF in từ LibreOffice): chạy `python -m qtpdfpro.cli convert <tệp> --mode nd30 --verify-layout` (hoặc `cli batch <thư mục> --verify-layout`) và xử lý các trường hợp «Lệch nhỏ».
+2. **v1.1+** (các mục v0.6–v0.8 còn lại) theo «Lộ trình gần» (`docs/DE_XUAT_TINH_NANG.md`): **Xem 2 trang song song**, **V1** một cửa sổ duy nhất, **V2** thông báo «Đã lưu», phần còn lại của **A3** (đầu – chân trang, Bates, dấu nước ảnh), **A4** (metadata, làm sạch `scrub`), **A5** chèn ảnh chữ ký / con dấu; sau đó v0.7 (B1, B2), v0.8 (V3, V5), **OCR Tiếng Việt** (B3, v1.1). Còn in thử 1 trang ra giấy trên máy in thật khi người dùng đồng ý.
+   - «Chỉnh sửa PDF» mở rộng: đổi cỡ hộp chữ/hình bằng tay nắm, sửa kiểu dáng chú thích đã có, che thông tin (redaction), dấu đóng có ảnh chữ ký.
+3. Tuỳ chọn: chuyển hàng loạt song song bằng nhiều tiến trình (`ProcessPoolExecutor`, cần `multiprocessing.freeze_support()` cho bản PyInstaller).
+
+---
+
+## [1.1.0] — 2026-10-23 (Điền & Ký: gõ chữ vào dòng chấm, dấu ✓ ✕, ngày tháng, chữ ký hình ảnh)
+
 ### 2026-10-23 — «Điền & Ký» giai đoạn 1: gõ chữ bắt dòng chấm, dấu ✓ ✕ ● ─, ngày tháng, thư viện chữ ký
 - **Lõi `core/fill_sign.py`** (không PySide6): `find_leaders` tìm dòng chấm «……» / «.....» / gạch dưới «____» trong chữ (rawdict, chỉ dòng nằm ngang khi xem) và đường kẻ ngang mảnh không phải gạch chân chữ in sẵn; `snap_text_target` đặt chân chữ lên dòng (nâng ~0,14 cỡ chữ để dấu dưới không lẫn chấm), cỡ chữ theo chữ in quanh đó, nhấp ở ¼ đầu dòng thì bắt đầu đầu dòng; `add_fill_text` (FreeText `/IT /FreeTextTypeWriter`, hình hiển thị dựng bằng `page_stamp._TextStamps` → phông Windows nhúng tập con, `ToUnicode` gọn — chép chữ ra đúng dấu cách), `rebuild_fill_text`; `add_mark` ✓ ✕ ● ─ vẽ vector, tự căn giữa ô vuông (☐ hoặc khung 5–24 pt); `format_date` (`dmy`, `nd30`, `nd30_cap`, `dmy_dash`, `dmy_dot`); `Signature` (vẽ / gõ tên / ảnh, chữ ký nháy), `add_signature` (nhấp = cỡ mặc định 150 pt, chữ ký nháy 60 pt, giới hạn cao; kéo khung = vừa khung giữ tỷ lệ), `render_signature_png`; `clean_signature_photo` (OpenCV: đóng hình thái học trên **kênh tối nhất** để ước lượng giấy, độ đậm, ngưỡng kép + bỏ đốm, xoá mặt bàn tối, **giữ màu mực từng điểm**, cắt sát, điểm trong suốt không mang màu → PNG nhỏ), `prepare_signature_image`; `SignatureLibrary` (`<dữ liệu>/signatures/<id>.qtsig`, **mã hoá DPAPI** `CryptProtectData` + entropy riêng, tệp hỏng bị bỏ qua); `apply_fill_operations` (JSON).
 - `annotations.py`: `APP_KIND_LABELS` (Chữ điền / Ngày tháng / Dấu điền / Chữ ký / Chữ ký nháy trong ngăn «Chú thích»). `EditSession`: `leaders`/`boxes` (đệm theo trang), `fill_target`, `add_fill_text`, `add_fill_mark`, `add_signature`, sửa nội dung chữ điền.
@@ -14,12 +24,6 @@
 - **CLI**: `fill` (`--text/--check/--cross/--dot/--line TRANG:X,Y[:CHỮ]`, `--date --date-format`, `--sign/--initials` + `--signature-id|--signature-image|--signature-text`, `--no-snap`, `--ops`, `--leaders`, `--flatten`, `--json`), `signature list|add|delete|clean`.
 - Lỗi gặp khi làm: đóng hình thái học **từng kênh màu** coi con dấu đỏ là «giấy» ở kênh đỏ → vệt xanh quanh dấu; làm mờ ước lượng giấy tràn qua mép bóng tay thành «mực» → dùng kênh tối nhất, không làm mờ, nới vùng mặt bàn. Phông viết tay của Windows (Segoe Script/Print, Ink Free, Gabriola) **thiếu chữ tiếng Việt** → chữ ký gõ tên lùi về Times New Roman nghiêng (báo trên hộp thoại). Đọc `doc[0].load_annot(x).rect` (trang tạm bị thu hồi) gây lỗi bộ nhớ — giữ biến trang.
 - **146/147** `pytest` (thêm `test_fill_sign.py` 11 bài, `test_fill_sign_ui.py` 3 bài — chuột thật trên khung đọc). Đã chụp giao diện chế độ Điền & Ký, các thẻ của hộp thoại tạo chữ ký, thư viện chữ ký.
-
-### Việc còn dở / Ưu tiên kế tiếp cho Agent phiên sau
-1. **Kiểm thử engine NĐ30 trên văn bản thật** (PDF ký số VGCA, PDF xuất từ phần mềm quản lý văn bản, PDF in từ LibreOffice): chạy `python -m qtpdfpro.cli convert <tệp> --mode nd30 --verify-layout` (hoặc `cli batch <thư mục> --verify-layout`) và xử lý các trường hợp «Lệch nhỏ».
-2. **v1.1+** (các mục v0.6–v0.8 còn lại) theo «Lộ trình gần» (`docs/DE_XUAT_TINH_NANG.md`): **Xem 2 trang song song**, **V1** một cửa sổ duy nhất, **V2** thông báo «Đã lưu», phần còn lại của **A3** (đầu – chân trang, Bates, dấu nước ảnh), **A4** (metadata, làm sạch `scrub`), **A5** chèn ảnh chữ ký / con dấu; sau đó v0.7 (B1, B2), v0.8 (V3, V5), **OCR Tiếng Việt** (B3, v1.1). Còn in thử 1 trang ra giấy trên máy in thật khi người dùng đồng ý.
-   - «Chỉnh sửa PDF» mở rộng: đổi cỡ hộp chữ/hình bằng tay nắm, sửa kiểu dáng chú thích đã có, che thông tin (redaction), dấu đóng có ảnh chữ ký.
-3. Tuỳ chọn: chuyển hàng loạt song song bằng nhiều tiến trình (`ProcessPoolExecutor`, cần `multiprocessing.freeze_support()` cho bản PyInstaller).
 
 ---
 

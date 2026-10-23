@@ -31,7 +31,7 @@
 - **«Sắp xếp & cắt ghép trang»** (`Ctrl+Shift+O`): lưới ảnh trang **kéo thả** đổi thứ tự, xoay, nhân bản, xoá, chèn trang trắng, đảo thứ tự, **ghép trang từ nhiều tệp PDF** (mỗi tệp một màu), **đặt điểm cắt ✂** giữa các trang → xuất mỗi phần thành một tệp, chia theo mỗi N trang / theo khoảng trang, trích trang chọn; giữ chú thích, liên kết và **mục lục** (bookmark) của các trang còn lại.
 - Dòng lệnh: `merge`, `split`, `organize`, `extract`, `annotate` (tô sáng cụm từ, đóng dấu, thao tác JSON, làm phẳng), `annots`.
 
-### 1.0c2. Điền & Ký đơn từ, tờ khai (`Ctrl+Shift+F`, chưa phát hành)
+### 1.0c2. Điền & Ký đơn từ, tờ khai (`Ctrl+Shift+F`, mới ở `v1.1.0`)
 - Chế độ **«Điền & Ký»** trên thanh chế độ: **gõ chữ vào chỗ trống** — nhấp gần dòng chấm «……», «.....», gạch dưới «____» hoặc đường kẻ trống là chữ **tự nằm đúng dòng**, cỡ chữ theo chữ in quanh đó (Times New Roman, nhúng phông — đúng mọi dấu tiếng Việt); rê chuột thấy trước chỗ chữ sẽ nằm.
 - **Dấu ✓ ✕ ● ─** tự căn giữa ô vuông ☐ gần chỗ nhấp; **ngày tháng** một chạm theo mẫu `23/10/2026` hoặc NĐ30 «ngày 23 tháng 10 năm 2026».
 - **Chữ ký & chữ ký nháy**: vẽ bằng chuột / bút cảm ứng, gõ tên, ảnh có sẵn, hoặc **ảnh chụp chữ ký trên giấy** — tự bỏ nền giấy, bóng tay, mặt bàn và **giữ màu mực** (con dấu đỏ vẫn đỏ). Nhấp để ký, kéo khung để chọn cỡ.

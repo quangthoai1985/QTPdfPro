@@ -69,7 +69,7 @@ TOOLS: list[ToolSpec] = [
              "Nhiều PDF → DOCX · Bảng điểm từng tệp (Ctrl+Shift+B)", "convert",
              keywords="batch nhieu tep hang loat thu muc keo tha"),
     ToolSpec("ocr", "Scan & OCR tiếng Việt", "🔤",
-             "PDF ảnh quét → Word chỉnh sửa được", "convert", ready=False, milestone="v1.1",
+             "PDF ảnh quét → Word chỉnh sửa được", "convert", ready=False, milestone="v1.2",
              keywords="scan quet nhan dang chu tesseract vietocr"),
     ToolSpec("pdf_to_excel", "PDF sang Excel", "📊", "Bảng biểu tài chính → .xlsx", "convert",
              ready=False, milestone="v1.2", keywords="xlsx bang tinh"),

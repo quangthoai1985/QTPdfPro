@@ -49,7 +49,8 @@
 | **v0.6.0** — Đọc & hoàn thiện công cụ văn phòng | Xem 2 trang song song · Một cửa sổ duy nhất · Thông báo «Đã lưu» · Đầu – chân trang / Bates / dấu nước ảnh · Metadata & làm sạch · Chèn ảnh chữ ký / con dấu | V1, V2, A3 (còn lại), A4 (còn lại), A5 |
 | **v0.7.0** — Studio & So sánh | Áp công cụ ngay trên tab đang đọc có Hoàn tác · So sánh 2 PDF | B1, B2 |
 | **v0.8.0** — Phát hành chuyên nghiệp | ~~Bộ cài + Portable + «Mở bằng QT PDF Pro»~~ (xong ở v1.0.0) · Tải mô-đun khi cần (kiểm tra cập nhật V4 đã có từ v0.5.0) | ~~V3~~, V5 |
-| **v1.1.0** — OCR | OCR tiếng Việt → PDF tìm kiếm được & DOCX chuẩn NĐ30 (cần V5) | B3 |
+| **v1.1.0** — *đã phát hành 2026-10-23* | «Điền & Ký» giai đoạn 1 (gõ chữ bắt dòng chấm, ✓ ✕, ngày, chữ ký hình ảnh) | A5, A6 (giai đoạn 1) |
+| **v1.2.0** — OCR | OCR tiếng Việt → PDF tìm kiếm được & DOCX chuẩn NĐ30 (cần V5) | B3 |
 | **v2.0.0** — Ký số | Ký số bằng USB token qua kho chứng thư Windows · Xác thực chữ ký đầy đủ | B4 |
 
 Mọi mục đều theo quy tắc của `CLAUDE.md`: phần xử lý viết trong `qtpdfpro/core/` (không import PySide6), có lệnh CLI (hỗ trợ `--json`) và bài test; ghi tệp qua tệp tạm, từ chối ghi đè tệp nguồn đang mở như `page_ops.save_pdf`; chuỗi giao diện tiếng Việt có dấu.
@@ -72,12 +73,12 @@ Mọi mục đều theo quy tắc của `CLAUDE.md`: phần xử lý viết tron
   - Đặt mật khẩu AES-256 (mật khẩu mở + mật khẩu chủ, quyền in / sao chép / sửa / chú thích); gỡ mật khẩu khi biết mật khẩu.
   - Xem/sửa metadata (tiêu đề, tác giả, chủ đề, từ khoá), xoá metadata.
   - Làm sạch bằng `doc.scrub()`: gỡ JavaScript, tệp đính kèm, XMP, chú thích ẩn, thông tin nhạy cảm còn sót.
-- [x] **A5. Chèn ảnh chữ ký / con dấu + thư viện ảnh đã lưu** — **xong 2026-10-23** trong «Điền & Ký» giai đoạn 1 (`core/fill_sign.py`, `ui/signature_dialog.py`, `cli fill` / `cli signature`; chưa phát hành): chữ ký vẽ / gõ tên / ảnh / ảnh chụp tách nền giữ màu mực, thư viện mã hoá DPAPI, đặt bằng nhấp hoặc kéo khung. Con dấu dùng chung đường «ảnh».
+- [x] **A5. Chèn ảnh chữ ký / con dấu + thư viện ảnh đã lưu** — **xong 2026-10-23** trong «Điền & Ký» giai đoạn 1 (`core/fill_sign.py`, `ui/signature_dialog.py`, `cli fill` / `cli signature`; phát hành ở v1.1.0): chữ ký vẽ / gõ tên / ảnh / ảnh chụp tách nền giữ màu mực, thư viện mã hoá DPAPI, đặt bằng nhấp hoặc kéo khung. Con dấu dùng chung đường «ảnh».
   - Công cụ «Ảnh» trong chế độ chỉnh sửa: chèn PNG/JPG, kéo đặt vị trí, đổi cỡ giữ tỷ lệ; tạo thành chú thích có `/AP` chứa ảnh (giống dấu đóng hiện có) để di chuyển, hoàn tác được; làm phẳng khi xuất.
   - Thư viện ảnh lưu ở `<thư mục dữ liệu>/signatures/`; nút **«Tách nền trắng»** bằng OpenCV (đã có trong `requirements.txt`) biến nền giấy của con dấu/chữ ký scan thành trong suốt, giữ màu đỏ/xanh.
   - Ghi rõ trên giao diện: đây là **chữ ký hình ảnh**, không phải chữ ký số (xem B4).
 
-- [ ] **A6. «Điền & Ký» (Fill & Sign)** — giai đoạn 1 **xong 2026-10-23** (chưa phát hành): chế độ «Điền & Ký» (`Ctrl+Shift+F`), gõ chữ tự bắt dòng chấm «……» / gạch dưới / đường kẻ, dấu ✓ ✕ ● ─ tự vào ô vuông, ngày tháng (mẫu NĐ30), chữ ký & chữ ký nháy (gồm A5). Học ý tưởng từ PdfCraft (`ui-egui/src/fill_sign.rs`, `engine/src/signature_scan.rs`, Apache-2.0 — không chép mã), cải tiến: bắt dòng chấm khi điền, giữ màu mực từng điểm (PdfCraft tô một màu trung bình), mã hoá thư viện bằng DPAPI.
+- [ ] **A6. «Điền & Ký» (Fill & Sign)** — giai đoạn 1 **xong 2026-10-23**, phát hành ở **v1.1.0**: chế độ «Điền & Ký» (`Ctrl+Shift+F`), gõ chữ tự bắt dòng chấm «……» / gạch dưới / đường kẻ, dấu ✓ ✕ ● ─ tự vào ô vuông, ngày tháng (mẫu NĐ30), chữ ký & chữ ký nháy (gồm A5). Học ý tưởng từ PdfCraft (`ui-egui/src/fill_sign.rs`, `engine/src/signature_scan.rs`, Apache-2.0 — không chép mã), cải tiến: bắt dòng chấm khi điền, giữ màu mực từng điểm (PdfCraft tô một màu trung bình), mã hoá thư viện bằng DPAPI.
   - **Giai đoạn 2**: điền biểu mẫu PDF có ô nhập thật (AcroForm: `page.widgets()`, ô chữ / ô chọn / danh sách) — phải tự dựng `/AP` bằng phông Windows như hộp chữ (hình MuPDF tự sinh dùng Helvetica, sai dấu tiếng Việt); tự dò ô cần điền trên đơn in sẵn để tạo ô nhập.
   - **Giai đoạn 3**: ký số (B4) dùng chữ ký trong thư viện làm hình hiển thị.
   - Có thể thêm: phông viết tay có đủ chữ tiếng Việt (phông viết tay của Windows thiếu «ễ», «ư»… nên gõ tên đang lùi về Times New Roman nghiêng), gõ chữ trực tiếp trên trang thay cho hộp nhập.
@@ -92,7 +93,7 @@ Mọi mục đều theo quy tắc của `CLAUDE.md`: phần xử lý viết tron
   - Ghép cặp trang theo độ giống nội dung (chịu được trang chèn thêm/bị xoá), so chữ theo từ bằng `difflib` (dùng lại cách `layout_verify.compare_pdf_layouts`), tô **xanh** phần thêm, **đỏ** phần bị xoá trên 2 khung đọc cạnh nhau cuộn đồng bộ.
   - So hình cho trang có ảnh/con dấu: hiệu điểm ảnh bằng `numpy` trên trang đã kết xuất, có ngưỡng.
   - Xuất báo cáo (PDF có chú thích đánh dấu + JSON); lệnh `cli compare a.pdf b.pdf --json`. Dùng để so các bản dự thảo văn bản.
-- [ ] **B3. OCR tiếng Việt → PDF tìm kiếm được & DOCX chuẩn NĐ30** — *v1.1* (chi tiết ở Giai đoạn 2), cần V5.
+- [ ] **B3. OCR tiếng Việt → PDF tìm kiếm được & DOCX chuẩn NĐ30** — *v1.2* (chi tiết ở Giai đoạn 2), cần V5.
   - Phạm vi: **PDF ảnh nhận được** (văn bản scan do nơi khác gửi), không làm khâu scan.
   - `page.get_textpage_ocr(language="vie+eng", dpi=300, full=True)` của PyMuPDF (cần Tesseract + dữ liệu `vie` bản best, tải qua V5); xuất PDF có lớp chữ ẩn để tìm kiếm/sao chép; tuỳ chọn phóng to, nhị phân hoá ảnh, danh sách ký tự cho phép.
   - **Điểm khác biệt**: đưa kết quả OCR vào engine `nd30` → văn bản hành chính scan thành DOCX đúng thể thức (cit-pdf và các ứng dụng khác không có).
