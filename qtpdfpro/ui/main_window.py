@@ -1264,19 +1264,20 @@ class MainWindow(QMainWindow):
         self.zoom_combo.activated.connect(self._on_zoom_combo_activated)
         dc.addWidget(self.zoom_combo)
         lay.addWidget(self.doc_controls)
-        lay.addSpacing(8)
 
+        # «ℹ» và «Xuất Word» thuộc cụm điều khiển tài liệu: chỉ hiện khi đang xem PDF
+        dc.addSpacing(4)
         btn_info = QPushButton("ℹ")
         btn_info.setObjectName("ghostIconBtn")
         btn_info.setToolTip("Thuộc tính tài liệu (Ctrl+I)")
         btn_info.clicked.connect(self.action_show_doc_info)
-        lay.addWidget(btn_info)
+        dc.addWidget(btn_info)
 
         self.btn_convert_docx = QPushButton("📄 Xuất Word")
         self.btn_convert_docx.setObjectName("primaryConvertBtn")
         self.btn_convert_docx.setToolTip("Chuyển PDF sang Word (.docx) — văn bản hành chính tự dùng chuẩn NĐ30 (Ctrl+Shift+W)")
         self.btn_convert_docx.clicked.connect(self.action_convert_to_docx)
-        lay.addWidget(self.btn_convert_docx)
+        dc.addWidget(self.btn_convert_docx)
         return bar
 
     # ─── Tầng 3: Thanh công cụ nhanh (khi xem tài liệu) ───────────────────

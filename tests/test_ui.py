@@ -167,6 +167,7 @@ def test_home_page_pdfcraft_layout_and_coming_soon(sample_vietnamese_pdf: Path) 
     assert win.stack.currentWidget() is win.home_page
     assert win.btn_home.isChecked() is True
     assert win.doc_controls.isVisible() is False
+    assert win.btn_convert_docx.isVisible() is False  # «Xuất Word» và «ℹ» nằm trong doc_controls
     # Thanh top: Mở + các menu nằm ngang; chưa có tài liệu thì chưa có hàng tab
     assert win.btn_open.isVisible() and set(win.menu_buttons) == {
         "Tệp", "Xem", "Công cụ", "Chỉnh sửa PDF", "Trợ giúp"}
@@ -209,7 +210,7 @@ def test_home_page_pdfcraft_layout_and_coming_soon(sample_vietnamese_pdf: Path) 
     assert win.doc_tab_bar.count() == 1 and win.doc_tabs.count() == 1
     assert win.tab_strip.isVisible() is True
     assert win.stack.currentWidget() is win.doc_tabs
-    assert win.doc_controls.isVisible() is True
+    assert win.doc_controls.isVisible() is True and win.btn_convert_docx.isVisible() is True
 
     # Lọc thẻ công cụ trong khung tài liệu theo chế độ (cột trái ẩn → kiểm bằng isHidden)
     win.set_mode_category("convert")
