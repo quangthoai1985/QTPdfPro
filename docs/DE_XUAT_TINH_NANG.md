@@ -24,7 +24,7 @@
 | Công cụ «Coming Soon» | Mốc dự kiến |
 |---|---|
 | Xem 2 trang song song | v0.5 |
-| Scan & OCR tiếng Việt | v1.1 |
+| Scan & OCR tiếng Việt | v1.2 |
 | PDF sang Excel / ảnh / PowerPoint, Tạo PDF từ Word / ảnh, Điền biểu mẫu, Nén PDF | v1.2 |
 | Ký số PDF, Xác thực chữ ký số, Đặt mật khẩu, Xoá thông tin nhạy cảm, So sánh 2 tệp PDF | v2.0 |
 
@@ -93,10 +93,14 @@ Mọi mục đều theo quy tắc của `CLAUDE.md`: phần xử lý viết tron
   - Ghép cặp trang theo độ giống nội dung (chịu được trang chèn thêm/bị xoá), so chữ theo từ bằng `difflib` (dùng lại cách `layout_verify.compare_pdf_layouts`), tô **xanh** phần thêm, **đỏ** phần bị xoá trên 2 khung đọc cạnh nhau cuộn đồng bộ.
   - So hình cho trang có ảnh/con dấu: hiệu điểm ảnh bằng `numpy` trên trang đã kết xuất, có ngưỡng.
   - Xuất báo cáo (PDF có chú thích đánh dấu + JSON); lệnh `cli compare a.pdf b.pdf --json`. Dùng để so các bản dự thảo văn bản.
-- [ ] **B3. OCR tiếng Việt → PDF tìm kiếm được & DOCX chuẩn NĐ30** — *v1.2* (chi tiết ở Giai đoạn 2), cần V5.
+- [ ] **B3. OCR tiếng Việt → PDF tìm kiếm được & DOCX chuẩn NĐ30** — *v1.2*, cần V5. **Phương án đã chốt bằng thử nghiệm 2026-10-23** (số liệu, phương án bị loại: Giai đoạn 2).
   - Phạm vi: **PDF ảnh nhận được** (văn bản scan do nơi khác gửi), không làm khâu scan.
-  - `page.get_textpage_ocr(language="vie+eng", dpi=300, full=True)` của PyMuPDF (cần Tesseract + dữ liệu `vie` bản best, tải qua V5); xuất PDF có lớp chữ ẩn để tìm kiếm/sao chép; tuỳ chọn phóng to, nhị phân hoá ảnh, danh sách ký tự cho phép.
+  - **Dây chuyền chỉ dùng ONNX Runtime** (không PyTorch, không Paddle; OpenCV + numpy đã có sẵn trong `requirements.txt`): **PP-OCRv6 det small** tìm dòng chữ → cắt dòng dài → **VietOCR `vgg_seq2seq`** (xuất ONNX) đọc chữ. Đo trên bản scan thật: lỗi ký tự 0,75%, lỗi từ 3,3%, 3 lỗi dấu / 986 từ, **5,1 giây/trang** trên CPU i7-7700.
+  - **Giữ lớp chữ sẵn có** của trang (số, ngày do phần mềm cấp số chèn sau khi scan — không có trong ảnh) và chỉ OCR phần ảnh, ghép theo toạ độ.
+  - Lọc nét đỏ (con dấu) / xanh (chữ ký) trước khi tìm dòng; giữ ảnh con dấu, chữ ký để neo lại vào DOCX.
+  - Đầu ra: PDF có lớp chữ ẩn (tìm kiếm, sao chép) và `TextLine` có toạ độ cho `admin_layout` → `nd30_engine`.
   - **Điểm khác biệt**: đưa kết quả OCR vào engine `nd30` → văn bản hành chính scan thành DOCX đúng thể thức (cit-pdf và các ứng dụng khác không có).
+  - Phần lõi viết ở `core/ocr.py` + `cli ocr` (`--json`); test dùng mô hình giả lập, không tải mạng. Trước khi chốt hẳn: thử thêm bản scan mờ, nghiêng, có bảng biểu, fax.
 - [ ] **B4. Ký số bằng USB token & Xác thực chữ ký đầy đủ** — *v2.0* (chi tiết ở Giai đoạn 4).
   - cit-pdf chỉ ký bằng tệp PFX/P12 và xác thực không kiểm thu hồi — trong khi ở Việt Nam đa số dùng **USB token** (VGCA, Viettel-CA, VNPT-CA). Ký qua kho chứng thư Windows (driver token đăng ký chứng thư vào đó) hoặc PKCS#11; chuẩn PAdES (B-LT/LTA) bằng `pyHanko`, dấu thời gian TSA, hình hiển thị dùng ảnh con dấu từ A5.
   - Xác thực: `/ByteRange` phủ toàn tệp, phát hiện **«tài liệu đã bị sửa sau khi ký»** (bản ghi bổ sung sau chữ ký), chuỗi chứng thư tới gốc tin cậy (Root CA quốc gia, gốc của Ban Cơ yếu Chính phủ cho VGCA), kiểm OCSP/CRL. Nối với «Soi chữ ký số & con dấu» sẵn có.
@@ -117,15 +121,40 @@ Mọi mục đều theo quy tắc của `CLAUDE.md`: phần xử lý viết tron
   - CLI `update --check [--json]`, `update --download [-o thư_mục]`. Test bằng phản hồi giả lập + HTTP server cục bộ (`QT_PDF_PRO_UPDATE_API`), không gọi mạng thật.
 - [ ] **V5. Tải mô-đun nặng khi cần dùng lần đầu** — *v0.8*, tiền đề cho B3.
   - `core/modules.py`: bảng kê (tên, URL, kích thước, SHA-256), hỏi người dùng trước khi tải, tải vào `%LOCALAPPDATA%\QTPdfPro\modules\` (theo `QT_PDF_PRO_DATA` khi test), kiểm mã băm, dùng được khi không có mạng sau đó.
-  - Mô-đun đầu tiên: Tesseract + dữ liệu `vie`/`eng`. Trang cài đặt cho xem trạng thái, tải lại hoặc xoá từng mô-đun. Giữ bộ cài nhỏ.
+  - Mô-đun đầu tiên: **OCR tiếng Việt** (~140 MB) = `onnxruntime` (wheel giải nén vào `modules/`, thêm vào `sys.path` khi nạp; ~43 MB) + `PP-OCRv6_det_small.onnx` (~10 MB) + VietOCR `vgg_seq2seq` dạng ONNX (bộ mã hoá 84 MB + bước giải mã 5 MB). Dự phòng nhỏ: `tessdata_best/script/Vietnamese.traineddata` (12 MB, Tesseract đã có sẵn trong MuPDF). Trang cài đặt cho xem trạng thái, tải lại hoặc xoá từng mô-đun. Giữ bộ cài nhỏ.
 
 ---
 
-## Giai đoạn 2 (v1.1.0): OCR Tiếng Việt cho PDF Scan & Công thức Toán học
+## Giai đoạn 2 (v1.2.0): OCR Tiếng Việt cho PDF Scan & Công thức Toán học
 
 1. **Tích hợp OCR thông minh cho PDF ảnh quét (Scanned PDF)** — kế hoạch cụ thể ở mục **B3** (cần **V5**):
    - Tự động phát hiện trang PDF không có lớp văn bản (chỉ có ảnh scan).
-   - Kết hợp `Tesseract OCR (vie+eng)` + `VietOCR` / `Surya Layout` để nhận diện chữ tiếng Việt in và bảng biểu trên trang scan, sau đó xuất ra DOCX có đúng bố cục.
+   - **Thử nghiệm chọn công nghệ (2026-10-23)**: bản scan thật «Thông tư 47/2026/TT-BGDĐT» (3 trang, ảnh JPEG màu 200 dpi từ HP Scan, có con dấu đỏ + chữ ký xanh, 986 từ / 4.472 ký tự). Bản chuẩn chép tay, mọi chỗ lệch đều soi lại trên ảnh. Máy đo: i7-7700 4 nhân, 32 GB RAM, card AMD (không CUDA). «Ký tự» = lỗi ký tự so từng dòng chuẩn với đoạn khớp nhất (không phụ thuộc thứ tự đọc); «Số hiệu» = từ có chữ số hoặc «BGDĐT» đọc đúng.
+
+     | Phương án | Ký tự | Từ | Lỗi dấu | Số hiệu | Giây/trang |
+     |---|---|---|---|---|---|
+     | **PP-OCRv6 det small + VietOCR seq2seq, cả hai ONNX; cắt dòng dài; lọc con dấu** | 0,75% | 3,3% | 3 | 99/103 | **5,1** |
+     | PP-OCRv6 det medium (chạy bằng Paddle) + VietOCR, cắt dòng dài | 0,48% | 2,9% | 5 | 100/103 | chậm (Paddle 3.3 trên CPU này phải tắt oneDNN) |
+     | PP-OCRv6 det medium (ONNX) + VietOCR, cắt dòng dài | 0,68% | 3,9% | 3 | 98/103 | 28 |
+     | VietOCR `vgg_transformer` (thay seq2seq) | 0,68% | 4,0% | 12 | 98/103 | 34 |
+     | Tesseract 5 `tessdata_best/script/Vietnamese` 300 dpi + tự chèn dấu cách + lọc con dấu | 0,55% | 5,1% | 18 | 98/103 | 6,5 |
+     | Tesseract qua `get_textpage_ocr` nguyên bản (kế hoạch cũ của B3) | 3,6% | 29% | — | 80/103 | 8 |
+     | PP-OCRv5 latin, PP-OCRv6 small/medium nguyên bộ (`lang="vi"`) | 12,6–13,1% | 49–51% | — | — | 20–134 |
+     | VLM PaddleOCR-VL-1.6 / SenOCR-Vi (Transformers 5.20, CPU) — chỉ đọc 5 dòng khó | | | | sai «BGDĐT» | 30–216 **mỗi dòng** |
+
+   - **Dây chuyền đã chọn** (chi tiết để viết `core/ocr.py`):
+     1. Kết xuất trang **gồm cả lớp chữ sẵn có**: văn bản scan được phần mềm cấp số chèn số hiệu / ngày dưới dạng chữ thật (`TimesNewRomanPSMT`) **sau khi scan** — ảnh nhúng không có các chữ này. Giữ nguyên span chữ thật, chỉ dùng kết quả OCR ở chỗ không có chữ thật.
+     2. Lọc nét màu: `R − max(G, B) > 50` (đỏ) hoặc `B − max(R, G) > 35 và B > 80` (xanh), nới 1 px, **không** xoá điểm tối trung tính (độ sáng < 110, chênh kênh < 40 — chữ in nằm dưới con dấu). Đừng lọc theo độ bão hoà HSV + nới rộng: nhiễu màu JPEG quanh chữ đen sẽ bị xoá, chữ mòn.
+     3. Tìm dòng: `PP-OCRv6_det_small.onnx` (RapidOCR 3.10, Apache-2.0; `limit_side_len 736`, `limit_type min`); hậu xử lý DB tự viết bằng OpenCV (đã có), không cần kèm gói `rapidocr`. Bản tiny gần ngang (4,8 s/trang), medium chậm gấp 4 mà hơn không đáng kể.
+     4. Cắt dòng tỷ lệ > 14:1 tại cột ít mực nhất gần điểm chia: VietOCR huấn luyện với ảnh cao 32 px, rộng tối đa 512 px (16:1). **Nới `image_max_width` lên 2048 làm hỏng kết quả** (0,75% → 13–23%); cắt dòng thì 0,75% → 0,48%.
+     5. Đọc chữ: VietOCR `vgg_seq2seq` (mã Apache-2.0; trọng số tải từ `vocr.vn` — kiểm điều khoản trước khi phát hành kèm) xuất thành 2 đồ thị ONNX: bộ mã hoá ảnh (CNN + GRU, 84 MB) và **một bước** giải mã (GRU + attention, 5 MB); giải mã tham lam bằng numpy (token 1 = bắt đầu, 2 = kết thúc, tối đa 128). Khớp PyTorch **144/144 đoạn**, nhanh gấp ~3. Khi xuất phải viết lại `Vgg.forward` với chỉ số chiều không âm (`transpose(2, 3).flatten(2).permute(2, 0, 1)`) — ONNX Runtime từ chối `Transpose` có `perm` âm; dựng mô hình với `cnn.pretrained = False` (không thì tải trọng số ImageNet 549 MB vô ích).
+     6. Gom khung thành dòng theo chồng lấn dọc → `TextLine` (cỡ chữ từ chiều cao khung) cho `admin_layout`; PDF tìm kiếm được: chữ ẩn (`render_mode=3`) đặt theo khung từng dòng.
+     7. Hậu xử lý: VietOCR **bỏ gạch đầu dòng «-»** ở dòng ngắn (13 lỗi ở «Nơi nhận») và nhầm hoa/thường ở chữ cỡ nhỏ («về» → «VỀ») — khôi phục «-» theo khung, kiểm âm tiết tiếng Việt hợp lệ để đánh dấu chỗ nghi sai, chuẩn hoá NFC.
+   - **Không dùng**:
+     - **Bộ đọc chữ PP-OCRv5 latin / PP-OCRv6** dù PaddleOCR 3.7 khai báo `vi`: từ điển ký tự thiếu **88/146 chữ cái tiếng Việt** (mọi chữ có dấu nặng, hỏi, dấu chồng: ạ ả ấ ầ ộ ố ủ ở ự…) → rơi chữ («Bộ» → «B», «của» → «ca»). Phần **tìm dòng** của PP-OCRv6 vẫn tốt nhất.
+     - **VLM trên CPU** (PaddleOCR-VL-1.6, SenOCR-Vi ~1 tỷ tham số, Apache-2.0): đọc đúng phần lớn dòng khó nhưng mỗi token tốn bằng một lượt chạy đầy đủ (~3,8 s — bộ nhớ đệm KV không hiệu lực với `paddleocr_vl` trong Transformers 5.20; riêng bước đọc ảnh đã ~4 s/dòng); cả hai đọc «BGDĐT» → «BGDDT», PaddleOCR-VL còn bịa «Cổng TTĐT Bộ GDĐT» → «TTỄT BỘ GDỘT». Chỉ xét lại khi có GPU, và luôn đối chiếu số hiệu với kết quả VietOCR.
+     - **Tesseract làm chính**: sai dấu gấp 6 lần VietOCR («bổ» → «bồ», «mầm» → «mằm»), đọc con dấu / chữ ký thành ký tự rác nếu không lọc màu. Chỉ giữ làm dự phòng khi chưa tải mô-đun OCR — khi đó **bắt buộc** tự dựng lại dấu cách (xem `CLAUDE.md` mục 5).
+     - OCR của Windows (`Windows.Media.Ocr`): cần cài gói nhận dạng tiếng Việt (quyền quản trị). Surya: mã GPL-3, trọng số hạn chế thương mại. Dịch vụ đám mây (Gemini…): chính xác cao nhưng văn bản hành chính không nên gửi ra ngoài — chỉ làm tuỳ chọn có hỏi.
 2. **Nhận diện Công thức Toán học (OMML)**:
    - Chuyển các ký hiệu toán học/phân số/căn thức trong PDF sang định dạng phương trình gốc của Word (`Office MathML - <m:oMath>`) thay vì ảnh tĩnh.
 3. [x] **Chuyển đổi hàng loạt (Batch Conversion)** — *đã làm sớm ở `v0.3.0`* (`core/batch.py`, `cli batch`, hộp thoại «Chuyển đổi hàng loạt»):

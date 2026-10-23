@@ -7,9 +7,16 @@
 
 ## [Chưa phát hành]
 
+### 2026-10-23 — Thử nghiệm OCR tiếng Việt trên bản scan thật, chốt phương án cho B3 (chỉ sửa tài liệu)
+- So **6 nhóm công nghệ, gần 30 cấu hình** trên «Thông tư 47/2026/TT-BGDĐT» bản scan thật (3 trang, JPEG màu 200 dpi, có con dấu đỏ + chữ ký xanh; 986 từ). Bản chuẩn chép tay, mọi chỗ lệch soi lại trên ảnh; máy i7-7700, không GPU. Mã thử nghiệm để ở thư mục tạm, **không** đưa vào kho.
+- **Chốt**: PP-OCRv6 det small (ONNX) tìm dòng + VietOCR `vgg_seq2seq` (xuất ONNX, khớp PyTorch 144/144 đoạn) đọc chữ, cắt dòng dài, lọc nét đỏ / xanh, giữ lớp chữ sẵn có → lỗi ký tự 0,75%, lỗi từ 3,3%, 3 lỗi dấu, 99/103 số hiệu, **5,1 giây/trang**; chỉ cần thêm `onnxruntime` + ~100 MB mô hình (tải qua V5).
+- Loại: bộ đọc chữ PP-OCRv5/v6 (từ điển thiếu 88/146 chữ cái tiếng Việt), Tesseract làm chính (sai dấu gấp 6 lần; qua PyMuPDF còn dính từ — lỗi từ 29%), VLM PaddleOCR-VL-1.6 / SenOCR-Vi trên CPU (30–216 giây mỗi dòng, đọc «BGDĐT» → «BGDDT»), OCR của Windows (thiếu gói tiếng Việt).
+- Phát hiện: văn bản scan có số hiệu / ngày do phần mềm cấp số **chèn dạng chữ thật sau khi scan** — OCR riêng ảnh gốc sẽ mất số hiệu.
+- Cập nhật `docs/DE_XUAT_TINH_NANG.md` (B3, V5, Giai đoạn 2 — bảng số liệu và dây chuyền chi tiết; mốc OCR v1.1 → v1.2), `CLAUDE.md` mục 5 (6 rào cản mới) và mục 6.
+
 ### Việc còn dở / Ưu tiên kế tiếp cho Agent phiên sau
 1. **Kiểm thử engine NĐ30 trên văn bản thật** (PDF ký số VGCA, PDF xuất từ phần mềm quản lý văn bản, PDF in từ LibreOffice): chạy `python -m qtpdfpro.cli convert <tệp> --mode nd30 --verify-layout` (hoặc `cli batch <thư mục> --verify-layout`) và xử lý các trường hợp «Lệch nhỏ».
-2. **v1.1+** (các mục v0.6–v0.8 còn lại) theo «Lộ trình gần» (`docs/DE_XUAT_TINH_NANG.md`): **Xem 2 trang song song**, **V1** một cửa sổ duy nhất, **V2** thông báo «Đã lưu», phần còn lại của **A3** (đầu – chân trang, Bates, dấu nước ảnh), **A4** (metadata, làm sạch `scrub`), **A5** chèn ảnh chữ ký / con dấu; sau đó v0.7 (B1, B2), v0.8 (V3, V5), **OCR Tiếng Việt** (B3, v1.1). Còn in thử 1 trang ra giấy trên máy in thật khi người dùng đồng ý.
+2. **v1.1+** (các mục v0.6–v0.8 còn lại) theo «Lộ trình gần» (`docs/DE_XUAT_TINH_NANG.md`): **Xem 2 trang song song**, **V1** một cửa sổ duy nhất, **V2** thông báo «Đã lưu», phần còn lại của **A3** (đầu – chân trang, Bates, dấu nước ảnh), **A4** (metadata, làm sạch `scrub`), **A5** chèn ảnh chữ ký / con dấu; sau đó v0.7 (B1, B2), v0.8 (V3, V5), **OCR Tiếng Việt** (B3, v1.2 — phương án đã chốt 2026-10-23: PP-OCRv6 det + VietOCR ONNX, xem «Giai đoạn 2»; nên thử thêm bản scan mờ / nghiêng / có bảng trước khi viết `core/ocr.py`). Còn in thử 1 trang ra giấy trên máy in thật khi người dùng đồng ý.
    - «Chỉnh sửa PDF» mở rộng: đổi cỡ hộp chữ/hình bằng tay nắm, sửa kiểu dáng chú thích đã có, che thông tin (redaction), dấu đóng có ảnh chữ ký.
 3. Tuỳ chọn: chuyển hàng loạt song song bằng nhiều tiến trình (`ProcessPoolExecutor`, cần `multiprocessing.freeze_support()` cho bản PyInstaller).
 
