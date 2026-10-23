@@ -7,18 +7,22 @@
 
 ## [Chưa phát hành]
 
+### Việc còn dở / Ưu tiên kế tiếp cho Agent phiên sau
+1. **Kiểm thử engine NĐ30 trên văn bản thật** (PDF ký số VGCA, PDF xuất từ phần mềm quản lý văn bản, PDF in từ LibreOffice): chạy `python -m qtpdfpro.cli convert <tệp> --mode nd30 --verify-layout` (hoặc `cli batch <thư mục> --verify-layout`) và xử lý các trường hợp «Lệch nhỏ».
+2. **v1.1+** (các mục v0.6–v0.8 còn lại) theo «Lộ trình gần» (`docs/DE_XUAT_TINH_NANG.md`): **Xem 2 trang song song**, **V1** một cửa sổ duy nhất, **V2** thông báo «Đã lưu», phần còn lại của **A3** (đầu – chân trang, Bates, dấu nước ảnh), **A4** (metadata, làm sạch `scrub`), **A5** chèn ảnh chữ ký / con dấu; sau đó v0.7 (B1, B2), v0.8 (V3, V5), **OCR Tiếng Việt** (B3, v1.1). Còn in thử 1 trang ra giấy trên máy in thật khi người dùng đồng ý.
+   - «Chỉnh sửa PDF» mở rộng: đổi cỡ hộp chữ/hình bằng tay nắm, sửa kiểu dáng chú thích đã có, che thông tin (redaction), dấu đóng có ảnh chữ ký.
+3. Tuỳ chọn: chuyển hàng loạt song song bằng nhiều tiến trình (`ProcessPoolExecutor`, cần `multiprocessing.freeze_support()` cho bản PyInstaller).
+
+---
+
+## [1.0.2] — 2026-10-23 (Thanh top ngang, Trang chủ sắp lại, báo bản mới ngay khi mở)
+
 ### 2026-10-23 — Thanh top ngang, Trang chủ sắp lại, kiểm tra bản mới ngay khi mở
 - **Thanh top một hàng** (`MainWindow._build_top_bar`): `⌂ Trang chủ` · `📂 Mở` · các menu **Tệp · Xem · Công cụ · Chỉnh sửa PDF · Trợ giúp** thành nút thả xuống nằm ngang (`menu_buttons`, mỗi submenu của `main_menu`; bỏ nút «☰ Menu» và «？», đổi tên menu «Công cụ && Chuyển đổi» → «Công cụ») · nhãn nhắc bản mới · ô tìm công cụ Ctrl+K (chuyển từ thanh chế độ lên) · GitHub · Sáng/Tối. Hàng tab tài liệu (`tab_strip`) tách riêng và **chỉ hiện khi có tài liệu mở**; thanh chế độ gọn lại (chiều rộng tối thiểu cửa sổ giảm). QSS mới: `topBar`, `menuBarBtn`, `openTopBtn`, `homeTabBtn` (chữ «Trang chủ»), `updateBadgeBtn`.
 - **Trang chủ** (`ui/home_page.py`): lời chào gọn + nhãn phiên bản; «Bắt đầu» = thẻ **Mở tệp PDF** (kéo thả) cạnh thẻ **NĐ30** (xếp chồng khi hẹp); **Gần đây** đưa lên ngay dưới (6 tệp); **Công cụ đề xuất** xuống dưới (bỏ thẻ «Mở tệp» khỏi lưới); chân trang gom quyền riêng tư + GitHub + Bản phát hành (bỏ 2 nút này khỏi thẻ NĐ30).
 - **Kiểm tra bản mới ngay khi mở**: `STARTUP_CHECK_DELAY_MS` 4000 → 600 ms; `UpdateController.start_auto_check` **bỏ giới hạn 1 lần/ngày** (hỏi GitHub mỗi lần mở, luồng nền; `core.update_check.should_auto_check` vẫn còn nhưng UI không dùng). Có bản mới là **báo ngay** (`announce`): thông báo nổi + nhãn «🎉 Có bản mới vX — Cập nhật» ở thanh top, *rồi mới* tải ngầm (trước đây chỉ báo sau khi tải xong); trong lúc tải: «Đã có bản vX — đang tải ngầm…», xong đổi sang «Khởi động lại để cập nhật» (nhãn xanh lá). Bản đã «Bỏ qua» vẫn không báo.
 - **«ℹ» và «📄 Xuất Word»** chuyển vào `doc_controls` nên chỉ hiện khi đang xem tài liệu (ẩn ở Trang chủ).
 - **Test**: sửa `test_update_ui.py` (không còn «cùng ngày → không hỏi lại»), thêm `test_startup_check_announces_new_version_immediately`; `test_ui.py` kiểm nút Mở, 5 menu ngang, `tab_strip` ẩn/hiện. Đã chụp thử cửa sổ Sáng/Tối (Trang chủ, khung tài liệu) — tiếng Việt hiển thị đúng.
-
-### Việc còn dở / Ưu tiên kế tiếp cho Agent phiên sau
-1. **Kiểm thử engine NĐ30 trên văn bản thật** (PDF ký số VGCA, PDF xuất từ phần mềm quản lý văn bản, PDF in từ LibreOffice): chạy `python -m qtpdfpro.cli convert <tệp> --mode nd30 --verify-layout` (hoặc `cli batch <thư mục> --verify-layout`) và xử lý các trường hợp «Lệch nhỏ».
-2. **v1.1+** (các mục v0.6–v0.8 còn lại) theo «Lộ trình gần» (`docs/DE_XUAT_TINH_NANG.md`): **Xem 2 trang song song**, **V1** một cửa sổ duy nhất, **V2** thông báo «Đã lưu», phần còn lại của **A3** (đầu – chân trang, Bates, dấu nước ảnh), **A4** (metadata, làm sạch `scrub`), **A5** chèn ảnh chữ ký / con dấu; sau đó v0.7 (B1, B2), v0.8 (V3, V5), **OCR Tiếng Việt** (B3, v1.1). Còn in thử 1 trang ra giấy trên máy in thật khi người dùng đồng ý.
-   - «Chỉnh sửa PDF» mở rộng: đổi cỡ hộp chữ/hình bằng tay nắm, sửa kiểu dáng chú thích đã có, che thông tin (redaction), dấu đóng có ảnh chữ ký.
-3. Tuỳ chọn: chuyển hàng loạt song song bằng nhiều tiến trình (`ProcessPoolExecutor`, cần `multiprocessing.freeze_support()` cho bản PyInstaller).
 
 ---
 
