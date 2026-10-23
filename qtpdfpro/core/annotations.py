@@ -97,6 +97,14 @@ KIND_LABELS = {
     "Sound": ("🔊", "Âm thanh"),
 }
 
+# Chú thích QT PDF Pro tự dựng hình hiển thị (khoá «kind» trong dữ liệu `/QTPdfPro`) → (biểu tượng, nhãn)
+APP_KIND_LABELS = {
+    "stamp": ("🔖", "Dấu đóng"),
+    "filltext": ("Aa", "Chữ điền"),
+    "fillmark": ("✓", "Dấu điền"),
+    "signature": ("✍", "Chữ ký"),
+}
+
 FONT_FAMILIES: List[Tuple[str, str]] = [
     ("sans", "Arial"),
     ("serif", "Times New Roman"),
@@ -852,6 +860,10 @@ def _annot_color(annot: fitz.Annot, data: dict) -> str:
         return str(style["color"])
     if data.get("kind") == "textbox":
         return str(style.get("fill") or style.get("text_color") or "")
+    if data.get("kind") == "filltext":
+        return str(style.get("text_color") or "")
+    if data.get("kind") in ("fillmark", "signature") and style.get("color"):
+        return str(style["color"])
     colors = annot.colors or {}
     rgb = colors.get("stroke") or colors.get("fill")
     return color_hex(rgb) if rgb else ""
@@ -866,8 +878,13 @@ def annotation_info(page: fitz.Page, annot: fitz.Annot) -> AnnotationInfo:
     content = _nfc(info.get("content") or "")
     if subtype in MARKUP_SUBTYPES and not content:
         content = text_under_rects(page, _quad_rects(annot.vertices) or [annot.rect], limit=120)
-    if data.get("kind") == "stamp":
-        label = "Dấu đóng"
+    kind = data.get("kind")
+    if kind in APP_KIND_LABELS:
+        icon, label = APP_KIND_LABELS[kind]
+        if kind == "signature" and data.get("initials"):
+            label = "Chữ ký nháy"
+        elif kind == "filltext" and data.get("fill") == "date":
+            icon, label = "📅", "Ngày tháng"
     return AnnotationInfo(
         page_index=page.number,
         xref=annot.xref,

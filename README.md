@@ -31,6 +31,14 @@
 - **«Sắp xếp & cắt ghép trang»** (`Ctrl+Shift+O`): lưới ảnh trang **kéo thả** đổi thứ tự, xoay, nhân bản, xoá, chèn trang trắng, đảo thứ tự, **ghép trang từ nhiều tệp PDF** (mỗi tệp một màu), **đặt điểm cắt ✂** giữa các trang → xuất mỗi phần thành một tệp, chia theo mỗi N trang / theo khoảng trang, trích trang chọn; giữ chú thích, liên kết và **mục lục** (bookmark) của các trang còn lại.
 - Dòng lệnh: `merge`, `split`, `organize`, `extract`, `annotate` (tô sáng cụm từ, đóng dấu, thao tác JSON, làm phẳng), `annots`.
 
+### 1.0c2. Điền & Ký đơn từ, tờ khai (`Ctrl+Shift+F`, chưa phát hành)
+- Chế độ **«Điền & Ký»** trên thanh chế độ: **gõ chữ vào chỗ trống** — nhấp gần dòng chấm «……», «.....», gạch dưới «____» hoặc đường kẻ trống là chữ **tự nằm đúng dòng**, cỡ chữ theo chữ in quanh đó (Times New Roman, nhúng phông — đúng mọi dấu tiếng Việt); rê chuột thấy trước chỗ chữ sẽ nằm.
+- **Dấu ✓ ✕ ● ─** tự căn giữa ô vuông ☐ gần chỗ nhấp; **ngày tháng** một chạm theo mẫu `23/10/2026` hoặc NĐ30 «ngày 23 tháng 10 năm 2026».
+- **Chữ ký & chữ ký nháy**: vẽ bằng chuột / bút cảm ứng, gõ tên, ảnh có sẵn, hoặc **ảnh chụp chữ ký trên giấy** — tự bỏ nền giấy, bóng tay, mặt bàn và **giữ màu mực** (con dấu đỏ vẫn đỏ). Nhấp để ký, kéo khung để chọn cỡ.
+- **Thư viện chữ ký** lưu trên máy, **mã hoá bằng Windows DPAPI** theo tài khoản (chép thư mục sang máy khác cũng không đọc được).
+- Mọi thứ là chú thích: di chuyển, xoá, Hoàn tác, nhấp đúp sửa chữ; lưu ghi bổ sung giữ chữ ký số có sẵn; «Xuất bản làm phẳng» để không ai sửa được. Chữ ký hình ảnh **không** thay thế chữ ký số.
+- Dòng lệnh: `fill` (`--text "1:200,97:Nguyễn Văn A"`, `--check`, `--date --date-format nd30`, `--sign --signature-image anh.jpg`, `--leaders`, `--flatten`), `signature list|add|delete|clean`.
+
 ### 1.0d. In tài liệu (`Ctrl+P`, mới ở `v0.5.0`)
 - Hộp thoại in tiếng Việt: chọn máy in (mặc định của Windows) hoặc **lưu bản in thành tệp PDF**, số bản + in trọn từng bộ, trang in (tất cả / trang hiện tại / tuỳ chọn `1-3, 5, 8-`), chỉ trang lẻ / chẵn, in ngược thứ tự, khổ **A4 / A5 / A3 / Letter / Legal**, hướng giấy tự động theo trang, **tự xoay** trang ngang / dọc cho vừa giấy, «Vừa khổ giấy» / «Cỡ thật» / «Chỉ thu nhỏ trang quá khổ», in 2 mặt (khi máy in hỗ trợ; nếu không thì gợi ý in 2 mặt thủ công bằng trang lẻ / chẵn), màu / **đen trắng**, chất lượng 300–600 dpi, in kèm chú thích – con dấu – chữ ký.
 - **Xem trước từng tờ** đúng như sẽ in; in trong luồng nền có thanh tiến trình và nút «Dừng in»; nhớ thiết lập lần trước. In cả chú thích chưa lưu của tab.
@@ -132,6 +140,12 @@ python -m qtpdfpro.cli extract tailieu.pdf --pages 1-3,5
 # Chú thích: tô sáng cụm từ, đóng dấu kèm ngày, liệt kê chú thích
 python -m qtpdfpro.cli annotate vanban.pdf --highlight "Độc lập" --stamp "ĐÃ DUYỆT" --stamp-date
 python -m qtpdfpro.cli annots vanban_chu_thich.pdf
+
+# Điền & Ký: gõ chữ (tự bắt dòng chấm), dấu ✓, ngày kiểu NĐ30, ký bằng ảnh chụp chữ ký (tự tách nền)
+python -m qtpdfpro.cli fill don.pdf --leaders                     # xem các dòng chấm / ô vuông tìm được
+python -m qtpdfpro.cli fill don.pdf --text "1:200,97:Nguyễn Văn A" --check "1:245,300" --date "1:400,400" --date-format nd30 --sign "1:455,470" --signature-image chu_ky.jpg
+python -m qtpdfpro.cli signature clean anh_chup_chu_ky.jpg       # → anh_chup_chu_ky_tach_nen.png nền trong suốt
+python -m qtpdfpro.cli signature add --image chu_ky.jpg --name "Chữ ký chính"
 
 # In tài liệu: dựng bản in ra PDF (không cần máy in), xem kế hoạch in, gửi tới máy in
 python -m qtpdfpro.cli print vanban.pdf --pages "1-3,8-" --to-pdf ban_in.pdf --grayscale

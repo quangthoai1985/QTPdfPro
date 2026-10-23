@@ -18,6 +18,7 @@ from typing import Callable, Dict, List, Optional, Sequence, Tuple
 import fitz  # PyMuPDF
 
 from qtpdfpro.core import annotations as an
+from qtpdfpro.core import fill_sign as fs
 
 _ids = count(1)
 
@@ -62,6 +63,8 @@ class EditSession:
         self._saved_top: Optional[int] = None
         self._unsaved_purge = False  # đã xoá hẳn chú thích ẩn nhưng chưa ghi tệp xong
         self._words: Dict[int, List[tuple]] = {}
+        self._leaders: Dict[int, List[fs.Leader]] = {}
+        self._boxes: Dict[int, List[fitz.Rect]] = {}
 
     # ─── Trạng thái ───────────────────────────────────────────────────────
 
@@ -94,6 +97,8 @@ class EditSession:
         self._saved_top = None
         self._unsaved_purge = False
         self._words.clear()
+        self._leaders.clear()
+        self._boxes.clear()
 
     def prepare_save(self) -> int:
         """Xoá hẳn chú thích đã xoá mềm trước khi ghi tệp; trả về số chú thích đã xoá."""
@@ -177,6 +182,40 @@ class EditSession:
             f"Dấu «{label}»", page_index, lambda p: an.add_stamp(p, center, label, style, self.author, date_text)
         )
 
+    # ─── Điền & Ký (core/fill_sign.py) ────────────────────────────────────
+
+    def leaders(self, page_index: int, font_size: float = 12.0) -> List[fs.Leader]:
+        """Dòng chấm / gạch dưới / đường kẻ để điền trên trang (đệm theo trang — nội dung trang không đổi khi
+        thêm chú thích)."""
+        if page_index not in self._leaders:
+            self._leaders[page_index] = fs.find_leaders(self.doc[page_index], font_size)
+        return self._leaders[page_index]
+
+    def boxes(self, page_index: int) -> List[fitz.Rect]:
+        if page_index not in self._boxes:
+            self._boxes[page_index] = fs.find_boxes(self.doc[page_index])
+        return self._boxes[page_index]
+
+    def fill_target(self, page_index: int, point, style: an.AnnotStyle, snap: bool = True) -> fs.FillTarget:
+        page = self.doc[page_index]
+        return fs.snap_text_target(page, point, style.font_size, self.leaders(page_index, style.font_size), snap)
+
+    def add_fill_text(self, page_index: int, point, text: str, style: an.AnnotStyle, snap: bool = True,
+                      kind: str = "text") -> int:
+        label = "Ghi ngày" if kind == "date" else "Gõ chữ"
+        leaders = self.leaders(page_index, style.font_size)
+        return self._add(label, page_index, lambda p: fs.add_fill_text(
+            p, point, text, style, self.author, snap, leaders, kind=kind))
+
+    def add_fill_mark(self, page_index: int, point, mark: str, style: an.AnnotStyle, snap: bool = True) -> int:
+        boxes = self.boxes(page_index)
+        return self._add(fs.MARKS.get(mark, ("", "Dấu"))[1], page_index,
+                         lambda p: fs.add_mark(p, point, mark, style, self.author, snap, boxes))
+
+    def add_signature(self, page_index: int, sig: fs.Signature, center=None, rect=None) -> int:
+        label = "Ký nháy" if sig.initials else "Ký"
+        return self._add(label, page_index, lambda p: fs.add_signature(p, sig, center, rect, self.author))
+
     # ─── Sửa chú thích ────────────────────────────────────────────────────
 
     def annotation_at(self, page_index: int, point, tolerance: float = 4.0) -> Optional[int]:
@@ -235,6 +274,8 @@ class EditSession:
         page = self.doc[page_index]
         if info.app_kind == "textbox":
             an.rebuild_text_box(page, xref, text)
+        elif info.app_kind == "filltext":
+            fs.rebuild_fill_text(page, xref, text)
         else:
             self.doc.xref_set_key(xref, "Contents", fitz.get_pdf_str(an._nfc(text)))
         self.doc.xref_set_key(xref, "M", fitz.get_pdf_str(fitz.get_pdf_now()))

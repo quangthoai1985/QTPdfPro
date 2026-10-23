@@ -72,10 +72,15 @@ Mọi mục đều theo quy tắc của `CLAUDE.md`: phần xử lý viết tron
   - Đặt mật khẩu AES-256 (mật khẩu mở + mật khẩu chủ, quyền in / sao chép / sửa / chú thích); gỡ mật khẩu khi biết mật khẩu.
   - Xem/sửa metadata (tiêu đề, tác giả, chủ đề, từ khoá), xoá metadata.
   - Làm sạch bằng `doc.scrub()`: gỡ JavaScript, tệp đính kèm, XMP, chú thích ẩn, thông tin nhạy cảm còn sót.
-- [ ] **A5. Chèn ảnh chữ ký / con dấu + thư viện ảnh đã lưu** — *v0.6*.
+- [x] **A5. Chèn ảnh chữ ký / con dấu + thư viện ảnh đã lưu** — **xong 2026-10-23** trong «Điền & Ký» giai đoạn 1 (`core/fill_sign.py`, `ui/signature_dialog.py`, `cli fill` / `cli signature`; chưa phát hành): chữ ký vẽ / gõ tên / ảnh / ảnh chụp tách nền giữ màu mực, thư viện mã hoá DPAPI, đặt bằng nhấp hoặc kéo khung. Con dấu dùng chung đường «ảnh».
   - Công cụ «Ảnh» trong chế độ chỉnh sửa: chèn PNG/JPG, kéo đặt vị trí, đổi cỡ giữ tỷ lệ; tạo thành chú thích có `/AP` chứa ảnh (giống dấu đóng hiện có) để di chuyển, hoàn tác được; làm phẳng khi xuất.
   - Thư viện ảnh lưu ở `<thư mục dữ liệu>/signatures/`; nút **«Tách nền trắng»** bằng OpenCV (đã có trong `requirements.txt`) biến nền giấy của con dấu/chữ ký scan thành trong suốt, giữ màu đỏ/xanh.
   - Ghi rõ trên giao diện: đây là **chữ ký hình ảnh**, không phải chữ ký số (xem B4).
+
+- [ ] **A6. «Điền & Ký» (Fill & Sign)** — giai đoạn 1 **xong 2026-10-23** (chưa phát hành): chế độ «Điền & Ký» (`Ctrl+Shift+F`), gõ chữ tự bắt dòng chấm «……» / gạch dưới / đường kẻ, dấu ✓ ✕ ● ─ tự vào ô vuông, ngày tháng (mẫu NĐ30), chữ ký & chữ ký nháy (gồm A5). Học ý tưởng từ PdfCraft (`ui-egui/src/fill_sign.rs`, `engine/src/signature_scan.rs`, Apache-2.0 — không chép mã), cải tiến: bắt dòng chấm khi điền, giữ màu mực từng điểm (PdfCraft tô một màu trung bình), mã hoá thư viện bằng DPAPI.
+  - **Giai đoạn 2**: điền biểu mẫu PDF có ô nhập thật (AcroForm: `page.widgets()`, ô chữ / ô chọn / danh sách) — phải tự dựng `/AP` bằng phông Windows như hộp chữ (hình MuPDF tự sinh dùng Helvetica, sai dấu tiếng Việt); tự dò ô cần điền trên đơn in sẵn để tạo ô nhập.
+  - **Giai đoạn 3**: ký số (B4) dùng chữ ký trong thư viện làm hình hiển thị.
+  - Có thể thêm: phông viết tay có đủ chữ tiếng Việt (phông viết tay của Windows thiếu «ễ», «ư»… nên gõ tên đang lùi về Times New Roman nghiêng), gõ chữ trực tiếp trên trang thay cho hộp nhập.
 
 ### Nhóm B — Giá trị cao, công sức vừa
 

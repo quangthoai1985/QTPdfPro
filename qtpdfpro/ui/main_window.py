@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QCompleter,
+    QDialog,
     QFileDialog,
     QFrame,
     QHBoxLayout,
@@ -49,11 +50,18 @@ from PySide6.QtWidgets import (
 )
 
 from qtpdfpro import __app_name__, __github_repo__, __version__
+from qtpdfpro.core import fill_sign
 from qtpdfpro.core.converter import is_admin_document
 from qtpdfpro.core.reader import PDFDocumentReader, SearchHit
 from qtpdfpro.core.settings import AppSettings
 from qtpdfpro.core.word_com_bridge import is_ms_word_available
-from qtpdfpro.ui.annotation_tools import AnnotationController, AnnotationListPanel, EditToolbar, FlowLayout
+from qtpdfpro.ui.annotation_tools import (
+    TOOL_BY_KEY,
+    AnnotationController,
+    AnnotationListPanel,
+    EditToolbar,
+    FlowLayout,
+)
 from qtpdfpro.ui.batch_dialog import BatchConvertDialog
 from qtpdfpro.ui.command_palette import SEARCH_IN_DOCUMENT_KEY, CommandPaletteDialog
 from qtpdfpro.ui.convert_dialog import ConvertToDocxDialog
@@ -63,6 +71,7 @@ from qtpdfpro.ui.nd30_dialog import LayoutVerifyDialog, ND30ReportDialog
 from qtpdfpro.ui.organizer_dialog import PageOrganizerDialog
 from qtpdfpro.ui.pdf_canvas import PDFScrollViewer
 from qtpdfpro.ui.print_dialog import PrintDialog
+from qtpdfpro.ui.signature_dialog import SignatureCreateDialog, SignatureManagerDialog
 from qtpdfpro.ui.pdf_tools_dialog import PDF_TOOL_DIALOGS
 from qtpdfpro.ui.theme import get_stylesheet
 from qtpdfpro.ui.tool_catalog import CATEGORIES, COMING_SOON_LABEL, TOOLS, get_tool
@@ -97,6 +106,10 @@ STRIP_TOOLS: dict[str, list[tuple[str, str]]] = {
         ("🧩 Sắp xếp trang", "organize"), ("🧷 Ghép tệp", "combine"), ("✂️ Tách tệp", "split"),
         ("📤 Trích trang", "extract_pages"), ("🗜️ Nén", "compress"), ("💧 Dấu nước", "watermark"),
         ("🔢 Số trang", "page_numbers"),
+    ],
+    "fill": [
+        ("🖋️ Điền && Ký", "fill_sign"), ("✍️ Thư viện chữ ký", "signatures"), ("🧾 Biểu mẫu PDF", "forms"),
+        ("🖨️ In", "print"),
     ],
     "sign": [
         ("🛡️ Soi chữ ký số", "sig_inspect"), ("🔐 Đặt mật khẩu", "protect"), ("🔓 Gỡ mật khẩu", "unlock"),
@@ -182,7 +195,15 @@ class PDFDocumentTab(QWidget):
         self.annot_controller.message.connect(self.statusMessage)
         self.annot_controller.toolChanged.connect(lambda _k: self.viewer.refresh_cursor())
         self.annot_controller.selectionChanged.connect(self._on_annotation_selection)
+        # Chế độ «Điền & Ký»: cùng bộ điều khiển, thanh công cụ riêng (gõ chữ, ✓ ✕ ● ─, ngày, chữ ký)
+        self.fill_toolbar = EditToolbar(self.annot_controller, self.viewer, self, toolset="fill")
+        self.fill_toolbar.setVisible(False)
+        self.fill_toolbar.exitRequested.connect(self.exit_edit_mode)
+        self.fill_toolbar.manageSignaturesRequested.connect(self.open_signature_library)
+        self.annot_controller.signatureNeeded.connect(self._create_signature_for_placement)
+        self._toolset = "edit"
         center_layout.addWidget(self.edit_toolbar)
+        center_layout.addWidget(self.fill_toolbar)
         center_layout.addWidget(self.viewer, 1)
 
         # ─── 3. CỘT PHẢI: Ngăn 4 tab (Trang, Mục lục, Tìm kiếm, Soi bố cục) ──
@@ -379,6 +400,16 @@ class PDFDocumentTab(QWidget):
                   self.tool_btn_organize, self.tool_btn_save):
             body_layout.addWidget(b)
 
+        body_layout.addWidget(self._make_section_label("ĐIỀN & KÝ", "fill"))
+        self.tool_btn_fill = self._make_tool_card(
+            "🖋️ Điền && Ký (Ctrl+Shift+F)\nGõ chữ vào dòng chấm, ✓ ✕, ngày", category="fill"
+        )
+        self.tool_btn_sign = self._make_tool_card("✍️ Ký tên\nChữ ký vẽ tay, gõ tên hoặc ảnh", category="fill")
+        self.tool_btn_fill.clicked.connect(lambda: self.enter_fill_mode())
+        self.tool_btn_sign.clicked.connect(lambda: self.enter_fill_mode("fill_sign"))
+        body_layout.addWidget(self.tool_btn_fill)
+        body_layout.addWidget(self.tool_btn_sign)
+
         # Công cụ văn phòng & bảo mật: thẻ phát `toolRequested` → MainWindow.run_tool mở hộp thoại tương ứng
         self.office_tool_buttons: dict[str, QPushButton] = {}
         office_sections = [
@@ -466,7 +497,7 @@ class PDFDocumentTab(QWidget):
         return btn
 
     def set_tool_category(self, category: str) -> None:
-        """Lọc thẻ công cụ theo chế độ chọn trên thanh chế độ (all/read/convert/edit/sign)."""
+        """Lọc thẻ công cụ theo chế độ chọn trên thanh chế độ (all/read/convert/edit/fill/sign)."""
         self._tool_category = category or "all"
         self._filter_left_tools(self.tool_filter_input.text())
 
@@ -639,36 +670,94 @@ class PDFDocumentTab(QWidget):
     def edit_mode(self) -> bool:
         return self.viewer.interaction is not None
 
-    def enter_edit_mode(self, tool: Optional[str] = None) -> None:
-        """Bật thanh công cụ chú thích; `tool` chọn sẵn công cụ (vd "highlight", "stamp")."""
+    @property
+    def toolset(self) -> str:
+        """"edit" (Chỉnh sửa) hoặc "fill" (Điền & Ký) — bộ công cụ đang hiện khi ở chế độ chỉnh sửa."""
+        return self._toolset
+
+    @property
+    def active_toolbar(self) -> EditToolbar:
+        return self.fill_toolbar if self._toolset == "fill" else self.edit_toolbar
+
+    def enter_edit_mode(self, tool: Optional[str] = None, toolset: str = "edit") -> None:
+        """Bật thanh công cụ chú thích; `tool` chọn sẵn công cụ (vd "highlight", "stamp").
+        `toolset="fill"` bật thanh «Điền & Ký» thay cho thanh «Chỉnh sửa»."""
         if not self.reader.is_pdf:
             self.statusMessage.emit("Chỉ chỉnh sửa được tệp PDF.")
             return
         was = self.edit_mode
-        self.edit_toolbar.setVisible(True)
-        self.edit_toolbar.set_shortcuts_enabled(True)
+        switched = toolset != self._toolset
+        self._toolset = toolset
+        for bar in (self.edit_toolbar, self.fill_toolbar):
+            on = bar is self.active_toolbar
+            bar.set_shortcuts_enabled(on)
+            bar.setVisible(on)
+        current = self.annot_controller.tool
+        group = TOOL_BY_KEY[current].group if current in TOOL_BY_KEY else "edit"
         if tool:
             self.annot_controller.set_tool(tool)
+        elif group not in (toolset, "both"):  # công cụ của bộ kia → chọn công cụ đầu tiên của bộ này
+            self.annot_controller.set_tool("fill_text" if toolset == "fill" else "highlight")
+        self.active_toolbar.sync_from_controller()
         self.viewer.set_interaction(self.annot_controller)
         self._sync_history()
         self.viewer.setFocus()
         if not was:
             self.editModeChanged.emit(True)
-            self.statusMessage.emit("Chế độ chỉnh sửa — chọn công cụ trên thanh phía trên trang (Ctrl+E để thoát).")
+        if not was or switched:
+            self.statusMessage.emit(
+                "Điền & Ký — nhấp vào dòng chấm để gõ chữ, vào ô để đánh dấu; chữ ký: chọn ✍ rồi nhấp chỗ ký."
+                if toolset == "fill" else
+                "Chế độ chỉnh sửa — chọn công cụ trên thanh phía trên trang (Ctrl+E để thoát)."
+            )
+
+    def enter_fill_mode(self, tool: Optional[str] = None) -> None:
+        """Bật chế độ «Điền & Ký» (Ctrl+Shift+F)."""
+        self.enter_edit_mode(tool, toolset="fill")
 
     def exit_edit_mode(self) -> None:
         if not self.edit_mode:
             return
         self.viewer.set_interaction(None)
-        self.edit_toolbar.set_shortcuts_enabled(False)
-        self.edit_toolbar.setVisible(False)
+        for bar in (self.edit_toolbar, self.fill_toolbar):
+            bar.set_shortcuts_enabled(False)
+            bar.setVisible(False)
         self.editModeChanged.emit(False)
 
-    def toggle_edit_mode(self) -> None:
-        if self.edit_mode:
+    # ─── Điền & Ký: thư viện chữ ký ───────────────────────────────────────
+
+    def open_signature_library(self, initials: bool = False) -> None:
+        """Thư viện chữ ký: tạo / xoá / chọn chữ ký đang dùng cho công cụ ✍."""
+        ctl = self.annot_controller
+        dlg = SignatureManagerDialog(ctl.library, None, self)
+        if not ctl.library.list():  # chưa có gì → mở thẳng hộp thoại tạo chữ ký
+            dlg.create_new(initials)
+        if dlg.exec() == QDialog.DialogCode.Accepted and dlg.chosen_id:
+            sig = ctl.library.get(dlg.chosen_id)
+            if sig is not None:
+                ctl.set_signature(sig.initials, sig.id)
+                self.enter_fill_mode("fill_initials" if sig.initials else "fill_sign")
+        else:
+            for sig in dlg.created:  # vừa tạo mà không bấm «Dùng» → vẫn chọn chữ ký mới nhất
+                ctl.set_signature(sig.initials, sig.id)
+        self.fill_toolbar.sync_from_controller()
+
+    def _create_signature_for_placement(self, initials: bool) -> None:
+        """Nhấp đặt chữ ký khi thư viện chưa có → tạo chữ ký rồi đặt luôn vào chỗ vừa nhấp."""
+        ctl = self.annot_controller
+        dlg = SignatureCreateDialog(ctl.library, initials, parent=self)
+        if dlg.exec() == QDialog.DialogCode.Accepted and dlg.signature is not None:
+            ctl.set_signature(dlg.signature.initials, dlg.signature.id)
+            if dlg.signature.initials == initials:
+                ctl.place_pending_signature()
+        self.fill_toolbar.sync_from_controller()
+
+    def toggle_edit_mode(self, toolset: str = "edit") -> None:
+        """Bật/tắt chế độ chỉnh sửa; đang ở bộ công cụ kia thì chuyển sang bộ `toolset`."""
+        if self.edit_mode and self._toolset == toolset:
             self.exit_edit_mode()
         else:
-            self.enter_edit_mode()
+            self.enter_edit_mode(toolset=toolset)
 
     def _sync_history(self) -> None:
         if not self.reader.has_edit_session:
@@ -1025,6 +1114,13 @@ class MainWindow(QMainWindow):
         self.act_redo.setShortcuts([QKeySequence("Ctrl+Y"), QKeySequence("Ctrl+Shift+Z")])
         self.act_redo.triggered.connect(lambda: self._with_active_tab(lambda t: t.annot_controller.redo()))
         edit_menu.addAction(self.act_redo)
+        self.act_fill_sign = QAction("Điền && Ký (gõ chữ, ✓ ✕, ngày, chữ ký)", self)
+        self.act_fill_sign.setShortcut(QKeySequence("Ctrl+Shift+F"))
+        self.act_fill_sign.triggered.connect(self.action_fill_sign)
+        edit_menu.addAction(self.act_fill_sign)
+        act_sig_lib = QAction("Thư viện chữ ký...", self)
+        act_sig_lib.triggered.connect(self.action_signature_library)
+        edit_menu.addAction(act_sig_lib)
         act_annots = QAction("Danh sách chú thích", self)
         act_annots.triggered.connect(lambda: self.run_tool("comments"))
         edit_menu.addAction(act_annots)
@@ -1447,6 +1543,8 @@ class MainWindow(QMainWindow):
         if tab is not None and self.stack.currentWidget() is self.doc_tabs:
             if category == "edit":
                 tab.enter_edit_mode()
+            elif category == "fill":
+                tab.enter_fill_mode()
             elif category == "read":
                 tab.exit_edit_mode()
 
@@ -1637,6 +1735,8 @@ class MainWindow(QMainWindow):
             "doc_info": self.action_show_doc_info,
             "print": self.action_print,
             "edit_pdf": lambda: self._with_active_tab(lambda t: t.toggle_edit_mode()),
+            "fill_sign": lambda: self.set_mode_category("fill"),
+            "signatures": self.action_signature_library,
             "highlight_text": lambda: self._with_active_tab(lambda t: t.enter_edit_mode("highlight")),
             "draw_shapes": lambda: self._with_active_tab(lambda t: t.enter_edit_mode("pen")),
             "stamp": lambda: self._with_active_tab(lambda t: t.enter_edit_mode("stamp")),
@@ -1651,6 +1751,27 @@ class MainWindow(QMainWindow):
         fn = handlers.get(key)
         if fn is not None:
             fn()
+
+    def action_fill_sign(self) -> None:
+        """Ctrl+Shift+F: bật/tắt «Điền & Ký» trên tài liệu đang mở (đồng bộ nút chế độ)."""
+        tab = self.active_tab()
+        if tab is None:
+            self.run_tool("fill_sign")
+            return
+        if tab.edit_mode and tab.toolset == "fill":
+            tab.exit_edit_mode()
+            self.set_mode_category("read")
+        else:
+            self.set_mode_category("fill")
+
+    def action_signature_library(self) -> None:
+        """Thư viện chữ ký — dùng được cả khi chưa mở tài liệu."""
+        tab = self.active_tab()
+        if tab is not None:
+            tab.open_signature_library()
+            return
+        dlg = SignatureManagerDialog(fill_sign.SignatureLibrary(), None, self)
+        dlg.exec()
 
     def _open_annotation_panel(self) -> None:
         tab = self.active_tab()

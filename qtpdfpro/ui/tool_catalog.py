@@ -1,6 +1,6 @@
 """Danh mục "Tất cả công cụ" dùng chung cho Trang chủ, bảng công cụ và bảng lệnh (Ctrl+K).
 
-Bố cục học theo PdfCraft: công cụ chia theo nhóm (Đọc, Chuyển đổi, Chỉnh sửa, Ký số & Bảo mật).
+Bố cục học theo PdfCraft: công cụ chia theo nhóm (Đọc, Chuyển đổi, Chỉnh sửa, Điền & Ký, Ký số & Bảo mật).
 Công cụ chưa phát triển vẫn hiển thị với nhãn `COMING_SOON_LABEL` kèm giai đoạn dự kiến
 (xem lộ trình tại `docs/DE_XUAT_TINH_NANG.md`) để người dùng thấy toàn cảnh sản phẩm.
 """
@@ -22,7 +22,7 @@ class ToolSpec:
     name: str
     icon: str
     summary: str
-    category: str  # "read" | "convert" | "edit" | "sign"
+    category: str  # "read" | "convert" | "edit" | "fill" | "sign"
     ready: bool = True
     needs_document: bool = False
     milestone: str = ""
@@ -38,6 +38,7 @@ CATEGORIES: list[tuple[str, str]] = [
     ("read", "Đọc"),
     ("convert", "Chuyển đổi"),
     ("edit", "Chỉnh sửa"),
+    ("fill", "Điền && Ký"),
     ("sign", "Ký số && Bảo mật"),
 ]
 
@@ -45,6 +46,7 @@ CATEGORY_TITLES = {
     "read": "ĐỌC & SOI BỐ CỤC",
     "convert": "CHUYỂN ĐỔI",
     "edit": "CHỈNH SỬA & TỔ CHỨC TRANG",
+    "fill": "ĐIỀN & KÝ",
     "sign": "KÝ SỐ & BẢO MẬT",
 }
 
@@ -118,14 +120,20 @@ TOOLS: list[ToolSpec] = [
              needs_document=True, keywords="annotation ghi chu comment note hop chu"),
     ToolSpec("stamp", "Đóng dấu", "🔖", "ĐÃ DUYỆT · BẢN SAO · MẬT · KHẨN", "edit",
              needs_document=True, keywords="stamp dau dong dau"),
-    ToolSpec("forms", "Điền biểu mẫu", "🧾", "Trường nhập liệu · Xoá biểu mẫu", "edit",
-             ready=False, milestone="v1.2", keywords="form bieu mau"),
     ToolSpec("compress", "Nén PDF", "🗜️", "Nhẹ · Vừa · Mạnh — báo dung lượng trước/sau", "edit",
              keywords="compress nen giam dung luong anh email"),
     ToolSpec("watermark", "Đóng dấu nước", "💧", "Chữ tiếng Việt · Độ mờ · Góc xoay · Lát gạch", "edit",
              keywords="watermark dau nuoc ban sao mat noi bo du thao chim"),
     ToolSpec("page_numbers", "Đánh số trang", "🔢", "6 vị trí · «Trang 1 / 10» · Mẫu chuẩn NĐ30", "edit",
              keywords="page number danh so trang so trang nd30 dau trang chan trang"),
+    # ── Điền & Ký ──
+    ToolSpec("fill_sign", "Điền & Ký", "🖋️", "Gõ chữ vào dòng chấm · ✓ ✕ ● · Ngày · Chữ ký (Ctrl+Shift+F)", "fill",
+             needs_document=True,
+             keywords="fill sign dien ky go chu dong cham danh dau tich ngay thang chu ky nhay bieu mau don to khai"),
+    ToolSpec("signatures", "Thư viện chữ ký", "✍️", "Vẽ · Gõ tên · Ảnh · Tách nền ảnh chụp chữ ký / con dấu", "fill",
+             keywords="chu ky nhay signature initials anh chup tach nen con dau thu vien"),
+    ToolSpec("forms", "Điền biểu mẫu PDF", "🧾", "Ô nhập liệu có sẵn trong PDF · Xoá biểu mẫu", "fill",
+             ready=False, milestone="v1.2", keywords="form bieu mau acroform truong nhap lieu"),
     # ── Ký số & Bảo mật ──
     ToolSpec("sig_inspect", "Soi chữ ký số & con dấu", "🛡️", "Phát hiện widget ký số VGCA", "sign",
              needs_document=True, keywords="chu ky so vgca con dau"),

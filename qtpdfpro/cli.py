@@ -54,7 +54,7 @@ from qtpdfpro.core import annotations as annots_mod
 from qtpdfpro.core import compress as compress_mod
 from qtpdfpro.core import page_ops, page_stamp, pdf_security
 from qtpdfpro.core import printing
-from qtpdfpro.core import file_assoc, update_check
+from qtpdfpro.core import file_assoc, fill_sign, update_check
 from qtpdfpro.core.pdf_io import PdfToolError, ToolResult, format_size
 from qtpdfpro.core.batch import (
     STATUS_FAILED,
@@ -209,6 +209,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_bat.add_argument("--json", action="store_true", help="In kết quả dạng JSON")
 
     _add_edit_commands(sub)
+    _add_fill_sign_commands(sub)
     _add_update_command(sub)
     _add_assoc_command(sub)
     _add_print_command(sub)
@@ -309,6 +310,56 @@ def _add_edit_commands(sub) -> None:
     p_list = sub.add_parser("annots", help="Liệt kê chú thích trong tệp PDF")
     p_list.add_argument("input_pdf", help="Tệp PDF")
     p_list.add_argument("--json", action="store_true", help="In kết quả dạng JSON")
+
+
+def _add_fill_sign_commands(sub) -> None:
+    """Lệnh «fill» (Điền & Ký) và «signature» (thư viện chữ ký, tách nền ảnh chụp)."""
+    p = sub.add_parser(
+        "fill",
+        help="Điền & Ký: gõ chữ vào dòng chấm, dấu ✓ ✕ ● ─, ngày tháng, chữ ký hình ảnh",
+        description="Toạ độ là pt trên trang đang hiển thị (gốc trên-trái); mỗi mục dạng 'TRANG:X,Y[:NỘI_DUNG]'. "
+                    "Chữ & ngày tự bắt vào dòng chấm «……» / gạch dưới / đường kẻ gần điểm đó.",
+    )
+    p.add_argument("input_pdf", help="Tệp PDF nguồn")
+    p.add_argument("-o", "--output", help="Tệp kết quả (mặc định: <tên>_da_dien.pdf; trùng tệp gốc = ghi bổ sung)")
+    p.add_argument("--text", action="append", default=[], metavar="TRANG:X,Y:CHỮ", help="Gõ chữ, vd '1:200,97:Nguyễn Văn A'")
+    for mark, (symbol, name) in fill_sign.MARKS.items():
+        p.add_argument(f"--{mark}", action="append", default=[], metavar="TRANG:X,Y", help=f"{name} {symbol}")
+    p.add_argument("--date", action="append", default=[], metavar="TRANG:X,Y", help="Ghi ngày hôm nay")
+    p.add_argument("--date-format", default="dmy", choices=[k for k, _f in fill_sign.DATE_FORMATS],
+                   help="Mẫu ngày: dmy=23/10/2026, nd30=ngày 23 tháng 10 năm 2026, nd30_cap, dmy_dash, dmy_dot")
+    p.add_argument("--sign", action="append", default=[], metavar="TRANG:X,Y", help="Đặt chữ ký (tâm tại X,Y)")
+    p.add_argument("--initials", action="append", default=[], metavar="TRANG:X,Y", help="Đặt chữ ký nháy")
+    p.add_argument("--signature-id", help="Mã chữ ký trong thư viện (xem 'signature list')")
+    p.add_argument("--signature-image", help="Ảnh chữ ký / con dấu (PNG nền trong suốt, hoặc ảnh chụp — tự tách nền)")
+    p.add_argument("--signature-text", help="Ký bằng tên gõ (phông Times New Roman nghiêng)")
+    p.add_argument("--sign-width", type=float, help="Chiều rộng chữ ký (pt; mặc định 150, chữ ký nháy 60)")
+    p.add_argument("--font-size", type=float, default=12.0, help="Cỡ chữ khi không bắt được dòng chấm (mặc định 12)")
+    p.add_argument("--color", help="Màu chữ / dấu (mặc định đen; vd xanh, do, #1E3A8A)")
+    p.add_argument("--no-snap", action="store_true", help="Không tự bắt dòng chấm / ô vuông")
+    p.add_argument("--ops", help="Tệp JSON danh sách thao tác (xem fill_sign.apply_fill_operations)")
+    p.add_argument("--leaders", action="store_true", help="Chỉ liệt kê dòng chấm / đường kẻ / ô vuông tìm được")
+    p.add_argument("--author", help="Tên người điền (mặc định: tên đăng nhập Windows)")
+    p.add_argument("--flatten", action="store_true", help="Làm phẳng vào nội dung trang (không sửa / xoá được nữa)")
+    p.add_argument("--json", action="store_true", help="In kết quả dạng JSON")
+
+    s = sub.add_parser("signature", help="Thư viện chữ ký (mã hoá DPAPI) & tách nền ảnh chụp chữ ký")
+    s_sub = s.add_subparsers(dest="sig_command", required=True)
+    s_list = s_sub.add_parser("list", help="Liệt kê chữ ký đã lưu")
+    s_list.add_argument("--json", action="store_true", help="In kết quả dạng JSON")
+    s_add = s_sub.add_parser("add", help="Lưu chữ ký mới từ ảnh (tự tách nền) hoặc tên gõ")
+    s_add.add_argument("--image", help="Ảnh chữ ký / ảnh chụp chữ ký trên giấy")
+    s_add.add_argument("--text", help="Tên gõ")
+    s_add.add_argument("--initials", action="store_true", help="Lưu làm chữ ký nháy")
+    s_add.add_argument("--name", default="", help="Tên gợi nhớ")
+    s_add.add_argument("--json", action="store_true", help="In kết quả dạng JSON")
+    s_del = s_sub.add_parser("delete", help="Xoá chữ ký đã lưu")
+    s_del.add_argument("id", help="Mã chữ ký")
+    s_clean = s_sub.add_parser("clean", help="Tách nền ảnh chụp chữ ký / con dấu thành PNG nền trong suốt")
+    s_clean.add_argument("image", help="Ảnh chụp (JPG, PNG…)")
+    s_clean.add_argument("-o", "--output", help="Tệp PNG kết quả (mặc định: <tên>_tach_nen.png)")
+    s_clean.add_argument("--sensitivity", type=int, default=50, help="Độ nhạy mực 0–100 (mặc định 50)")
+    s_clean.add_argument("--one-color", action="store_true", help="Tô một màu trung bình thay vì giữ màu từng điểm")
 
 
 def _add_update_command(sub) -> None:
@@ -502,6 +553,153 @@ def _run_annotate(args: argparse.Namespace) -> int:
     else:
         print(f"Đã thêm {added} chú thích → {dst}" + (" (đã làm phẳng)" if args.flatten else ""))
     return 0
+
+
+def _parse_fill_spec(spec: str, with_text: bool) -> tuple:
+    """'TRANG:X,Y[:NỘI_DUNG]' → (trang 1-based, x, y, nội dung)."""
+    parts = spec.split(":", 2)
+    if len(parts) < 2:
+        raise ValueError(f"Mục «{spec}» phải có dạng TRANG:X,Y" + (":CHỮ" if with_text else ""))
+    xy = parts[1].split(",")
+    if len(xy) != 2:
+        raise ValueError(f"Toạ độ «{parts[1]}» phải có dạng X,Y")
+    text = parts[2] if len(parts) > 2 else ""
+    if with_text and not text.strip():
+        raise ValueError(f"Mục «{spec}» thiếu nội dung cần điền")
+    return int(parts[0]), float(xy[0]), float(xy[1]), text
+
+
+def _run_fill(args: argparse.Namespace) -> int:
+    import fitz
+
+    src = Path(args.input_pdf).resolve()
+    doc = fitz.open(str(src))
+    try:
+        if doc.needs_pass:
+            raise PermissionError("Tệp PDF được bảo vệ bằng mật khẩu.")
+        if args.leaders:
+            payload = []
+            for page in doc:
+                payload.append({
+                    "page": page.number + 1,
+                    "leaders": [ld.to_dict() for ld in fill_sign.find_leaders(page, args.font_size)],
+                    "boxes": [[round(v, 2) for v in b] for b in fill_sign.find_boxes(page)],
+                })
+            if args.json:
+                print(json.dumps(payload, ensure_ascii=False, indent=2))
+            else:
+                for item in payload:
+                    print(f"Trang {item['page']}: {len(item['leaders'])} chỗ điền, {len(item['boxes'])} ô vuông")
+                    for ld in item["leaders"]:
+                        kind = "dòng chấm" if ld["source"] == "text" else "đường kẻ"
+                        print(f"  - {kind}: x {ld['x0']:g}–{ld['x1']:g}, chân chữ y {ld['baseline']:g}, "
+                              f"cỡ {ld['font_size']:g} pt")
+            return 0
+
+        color = args.color or "#111827"
+        common = {"color": color, "font_size": args.font_size, "snap": not args.no_snap}
+        ops: list = []
+        for spec in args.text:
+            pg, x, y, text = _parse_fill_spec(spec, True)
+            ops.append({"type": "text", "page": pg, "at": [x, y], "text": text, **common})
+        for spec in args.date:
+            pg, x, y, _t = _parse_fill_spec(spec, False)
+            ops.append({"type": "date", "page": pg, "at": [x, y], "format": args.date_format, **common})
+        for mark in fill_sign.MARKS:
+            for spec in getattr(args, mark):
+                pg, x, y, _t = _parse_fill_spec(spec, False)
+                ops.append({"type": mark, "page": pg, "at": [x, y], **common})
+        sig_specs = [(s, False) for s in args.sign] + [(s, True) for s in args.initials]
+        if sig_specs:
+            base: dict = {}
+            if args.signature_id:
+                base["id"] = args.signature_id
+            elif args.signature_image:
+                base["image"] = args.signature_image
+            elif args.signature_text:
+                base["text"] = args.signature_text
+            else:
+                raise ValueError("Đặt chữ ký cần --signature-id, --signature-image hoặc --signature-text")
+            for spec, initials in sig_specs:
+                pg, x, y, _t = _parse_fill_spec(spec, False)
+                op = {"type": "signature", "page": pg, "at": [x, y], "initials": initials, **base}
+                if args.sign_width:
+                    op["width"] = args.sign_width
+                if args.color and "text" in base:
+                    op["color"] = args.color
+                ops.append(op)
+        if args.ops:
+            extra = json.loads(Path(args.ops).read_text(encoding="utf-8-sig"))
+            if isinstance(extra, dict):
+                extra = extra.get("operations") or extra.get("ops") or []
+            ops.extend(extra)
+        if not ops:
+            raise ValueError("Chưa có gì để điền — dùng --text, --check, --date, --sign… hoặc --ops")
+        author = args.author if args.author is not None else annots_mod.default_author()
+        added = fill_sign.apply_fill_operations(doc, ops, author)
+        dst = Path(args.output).resolve() if args.output else src.with_name(f"{src.stem}_da_dien.pdf")
+        if args.flatten:
+            annots_mod.flatten_annotations(doc)
+        if dst == src:
+            doc.save(str(src), incremental=True, encryption=fitz.PDF_ENCRYPT_KEEP)
+        else:
+            page_ops.save_pdf(doc, dst)
+    finally:
+        doc.close()
+    if args.json:
+        print(json.dumps({"output": str(dst), "added": added, "flattened": bool(args.flatten)},
+                         ensure_ascii=False, indent=2))
+    else:
+        print(f"Đã điền {added} mục → {dst}" + (" (đã làm phẳng)" if args.flatten else ""))
+    return 0
+
+
+def _run_signature(args: argparse.Namespace) -> int:
+    lib = fill_sign.SignatureLibrary()
+    if args.sig_command == "list":
+        sigs = lib.list()
+        if args.json:
+            payload = [{"id": s.id, "kind": s.kind, "initials": s.initials, "name": s.name, "label": s.label}
+                       for s in sigs]
+            print(json.dumps(payload, ensure_ascii=False, indent=2))
+        else:
+            print(f"{len(sigs)} chữ ký đã lưu ở {lib.folder}")
+            for s in sigs:
+                print(f"  - {s.id}: {s.label}")
+        return 0
+    if args.sig_command == "add":
+        if args.image:
+            png = fill_sign.prepare_signature_image(Path(args.image).read_bytes())
+            sig = fill_sign.Signature("image", args.initials, name=args.name, png=png)
+        elif args.text:
+            sig = fill_sign.Signature("typed", args.initials, name=args.name, text=args.text)
+        else:
+            raise ValueError("Cần --image hoặc --text")
+        lib.save(sig)
+        if args.json:
+            print(json.dumps({"id": sig.id, "label": sig.label}, ensure_ascii=False, indent=2))
+        else:
+            print(f"Đã lưu {sig.label} — mã {sig.id}")
+        return 0
+    if args.sig_command == "delete":
+        if not lib.delete(args.id):
+            raise ValueError(f"Không có chữ ký mã «{args.id}»")
+        print(f"Đã xoá chữ ký {args.id}")
+        return 0
+    src = Path(args.image).resolve()
+    dst = Path(args.output).resolve() if args.output else src.with_name(f"{src.stem}_tach_nen.png")
+    png = fill_sign.clean_signature_photo(src.read_bytes(), args.sensitivity, keep_color=not args.one_color)
+    dst.write_bytes(png)
+    print(f"Đã tách nền → {dst}")
+    return 0
+
+
+def _run_fill_sign_command(args: argparse.Namespace) -> int:
+    try:
+        return _run_fill(args) if args.command == "fill" else _run_signature(args)
+    except (fill_sign.FillSignError, annots_mod.AnnotationError, ValueError, OSError) as exc:
+        print(f"Lỗi: {exc}", file=sys.stderr)
+        return 1
 
 
 def _run_edit_command(args: argparse.Namespace) -> int:
@@ -899,6 +1097,9 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     if args.command in ("merge", "split", "organize", "extract", "annotate", "annots"):
         return _run_edit_command(args)
+
+    if args.command in ("fill", "signature"):
+        return _run_fill_sign_command(args)
 
     if args.command == "update":
         return _run_update(args)

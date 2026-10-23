@@ -52,13 +52,20 @@ from PySide6.QtWidgets import (
 )
 
 from qtpdfpro.core import annotations as an
+from qtpdfpro.core import fill_sign as fs
 from qtpdfpro.core.edit_session import EditSession
 from qtpdfpro.core.reader import PDFDocumentReader
 
 MARKUP_TOOLS = ("highlight", "underline", "strikeout", "squiggly")
 INK_TOOLS = ("pen", "marker")
 SHAPE_TOOLS = ("rect", "ellipse", "line", "arrow")
-CREATE_TOOLS = MARKUP_TOOLS + INK_TOOLS + SHAPE_TOOLS + ("text", "note", "stamp")
+# Điền & Ký (core/fill_sign.py)
+FILL_TEXT_TOOLS = ("fill_text", "fill_date")
+FILL_MARK_TOOLS = {"fill_check": "check", "fill_cross": "cross", "fill_dot": "dot", "fill_line": "line"}
+FILL_SIGN_TOOLS = ("fill_sign", "fill_initials")
+FILL_TOOLS = FILL_TEXT_TOOLS + tuple(FILL_MARK_TOOLS) + FILL_SIGN_TOOLS
+CREATE_TOOLS = MARKUP_TOOLS + INK_TOOLS + SHAPE_TOOLS + ("text", "note", "stamp") + FILL_TOOLS
+TEXT_COLOR_TOOLS = ("text",) + FILL_TEXT_TOOLS  # màu chọn trên thanh = màu chữ
 
 
 @dataclass(frozen=True)
@@ -68,12 +75,14 @@ class ToolDef:
     tip: str
     shortcut: str
     hint: str
+    group: str = "edit"  # "edit" (Chỉnh sửa) | "fill" (Điền & Ký) | "both"
 
 
 TOOL_DEFS: List[ToolDef] = [
-    ToolDef("pan", "✋", "Cuộn trang", "Esc", "Kéo để cuộn trang. Chọn một công cụ để tô màu, đánh dấu, vẽ hoặc chèn chữ."),
+    ToolDef("pan", "✋", "Cuộn trang", "Esc", "Kéo để cuộn trang. Chọn một công cụ để tô màu, đánh dấu, vẽ hoặc chèn chữ.",
+            "both"),
     ToolDef("select", "↖", "Chọn / di chuyển chú thích", "V",
-            "Nhấp chọn chú thích · kéo để di chuyển · Delete để xoá · nhấp đúp để sửa nội dung."),
+            "Nhấp chọn chú thích · kéo để di chuyển · Delete để xoá · nhấp đúp để sửa nội dung.", "both"),
     ToolDef("highlight", "🖍", "Tô sáng chữ", "H",
             "Kéo chuột qua chữ để tô sáng · giữ Alt để chọn theo vùng · trang ảnh quét: kéo một vùng."),
     ToolDef("underline", "U", "Gạch chân chữ", "U", "Kéo chuột qua chữ cần gạch chân · giữ Alt để chọn theo vùng."),
@@ -88,7 +97,18 @@ TOOL_DEFS: List[ToolDef] = [
     ToolDef("text", "T", "Hộp chữ", "T", "Nhấp (hoặc kéo để đặt độ rộng) rồi nhập nội dung hộp chữ."),
     ToolDef("note", "💬", "Ghi chú dán", "N", "Nhấp vào vị trí cần ghi chú rồi nhập nội dung."),
     ToolDef("stamp", "🔖", "Đóng dấu", "D", "Chọn mẫu dấu rồi nhấp vào trang để đóng dấu."),
-    ToolDef("eraser", "⌫", "Tẩy chú thích", "X", "Nhấp hoặc kéo qua chú thích để xoá (Ctrl+Z để khôi phục)."),
+    ToolDef("fill_text", "Aa", "Gõ chữ", "T",
+            "Nhấp vào chỗ cần điền (dòng chấm «……», gạch dưới, đường kẻ) rồi gõ — chữ tự nằm đúng dòng.", "fill"),
+    ToolDef("fill_check", "✓", "Dấu tích", "C", "Nhấp vào ô cần đánh dấu — tự căn giữa ô vuông ☐ gần đó.", "fill"),
+    ToolDef("fill_cross", "✕", "Dấu nhân", "K", "Nhấp vào ô cần đánh dấu ✕ — tự căn giữa ô vuông gần đó.", "fill"),
+    ToolDef("fill_dot", "●", "Chấm tròn", "O", "Nhấp để đặt chấm tròn (chọn phương án trắc nghiệm).", "fill"),
+    ToolDef("fill_line", "─", "Gạch ngang", "L", "Nhấp để gạch một ô / phương án không chọn.", "fill"),
+    ToolDef("fill_date", "📅", "Ngày tháng", "D", "Nhấp vào chỗ ghi ngày — điền ngày hôm nay theo mẫu đã chọn.", "fill"),
+    ToolDef("fill_sign", "✍", "Chữ ký", "S",
+            "Nhấp để đặt chữ ký (kéo một khung để chọn cỡ). Chưa có chữ ký thì tạo mới: vẽ, gõ tên, ảnh.", "fill"),
+    ToolDef("fill_initials", "✍ₙ", "Chữ ký nháy", "N", "Nhấp để đặt chữ ký nháy (ký tắt) — kéo khung để chọn cỡ.",
+            "fill"),
+    ToolDef("eraser", "⌫", "Tẩy chú thích", "X", "Nhấp hoặc kéo qua chú thích để xoá (Ctrl+Z để khôi phục).", "both"),
 ]
 TOOL_BY_KEY = {t.key: t for t in TOOL_DEFS}
 
@@ -106,6 +126,10 @@ _DEFAULT_STYLES: Dict[str, an.AnnotStyle] = {
     "text": an.AnnotStyle(color="#111827", text_color="#111827", font_size=12.0),
     "note": an.AnnotStyle(color="#FACC15"),
     "stamp": an.AnnotStyle(color="#16A34A", font_size=18.0, opacity=0.9),
+    **{k: an.AnnotStyle(color="#1E3A8A", text_color="#1E3A8A", font_family="serif", font_size=12.0)
+       for k in FILL_TEXT_TOOLS},
+    **{k: an.AnnotStyle(color="#111827", font_size=12.0) for k in FILL_MARK_TOOLS},
+    **{k: an.AnnotStyle(color="#1E3A8A") for k in FILL_SIGN_TOOLS},
 }
 
 _CURSORS = {
@@ -154,6 +178,7 @@ class AnnotationController(QObject):
     styleChanged = Signal()
     selectionChanged = Signal()
     message = Signal(str)
+    signatureNeeded = Signal(bool)  # Điền & Ký: chưa có chữ ký (True = chữ ký nháy) → mở hộp thoại tạo chữ ký
 
     def __init__(self, reader: PDFDocumentReader, author: Optional[str] = None, parent: QObject | None = None) -> None:
         super().__init__(parent)
@@ -167,6 +192,13 @@ class AnnotationController(QObject):
         self._selected: Optional[Tuple[int, int]] = None
         self._hover: Optional[Tuple[int, int]] = None
         self._erased: set[Tuple[int, int]] = set()
+        # Điền & Ký
+        self.fill_snap = True  # chữ tự bắt dòng chấm, dấu tự vào ô vuông
+        self.date_format = "dmy"
+        self.signature_ids: Dict[bool, Optional[str]] = {False: None, True: None}
+        self._library: Optional[fs.SignatureLibrary] = None
+        self._fill_hover: Optional[Tuple[int, fitz.Rect, str]] = None  # (trang, khung xem trước, kiểu)
+        self._pending_sign: Optional[Tuple[int, fitz.Point, Optional[fitz.Rect], bool]] = None
 
     # ─── Trạng thái công cụ & kiểu dáng ───────────────────────────────────
 
@@ -188,6 +220,7 @@ class AnnotationController(QObject):
         self._tool = key
         self._drag = None
         self._hover = None
+        self._fill_hover = None
         if key not in ("select",):
             self._set_selected(None)
         self.toolChanged.emit(key)
@@ -201,7 +234,7 @@ class AnnotationController(QObject):
         style = self._styles[self._tool]
         for key, value in changes.items():
             setattr(style, key, value)
-        if self._tool == "text" and "color" in changes:
+        if self._tool in TEXT_COLOR_TOOLS and "color" in changes:
             style.text_color = changes["color"]
         self.styleChanged.emit()
 
@@ -210,6 +243,48 @@ class AnnotationController(QObject):
         if color:
             self._styles["stamp"].color = color
         self.styleChanged.emit()
+
+    # ─── Điền & Ký: thư viện chữ ký ──────────────────────────────────────
+
+    @property
+    def library(self) -> fs.SignatureLibrary:
+        if self._library is None:
+            self._library = fs.SignatureLibrary()
+        return self._library
+
+    def set_library(self, library: fs.SignatureLibrary) -> None:
+        self._library = library
+
+    def current_signature(self, initials: bool) -> Optional[fs.Signature]:
+        """Chữ ký đang chọn (hoặc chữ ký mới nhất cùng loại trong thư viện)."""
+        sig_id = self.signature_ids.get(initials)
+        sig = self.library.get(sig_id) if sig_id else None
+        if sig is None:
+            saved = self.library.list(initials=initials)
+            sig = saved[-1] if saved else None
+            self.signature_ids[initials] = sig.id if sig else None
+        return sig
+
+    def set_signature(self, initials: bool, sig_id: Optional[str]) -> None:
+        self.signature_ids[initials] = sig_id
+        self.styleChanged.emit()
+
+    def place_pending_signature(self) -> bool:
+        """Đặt chữ ký vào chỗ người dùng đã nhấp trước khi tạo chữ ký (sau khi hộp thoại tạo chữ ký đóng)."""
+        pending, self._pending_sign = self._pending_sign, None
+        if pending is None:
+            return False
+        page_index, point, rect, initials = pending
+        sig = self.current_signature(initials)
+        if sig is None:
+            return False
+        try:
+            self.session.add_signature(page_index, sig, center=point, rect=rect)
+        except an.AnnotationError as exc:
+            self.message.emit(str(exc))
+            return False
+        self._done(page_index, "Đã ký nháy." if initials else "Đã ký.")
+        return True
 
     def cursor(self) -> Qt.CursorShape:
         return _CURSORS.get(self._tool, Qt.CursorShape.CrossCursor)
@@ -257,13 +332,19 @@ class AnnotationController(QObject):
         info = self.session.info(page_index, xref)
         if info is None:
             return False
-        title = "Sửa hộp chữ" if info.app_kind == "textbox" else f"Nội dung — {info.label}"
-        current = an.qt_data(self.reader.doc, xref).get("text", info.content) if info.app_kind == "textbox" \
-            else info.content
-        text, ok = QInputDialog.getMultiLineText(parent, title, "Nội dung:", current)
+        if info.app_kind in ("fillmark", "signature"):
+            self.message.emit(f"{info.label}: kéo bằng công cụ Chọn để di chuyển, Delete để xoá.")
+            return False
+        title = {"textbox": "Sửa hộp chữ", "filltext": "Sửa chữ điền"}.get(info.app_kind, f"Nội dung — {info.label}")
+        own_text = info.app_kind in ("textbox", "filltext")
+        current = an.qt_data(self.reader.doc, xref).get("text", info.content) if own_text else info.content
+        if info.app_kind == "filltext":
+            text, ok = QInputDialog.getText(parent, title, "Nội dung:", text=current)
+        else:
+            text, ok = QInputDialog.getMultiLineText(parent, title, "Nội dung:", current)
         if not ok or text == current:
             return False
-        if info.app_kind == "textbox" and not text.strip():
+        if own_text and not text.strip():
             return self.delete_annotation(page_index, xref)
         try:
             self.session.set_content(page_index, xref, text)
@@ -356,6 +437,30 @@ class AnnotationController(QObject):
                 date_text = an.stamp_date_text() if self.stamp_with_date else None
                 session.add_stamp(page_index, end, self.stamp_label, style, date_text)
                 self._done(page_index, f"Đã đóng dấu «{self.stamp_label}».")
+            elif tool in FILL_TEXT_TOOLS:
+                if tool == "fill_date":
+                    text = fs.format_date(self.date_format)
+                else:
+                    text, ok = QInputDialog.getText(viewer, "Gõ chữ", "Nội dung cần điền:")
+                    if not ok or not text.strip():
+                        return
+                kind = "date" if tool == "fill_date" else "text"
+                session.add_fill_text(page_index, d.start, text, style, self.fill_snap, kind=kind)
+                self._fill_hover = None
+                self._done(page_index, f"Đã điền «{fs._one_line(text)}».")
+            elif tool in FILL_MARK_TOOLS:
+                session.add_fill_mark(page_index, end, FILL_MARK_TOOLS[tool], style, self.fill_snap)
+                self._done(page_index, f"Đã đánh {fs.MARKS[FILL_MARK_TOOLS[tool]][1].lower()}.")
+            elif tool in FILL_SIGN_TOOLS:
+                initials = tool == "fill_initials"
+                rect = fitz.Rect(d.start, end).normalize() if moved >= 12 else None
+                sig = self.current_signature(initials)
+                if sig is None:
+                    self._pending_sign = (page_index, fitz.Point(end), rect, initials)
+                    self.signatureNeeded.emit(initials)
+                    return
+                session.add_signature(page_index, sig, center=end, rect=rect)
+                self._done(page_index, "Đã ký nháy." if initials else "Đã ký.")
             elif tool == "select" and d.xref is not None and moved >= 0.5:
                 if session.move(page_index, d.xref, end.x - d.start.x, end.y - d.start.y):
                     self._done(page_index, "Đã di chuyển chú thích.")
@@ -408,6 +513,16 @@ class AnnotationController(QObject):
                 painter.setPen(QPen(_qcolor("#2563EB"), 1.5, Qt.PenStyle.DashLine))
                 painter.setBrush(QBrush(_qcolor("#2563EB", 22)))
                 painter.drawRect(wr)
+        fh = self._fill_hover
+        if fh is not None and fh[0] == page_index and self._drag is None:
+            wr = viewer.page_rect_to_widget(page_index, fh[1], t)
+            painter.setPen(QPen(_qcolor("#2563EB", 220), 1.2, Qt.PenStyle.DashLine))
+            painter.setBrush(QBrush(_qcolor("#2563EB", 26)))
+            painter.drawRect(wr)
+            if fh[2] == "text":  # vạch chân chữ: chữ sẽ nằm trên vạch này
+                y = wr.bottom() - wr.height() * 0.22
+                painter.setPen(QPen(_qcolor("#2563EB"), 1.6))
+                painter.drawLine(QPointF(wr.left(), y), QPointF(wr.right(), y))
         d = self._drag
         if d is None or d.page != page_index:
             return
@@ -449,7 +564,7 @@ class AnnotationController(QObject):
                 painter.drawLine(a, b)
                 if tool == "arrow":
                     self._paint_arrow_head(painter, a, b, max(6.0, style.width * scale * 3.5), pen.color())
-        elif tool == "text":
+        elif tool == "text" or tool in FILL_SIGN_TOOLS:
             painter.setPen(QPen(_qcolor("#2563EB"), 1, Qt.PenStyle.DashLine))
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawRect(viewer.page_rect_to_widget(page_index, fitz.Rect(d.start, d.current).normalize(), t))
@@ -488,7 +603,50 @@ class AnnotationController(QObject):
             self._erased.add((page_index, xref))
             self.delete_annotation(page_index, xref)
 
+    def _fill_preview(self, page_index: int, pt: fitz.Point) -> Optional[Tuple[int, fitz.Rect, str]]:
+        """Khung xem trước (toạ độ trang chưa xoay) của công cụ Điền & Ký tại điểm chuột."""
+        tool = self._tool
+        page = self.reader.doc[page_index]
+        style = self.style()
+        derot = page.derotation_matrix
+        if tool in FILL_TEXT_TOOLS:
+            target = self.session.fill_target(page_index, pt, style, self.fill_snap)
+            sample = fs.format_date(self.date_format) if tool == "fill_date" else "Nội dung điền"
+            disp = fs.fill_text_rect(page, target, sample, style)
+            return page_index, (disp * derot).normalize(), "text"
+        if tool in FILL_MARK_TOOLS:
+            box = None
+            if self.fill_snap and tool != "fill_line":
+                box = fs.snap_mark_box(page, pt, self.session.boxes(page_index))
+            if box is None:
+                c = fitz.Point(pt) * page.rotation_matrix
+                s = style.font_size
+                w = s * 1.6 if tool == "fill_line" else s
+                box = fitz.Rect(c.x - w / 2, c.y - s / 2, c.x + w / 2, c.y + s / 2)
+            return page_index, (box * derot).normalize(), "mark"
+        if tool in FILL_SIGN_TOOLS:
+            sig = self.current_signature(tool == "fill_initials")
+            if sig is not None:
+                w, h = fs.default_signature_size(sig)
+            else:
+                w, h = (fs.INITIALS_WIDTH, 24.0) if tool == "fill_initials" else (fs.SIGNATURE_WIDTH, 50.0)
+            c = fitz.Point(pt) * page.rotation_matrix
+            box = fitz.Rect(c.x - w / 2, c.y - h / 2, c.x + w / 2, c.y + h / 2)
+            return page_index, (box * derot).normalize(), "sign"
+        return None
+
     def _update_hover(self, viewer, page_index: Optional[int], pt: Optional[fitz.Point]) -> None:
+        if self._tool in FILL_TOOLS:
+            preview = None
+            if page_index is not None and pt is not None:
+                try:
+                    preview = self._fill_preview(page_index, pt)
+                except Exception:  # xem trước không được làm hỏng thao tác chuột
+                    preview = None
+            if preview != self._fill_hover:
+                self._fill_hover = preview
+                viewer.widget().update()
+            return
         if self._tool not in ("select", "eraser"):
             return
         hover = None
@@ -594,16 +752,23 @@ class FlowLayout(QLayout):
 
 
 class EditToolbar(QFrame):
-    """Thanh công cụ chế độ chỉnh sửa (2 tầng) đặt phía trên khung đọc PDF; các nút tự xuống dòng khi hẹp."""
+    """Thanh công cụ chế độ chỉnh sửa (2 tầng) đặt phía trên khung đọc PDF; các nút tự xuống dòng khi hẹp.
+
+    `toolset="fill"` dựng thanh «Điền & Ký» (gõ chữ, ✓ ✕ ● ─, ngày, chữ ký) dùng chung bộ điều khiển chú thích.
+    """
 
     saveRequested = Signal()
     organizeRequested = Signal()
     exitRequested = Signal()
+    manageSignaturesRequested = Signal(bool)  # Điền & Ký: mở thư viện chữ ký (True = chữ ký nháy)
 
-    def __init__(self, controller: AnnotationController, shortcut_parent: QWidget, parent: QWidget | None = None):
+    def __init__(self, controller: AnnotationController, shortcut_parent: QWidget, parent: QWidget | None = None,
+                 toolset: str = "edit"):
         super().__init__(parent)
         self.setObjectName("editToolbar")
         self.controller = controller
+        self.toolset = toolset
+        self.tool_defs = [td for td in TOOL_DEFS if td.group in (toolset, "both")]
         self._syncing = False
 
         root = QVBoxLayout(self)
@@ -615,14 +780,16 @@ class EditToolbar(QFrame):
         row1.setSpacing(3)
         self.tools_box = QWidget()
         tools_flow = FlowLayout(self.tools_box, hspacing=3, vspacing=3)
-        title = QLabel("✏️ <b>Chỉnh sửa</b>")
+        title = QLabel("🖋️ <b>Điền &amp; Ký</b>" if toolset == "fill" else "✏️ <b>Chỉnh sửa</b>")
         title.setObjectName("editToolbarTitle")
         tools_flow.addWidget(title)
         self.tool_group = QButtonGroup(self)
         self.tool_group.setExclusive(True)
         self.tool_buttons: Dict[str, QPushButton] = {}
-        for i, td in enumerate(TOOL_DEFS):
-            if td.key in ("highlight", "pen", "rect", "text", "eraser"):
+        separators = ("fill_text", "fill_check", "fill_date", "eraser") if toolset == "fill" else \
+            ("highlight", "pen", "rect", "text", "eraser")
+        for i, td in enumerate(self.tool_defs):
+            if td.key in separators:
                 sep = QFrame()
                 sep.setFrameShape(QFrame.Shape.VLine)
                 sep.setObjectName("editToolbarSep")
@@ -637,7 +804,7 @@ class EditToolbar(QFrame):
                 f = btn.font(); f.setUnderline(True); f.setBold(True); btn.setFont(f)
             elif td.key == "strikeout":
                 f = btn.font(); f.setStrikeOut(True); f.setBold(True); btn.setFont(f)
-            elif td.key == "text":
+            elif td.key in ("text", "fill_text"):
                 f = btn.font(); f.setBold(True); btn.setFont(f)
             btn.clicked.connect(lambda _c=False, k=td.key: self.controller.set_tool(k))
             self.tool_group.addButton(btn, i)
@@ -772,6 +939,38 @@ class EditToolbar(QFrame):
         stl.addWidget(self.stamp_date_chk)
         sb.addWidget(self.stamp_box)
 
+        # Điền & Ký: bắt dòng chấm, mẫu ngày, chữ ký đang dùng
+        self.snap_chk = QCheckBox("Bắt dòng chấm / ô vuông")
+        self.snap_chk.setToolTip("Chữ tự nằm lên dòng chấm «……», gạch dưới, đường kẻ gần chỗ nhấp; dấu ✓ ✕ tự vào giữa ô")
+        self.snap_chk.toggled.connect(self._on_snap)
+        sb.addWidget(self.snap_chk)
+        self.date_box = QWidget()
+        dl = QHBoxLayout(self.date_box)
+        dl.setContentsMargins(0, 0, 0, 0)
+        dl.addWidget(QLabel("Mẫu ngày"))
+        self.date_combo = QComboBox()
+        for key, _pattern in fs.DATE_FORMATS:
+            self.date_combo.addItem(fs.format_date(key), key)
+        self.date_combo.currentIndexChanged.connect(self._on_date_format)
+        dl.addWidget(self.date_combo)
+        sb.addWidget(self.date_box)
+        self.sig_box = QWidget()
+        gl = QHBoxLayout(self.sig_box)
+        gl.setContentsMargins(0, 0, 0, 0)
+        self.sig_combo = QComboBox()
+        self.sig_combo.setIconSize(QSize(84, 24))
+        self.sig_combo.setMinimumWidth(170)
+        self.sig_combo.activated.connect(self._on_signature_chosen)
+        self.btn_manage_sig = QPushButton("✍ Thư viện chữ ký…")
+        self.btn_manage_sig.setObjectName("ghostBtn")
+        self.btn_manage_sig.setToolTip("Tạo chữ ký mới (vẽ, gõ tên, ảnh, ảnh chụp tách nền) hoặc xoá chữ ký đã lưu")
+        self.btn_manage_sig.clicked.connect(
+            lambda: self.manageSignaturesRequested.emit(self.controller.tool == "fill_initials"))
+        gl.addWidget(self.sig_combo)
+        gl.addWidget(self.btn_manage_sig)
+        sb.addWidget(self.sig_box)
+        self._sig_combo_key: Optional[tuple] = None
+
         # Hàng kiểu dáng lấy đủ chỗ cho một hàng trước; gợi ý chỉ dùng phần còn trống
         self.style_box.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Preferred)
         row2.addWidget(self.style_box, 0)
@@ -784,7 +983,7 @@ class EditToolbar(QFrame):
 
         # Phím tắt chọn công cụ — chỉ khi con trỏ đang ở khung đọc
         self._shortcuts: List[QShortcut] = []
-        for td in TOOL_DEFS:
+        for td in self.tool_defs:
             sc = QShortcut(QKeySequence(td.shortcut), shortcut_parent)
             sc.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
             sc.activated.connect(lambda k=td.key: self.controller.set_tool(k))
@@ -792,7 +991,7 @@ class EditToolbar(QFrame):
             self._shortcuts.append(sc)
 
         for box in (self.tools_box, self.style_box, self.color_box, self.width_box, self.opacity_box,
-                    self.font_box, self.stamp_box):
+                    self.font_box, self.stamp_box, self.date_box, self.sig_box):
             box.setObjectName("editToolbarBox")  # nền trong suốt (theme.py), không lệch màu với thanh công cụ
 
         controller.toolChanged.connect(lambda _k: self.sync_from_controller())
@@ -822,6 +1021,8 @@ class EditToolbar(QFrame):
             hint = td.hint
             if tool == "stamp":
                 hint = f"Nhấp vào trang để đóng dấu «{self.controller.stamp_label}»."
+            elif tool in FILL_SIGN_TOOLS and self.controller.current_signature(tool == "fill_initials") is None:
+                hint = "Chưa có chữ ký — nhấp vào trang hoặc bấm «Thư viện chữ ký…» để tạo (vẽ, gõ tên, ảnh)."
             self.hint_lbl.setText(hint)
             self.hint_lbl.setToolTip(hint)
             creating = tool in CREATE_TOOLS
@@ -829,7 +1030,7 @@ class EditToolbar(QFrame):
             if not creating:
                 return
             style = self.controller.style()
-            color = (style.text_color if tool == "text" else style.color).upper()
+            color = (style.text_color if tool in TEXT_COLOR_TOOLS else style.color).upper()
             matched = self.swatches.get(color)
             if matched is not None:
                 matched.setChecked(True)
@@ -846,9 +1047,15 @@ class EditToolbar(QFrame):
             self.width_spin.setValue(style.width)
             self.opacity_slider.setValue(int(round(style.opacity * 100)))
             self.opacity_lbl.setText(f"{int(round(style.opacity * 100))}%")
-            self.font_box.setVisible(tool in ("text", "stamp"))
-            self.font_combo.setVisible(tool == "text")
-            self.bold_btn.setVisible(tool == "text")
+            signing = tool in FILL_SIGN_TOOLS
+            self.color_box.setVisible(not signing)  # chữ ký mang màu riêng (chọn khi tạo chữ ký)
+            self.opacity_box.setVisible(tool not in FILL_TOOLS)
+            self.font_box.setVisible(tool in ("text", "stamp") + FILL_TEXT_TOOLS + tuple(FILL_MARK_TOOLS))
+            self.font_combo.setVisible(tool in ("text",) + FILL_TEXT_TOOLS)
+            self.bold_btn.setVisible(tool in ("text",) + FILL_TEXT_TOOLS)
+            self.size_spin.setToolTip("Cỡ dấu (khi không có ô vuông)" if tool in FILL_MARK_TOOLS else
+                                      "Cỡ chữ (khi bắt dòng chấm thì theo cỡ chữ in quanh đó)" if tool in FILL_TEXT_TOOLS
+                                      else "Cỡ chữ")
             idx = self.font_combo.findData(style.font_family)
             self.font_combo.setCurrentIndex(max(0, idx))
             self.size_spin.setValue(style.font_size)
@@ -862,8 +1069,56 @@ class EditToolbar(QFrame):
                     self.stamp_combo.setCurrentIndex(i)
                     break
             self.stamp_date_chk.setChecked(self.controller.stamp_with_date)
+            self.snap_chk.setVisible(tool in FILL_TEXT_TOOLS + ("fill_check", "fill_cross", "fill_dot"))
+            self.snap_chk.setChecked(self.controller.fill_snap)
+            self.date_box.setVisible(tool == "fill_date")
+            idx = self.date_combo.findData(self.controller.date_format)
+            self.date_combo.setCurrentIndex(max(0, idx))
+            self.sig_box.setVisible(signing)
+            if signing:
+                self.refresh_signatures()
         finally:
             self._syncing = False
+
+    def refresh_signatures(self) -> None:
+        """Nạp lại danh sách chữ ký (hoặc chữ ký nháy) đã lưu vào ô chọn, kèm ảnh xem trước."""
+        initials = self.controller.tool == "fill_initials"
+        sigs = self.controller.library.list(initials=initials)
+        current = self.controller.current_signature(initials)
+        key = (initials, tuple(s.id for s in sigs))
+        was_syncing, self._syncing = self._syncing, True
+        try:
+            if key != self._sig_combo_key:
+                self._sig_combo_key = key
+                self.sig_combo.clear()
+                for s in sigs:
+                    pix = QPixmap()
+                    try:
+                        pix.loadFromData(fs.render_signature_png(s, 24, 84), "PNG")
+                    except Exception:
+                        pass
+                    self.sig_combo.addItem(QIcon(pix), s.name or ("Chữ ký nháy" if s.initials else "Chữ ký"), s.id)
+                self.sig_combo.addItem("＋ Tạo chữ ký mới…", None)
+            idx = self.sig_combo.findData(current.id) if current is not None else -1
+            self.sig_combo.setCurrentIndex(idx if idx >= 0 else self.sig_combo.count() - 1)
+        finally:
+            self._syncing = was_syncing
+
+    def _on_signature_chosen(self, index: int) -> None:
+        sig_id = self.sig_combo.itemData(index)
+        initials = self.controller.tool == "fill_initials"
+        if sig_id is None:
+            self.manageSignaturesRequested.emit(initials)
+            return
+        self.controller.set_signature(initials, sig_id)
+
+    def _on_snap(self, checked: bool) -> None:
+        if not self._syncing:
+            self.controller.fill_snap = bool(checked)
+
+    def _on_date_format(self, _index: int) -> None:
+        if not self._syncing:
+            self.controller.date_format = self.date_combo.currentData() or "dmy"
 
     def _set_style(self, **changes) -> None:
         if not self._syncing:
@@ -880,7 +1135,7 @@ class EditToolbar(QFrame):
 
     def _pick_color(self) -> None:
         style = self.controller.style()
-        current = style.text_color if self.controller.tool == "text" else style.color
+        current = style.text_color if self.controller.tool in TEXT_COLOR_TOOLS else style.color
         c = QColorDialog.getColor(QColor(current), self, "Chọn màu")
         if c.isValid():
             self._on_color(c.name().upper())
