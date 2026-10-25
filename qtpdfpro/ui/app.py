@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 from typing import List, Optional
 
+from PySide6.QtCore import QTimer
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
 
@@ -55,6 +56,49 @@ def _create_app_mutex() -> None:
         _app_mutex_handle = None
 
 
+def _force_foreground(hwnd: int) -> None:
+    """Đưa cửa sổ lên trên cùng dù Windows đang khoá tiền cảnh (foreground lock).
+
+    Windows chỉ cho tiến trình vừa được người dùng mở giành tiền cảnh trong thời gian ngắn; khởi động
+    chậm (nạp PySide6, PyMuPDF, ONNX…), người dùng bấm sang cửa sổ khác trong lúc chờ, hoặc ứng dụng
+    được mở lại bởi script cập nhật / bộ cài thì `SetForegroundWindow` bị từ chối → cửa sổ nằm sau,
+    chỉ nhấp nháy trên thanh tác vụ. Gắn tạm hàng đợi nhập của luồng đang giữ tiền cảnh rồi kích hoạt.
+    """
+    if sys.platform != "win32" or not hwnd:
+        return
+    try:
+        user32 = ctypes.windll.user32
+        kernel32 = ctypes.windll.kernel32
+        if user32.IsIconic(hwnd):
+            user32.ShowWindow(hwnd, 9)  # SW_RESTORE
+        foreground = user32.GetForegroundWindow()
+        if foreground == hwnd:
+            return
+        fg_thread = user32.GetWindowThreadProcessId(foreground, None) if foreground else 0
+        our_thread = kernel32.GetCurrentThreadId()
+        attached = bool(fg_thread and fg_thread != our_thread and user32.AttachThreadInput(our_thread, fg_thread, True))
+        try:
+            user32.BringWindowToTop(hwnd)
+            user32.SetForegroundWindow(hwnd)
+            user32.SetActiveWindow(hwnd)
+        finally:
+            if attached:
+                user32.AttachThreadInput(our_thread, fg_thread, False)
+    except (AttributeError, OSError):
+        pass
+
+
+def show_main_window(win: MainWindow) -> None:
+    """Mở cửa sổ chính phóng to toàn màn hình (như PdfCraft) và đưa lên trước.
+
+    `resize(1400, 880)` của `MainWindow` vẫn là cỡ khi người dùng bấm «Thu nhỏ cửa sổ» (Restore Down).
+    """
+    win.showMaximized()
+    win.raise_()
+    win.activateWindow()
+    _force_foreground(int(win.winId()))
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     parser = argparse.ArgumentParser(
         prog="qtpdfpro",
@@ -78,12 +122,14 @@ def main(argv: Optional[List[str]] = None) -> int:
         settings.default_app_prompted = True
         settings.save()
     win = MainWindow(settings=settings)
-    win.show()
+    show_main_window(win)
 
     for f in args.files:
         p = Path(f)
         if p.exists():
             win.open_pdf_path(p)
+    # Lần nữa khi vòng lặp sự kiện đã chạy (mở tệp lớn ở trên có thể mất vài giây)
+    QTimer.singleShot(0, lambda: _force_foreground(int(win.winId())))
 
     # Trình cập nhật (core/updater.py): tự kiểm tra tối đa 1 lần/ngày, tải ngầm QTPdfPro_Update.zip, cài khi thoát
     # (bản đóng gói); dọn bản cũ «.old» sau lần cập nhật trước

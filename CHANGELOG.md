@@ -7,6 +7,12 @@
 
 ## [Chưa phát hành]
 
+### Sửa lỗi — 2026-10-25: cửa sổ mở xong nằm dưới thanh tác vụ
+- **Hiện tượng**: khởi chạy QT PDF Pro thì cửa sổ không lên trước mà chỉ nhấp nháy trên thanh tác vụ, cỡ 1400×880; PdfCraft mở phóng to toàn màn hình.
+- **Nguyên nhân**: `win.show()` cỡ cố định; Windows khoá tiền cảnh (foreground lock) với tiến trình khởi động chậm (nạp PySide6/PyMuPDF/ONNX vài giây, người dùng bấm sang cửa sổ khác trong lúc chờ) hoặc được mở bởi tiến trình nền (script cập nhật, bộ cài) → `SetForegroundWindow` bị từ chối.
+- **Sửa** (`ui/app.py`): `show_main_window` mở **phóng to** (`showMaximized`, cỡ 1400×880 vẫn là cỡ khi bấm «Thu nhỏ cửa sổ»), `raise_` + `activateWindow`, rồi `_force_foreground` (khôi phục nếu đang thu nhỏ; gắn tạm hàng đợi nhập với luồng đang giữ tiền cảnh bằng `AttachThreadInput` rồi `SetForegroundWindow`); gọi lại một lần sau khi vòng lặp sự kiện chạy (mở tệp lớn từ dòng lệnh).
+- **Kiểm thử**: `tests/test_app_startup.py` (2 bài); chạy thật từ tiến trình nền PowerShell: cửa sổ phóng to, là cửa sổ tiền cảnh. Toàn bộ: 183 qua, 3 bỏ qua.
+
 ### Việc còn dở / Ưu tiên kế tiếp cho Agent phiên sau
 1. **Kiểm thử engine NĐ30 trên văn bản thật** (PDF ký số VGCA, PDF xuất từ phần mềm quản lý văn bản, PDF in từ LibreOffice): chạy `python -m qtpdfpro.cli convert <tệp> --mode nd30 --verify-layout` (hoặc `cli batch <thư mục> --verify-layout`) và xử lý các trường hợp «Lệch nhỏ».
 2. **v1.1+** (các mục v0.6–v0.8 còn lại) theo «Lộ trình gần» (`docs/DE_XUAT_TINH_NANG.md`): **Xem 2 trang song song**, **V1** một cửa sổ duy nhất, **V2** thông báo «Đã lưu», phần còn lại của **A3** (đầu – chân trang, Bates, dấu nước ảnh), **A4** (metadata, làm sạch `scrub`), **A5** chèn ảnh chữ ký / con dấu; sau đó v0.7 (B1, B2), v0.8 (V3, V5), **OCR Tiếng Việt** (B3 phát hành ở v1.2.0 — còn thử thêm bản scan mờ / nghiêng / có bảng, dựng bảng Word từ trang scan, trang cài đặt quản lý mô-đun của V5). Còn in thử 1 trang ra giấy trên máy in thật khi người dùng đồng ý.
