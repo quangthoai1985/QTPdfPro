@@ -405,10 +405,15 @@ def test_cli_ocr_writes_pdf_with_fake_engine(monkeypatch: pytest.MonkeyPatch, ca
 
 # ─── Mô hình thật (chỉ khi máy đã cài) ─────────────────────────────────────
 
+# Tìm lúc nạp module (thư mục dữ liệu thật); khi chạy test, conftest đã chuyển
+# `QT_PDF_PRO_DATA` sang thư mục tạm nên phải trỏ lại qua `MODELS_ENV`.
+_INSTALLED_BUNDLE = ocr_models.find_bundle()
+
 
 @needs_font
-@pytest.mark.skipif(ocr_models.find_bundle() is None, reason="chưa cài bộ mô hình OCR (ocr --install)")
-def test_real_models_read_vietnamese(tmp_path: Path):
+@pytest.mark.skipif(_INSTALLED_BUNDLE is None, reason="chưa cài bộ mô hình OCR (ocr --install)")
+def test_real_models_read_vietnamese(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv(ocr_models.MODELS_ENV, str(_INSTALLED_BUNDLE.root))
     text = "Căn cứ Nghị định số 79/2025/NĐ-CP ngày 01 tháng 4 năm 2025 của Chính phủ"
     pdf = _scanned_pdf(tmp_path / "scan.pdf", [(60, 120, text, 13)], dpi=200)
     res = ocr.recognize_document(fitz.open(pdf))

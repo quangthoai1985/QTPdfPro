@@ -7,6 +7,11 @@
 
 ## [Chưa phát hành]
 
+### 2026-10-25 — Đồng bộ máy cục bộ với GitHub, sửa test OCR mô hình thật
+- Kéo 13 commit (v1.0.1 → v1.2.1) về `main` cục bộ, cài thêm `onnxruntime` theo `requirements.txt`.
+- **Sửa** `tests/test_ocr.py::test_real_models_read_vietnamese` lỗi `OcrModelsMissing` trên máy **đã** cài mô hình OCR: `skipif` gọi `find_bundle()` lúc nạp module (thư mục dữ liệu thật) nhưng khi chạy, `conftest` đã đổi `QT_PDF_PRO_DATA` sang thư mục tạm. Test giờ đặt `QT_PDF_PRO_OCR_MODELS` (`ocr_models.MODELS_ENV`) trỏ về bộ mô hình đã tìm thấy.
+- Kiểm thử: `python -m pytest -q tests` → 185 qua, 1 bỏ qua.
+
 ### Việc còn dở / Ưu tiên kế tiếp cho Agent phiên sau
 1. **Kiểm thử engine NĐ30 trên văn bản thật** (PDF ký số VGCA, PDF xuất từ phần mềm quản lý văn bản, PDF in từ LibreOffice): chạy `python -m qtpdfpro.cli convert <tệp> --mode nd30 --verify-layout` (hoặc `cli batch <thư mục> --verify-layout`) và xử lý các trường hợp «Lệch nhỏ».
 2. **v1.1+** (các mục v0.6–v0.8 còn lại) theo «Lộ trình gần» (`docs/DE_XUAT_TINH_NANG.md`): **Xem 2 trang song song**, **V1** một cửa sổ duy nhất, **V2** thông báo «Đã lưu», phần còn lại của **A3** (đầu – chân trang, Bates, dấu nước ảnh), **A4** (metadata, làm sạch `scrub`), **A5** chèn ảnh chữ ký / con dấu; sau đó v0.7 (B1, B2), v0.8 (V3, V5), **OCR Tiếng Việt** (B3 phát hành ở v1.2.0 — còn thử thêm bản scan mờ / nghiêng / có bảng, dựng bảng Word từ trang scan, trang cài đặt quản lý mô-đun của V5). Còn in thử 1 trang ra giấy trên máy in thật khi người dùng đồng ý.
