@@ -7,17 +7,27 @@
 
 ## [Chưa phát hành]
 
-### Sửa lỗi — 2026-10-25: cửa sổ mở xong nằm dưới thanh tác vụ
-- **Hiện tượng**: khởi chạy QT PDF Pro thì cửa sổ không lên trước mà chỉ nhấp nháy trên thanh tác vụ, cỡ 1400×880; PdfCraft mở phóng to toàn màn hình.
-- **Nguyên nhân**: `win.show()` cỡ cố định; Windows khoá tiền cảnh (foreground lock) với tiến trình khởi động chậm (nạp PySide6/PyMuPDF/ONNX vài giây, người dùng bấm sang cửa sổ khác trong lúc chờ) hoặc được mở bởi tiến trình nền (script cập nhật, bộ cài) → `SetForegroundWindow` bị từ chối.
-- **Sửa** (`ui/app.py`): `show_main_window` mở **phóng to** (`showMaximized`, cỡ 1400×880 vẫn là cỡ khi bấm «Thu nhỏ cửa sổ»), `raise_` + `activateWindow`, rồi `_force_foreground` (khôi phục nếu đang thu nhỏ; gắn tạm hàng đợi nhập với luồng đang giữ tiền cảnh bằng `AttachThreadInput` rồi `SetForegroundWindow`); gọi lại một lần sau khi vòng lặp sự kiện chạy (mở tệp lớn từ dòng lệnh).
-- **Kiểm thử**: `tests/test_app_startup.py` (2 bài); chạy thật từ tiến trình nền PowerShell: cửa sổ phóng to, là cửa sổ tiền cảnh. Toàn bộ: 183 qua, 3 bỏ qua.
-
 ### Việc còn dở / Ưu tiên kế tiếp cho Agent phiên sau
 1. **Kiểm thử engine NĐ30 trên văn bản thật** (PDF ký số VGCA, PDF xuất từ phần mềm quản lý văn bản, PDF in từ LibreOffice): chạy `python -m qtpdfpro.cli convert <tệp> --mode nd30 --verify-layout` (hoặc `cli batch <thư mục> --verify-layout`) và xử lý các trường hợp «Lệch nhỏ».
 2. **v1.1+** (các mục v0.6–v0.8 còn lại) theo «Lộ trình gần» (`docs/DE_XUAT_TINH_NANG.md`): **Xem 2 trang song song**, **V1** một cửa sổ duy nhất, **V2** thông báo «Đã lưu», phần còn lại của **A3** (đầu – chân trang, Bates, dấu nước ảnh), **A4** (metadata, làm sạch `scrub`), **A5** chèn ảnh chữ ký / con dấu; sau đó v0.7 (B1, B2), v0.8 (V3, V5), **OCR Tiếng Việt** (B3 phát hành ở v1.2.0 — còn thử thêm bản scan mờ / nghiêng / có bảng, dựng bảng Word từ trang scan, trang cài đặt quản lý mô-đun của V5). Còn in thử 1 trang ra giấy trên máy in thật khi người dùng đồng ý.
    - «Chỉnh sửa PDF» mở rộng: đổi cỡ hộp chữ/hình bằng tay nắm, sửa kiểu dáng chú thích đã có, che thông tin (redaction), dấu đóng có ảnh chữ ký.
 3. Tuỳ chọn: chuyển hàng loạt song song bằng nhiều tiến trình (`ProcessPoolExecutor`, cần `multiprocessing.freeze_support()` cho bản PyInstaller).
+
+---
+
+## [1.2.1] — 2026-10-25 (Mở cửa sổ phóng to toàn màn hình, luôn lên trước)
+
+### 2026-10-25 — Phát hành v1.2.1 trên GitHub
+- `__version__` 1.2.1; đóng gói bằng `python tools/build_release.py` (PATH trỏ `.venv\Scripts` — máy phát triển chỉ còn Python 3.12, v1.2.0 dựng bằng 3.14): `QTPdfPro_Setup.exe` 89,9 MB, `QTPdfPro_Update.zip` = `QTPdfPro-v1.2.1-win64.zip` 128,3 MB.
+- **Lỗi đóng gói đã sửa**: `.venv` có PyMuPDF 2.0 + gói phụ `pymupdf_layout` / `pymupdf4llm` (không có trong `requirements.txt`); `import fitz` tự `import pymupdf.layout` và nạp mô hình ONNX → bản `.exe` lần dựng đầu báo «Unhandled exception… layout_rf2.4.1+imf1.yaml» ngay khi mở. `build.bat` thêm `--exclude-module pymupdf.layout` và `--exclude-module pymupdf4llm` (ứng dụng không dùng; PyMuPDF tự bỏ qua khi `ImportError`).
+- Máy phát triển có bản cài thật → không chạy thử bộ cài. **Smart App Control** (bật trên máy) chặn chạy bản `.exe` dựng lại lần 2 (chưa ký số); kiểm thay bằng: zip không còn tệp `pymupdf/layout`, chạy GUI từ mã nguồn khi chặn import `pymupdf.layout`/`pymupdf4llm` → mở cửa sổ phóng to, mở được PDF mẫu, `onnxruntime` nạp được. Lần dựng đầu (trước khi loại gói) đã chạy được tới bước `import fitz` trong bản đóng gói.
+- `core/fill_sign.py`: thời điểm tạo chữ ký (`Signature.created`) luôn tăng dần (`_next_signature_created`) — hai chữ ký tạo cùng một tích tắc đồng hồ vẫn xếp đúng thứ tự trong thư viện.
+
+### Sửa lỗi — 2026-10-25: cửa sổ mở xong nằm dưới thanh tác vụ
+- **Hiện tượng**: khởi chạy QT PDF Pro thì cửa sổ không lên trước mà chỉ nhấp nháy trên thanh tác vụ, cỡ 1400×880; PdfCraft mở phóng to toàn màn hình.
+- **Nguyên nhân**: `win.show()` cỡ cố định; Windows khoá tiền cảnh (foreground lock) với tiến trình khởi động chậm (nạp PySide6/PyMuPDF/ONNX vài giây, người dùng bấm sang cửa sổ khác trong lúc chờ) hoặc được mở bởi tiến trình nền (script cập nhật, bộ cài) → `SetForegroundWindow` bị từ chối.
+- **Sửa** (`ui/app.py`): `show_main_window` mở **phóng to** (`showMaximized`, cỡ 1400×880 vẫn là cỡ khi bấm «Thu nhỏ cửa sổ»), `raise_` + `activateWindow`, rồi `_force_foreground` (khôi phục nếu đang thu nhỏ; gắn tạm hàng đợi nhập với luồng đang giữ tiền cảnh bằng `AttachThreadInput` rồi `SetForegroundWindow`); gọi lại một lần sau khi vòng lặp sự kiện chạy (mở tệp lớn từ dòng lệnh).
+- **Kiểm thử**: `tests/test_app_startup.py` (2 bài); chạy thật từ tiến trình nền PowerShell: cửa sổ phóng to, là cửa sổ tiền cảnh. Toàn bộ: 183 qua, 3 bỏ qua.
 
 ---
 

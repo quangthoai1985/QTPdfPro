@@ -19,6 +19,8 @@ python -m PyInstaller ^
     --exclude-module tkinter ^
     --exclude-module matplotlib ^
     --exclude-module scipy ^
+    --exclude-module pymupdf.layout ^
+    --exclude-module pymupdf4llm ^
     run_qtpdfpro.py
 
 if errorlevel 1 (

@@ -437,6 +437,18 @@ def add_mark(
 # ─── Chữ ký hình ảnh ──────────────────────────────────────────────────────
 
 
+_last_sig_created = 0.0
+
+
+def _next_signature_created() -> float:
+    global _last_sig_created
+    now = time.time()
+    if now <= _last_sig_created:
+        now = _last_sig_created + 0.001
+    _last_sig_created = now
+    return now
+
+
 @dataclass
 class Signature:
     """Chữ ký hoặc chữ ký nháy đã lưu.
@@ -465,7 +477,7 @@ class Signature:
         if not self.id:
             self.id = uuid.uuid4().hex[:12]
         if not self.created:
-            self.created = time.time()
+            self.created = _next_signature_created()
 
     @property
     def label(self) -> str:
