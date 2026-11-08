@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import gc
 import os
+import sys
 from pathlib import Path
+from typing import Iterator
 
 import fitz  # PyMuPDF
 import pytest
@@ -16,6 +19,61 @@ def isolated_app_data(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     data_dir.mkdir(parents=True, exist_ok=True)
     monkeypatch.setenv("QT_PDF_PRO_DATA", str(data_dir))
     return data_dir
+
+
+# ─── Dọn cửa sổ Qt sau mỗi bài test ───
+# Các bài test GUI tạo `MainWindow`/hộp thoại rồi chỉ `close()`: đối tượng C++ vẫn sống (tín hiệu nối tới lambda
+# giữ tham chiếu vòng mà `gc` không thấy). Tới lúc Python tắt, PySide huỷ hàng chục cửa sổ còn sót theo thứ tự
+# tuỳ ý trong khi trình thông dịch đã tắt dở → tiến trình thoát mã -1073740791 / -1073741819 dù mọi test đã qua.
+# Huỷ chúng ngay khi bài test kết thúc (Python còn nguyên) thì lúc thoát không còn gì để huỷ.
+
+_QTHREAD_WAIT_MS = 10_000
+
+
+def _wait_qthreads(threads) -> None:
+    """Chờ luồng `QThread` còn chạy: huỷ `QThread` đang chạy làm Qt gọi `qFatal` (abort)."""
+    import shiboken6
+
+    for thread in threads:
+        try:
+            if shiboken6.isValid(thread) and thread.isRunning():
+                thread.requestInterruption()
+                thread.wait(_QTHREAD_WAIT_MS)
+        except RuntimeError:
+            pass  # đối tượng C++ đã bị huỷ giữa chừng
+
+
+def _release_qt_widgets(*, scan_all_threads: bool = False) -> None:
+    """Huỷ mọi cửa sổ cấp trên còn sót (con của chúng — menu, hộp thoại, luồng — bị huỷ theo) rồi xử lý `DeferredDelete`."""
+    if "PySide6.QtWidgets" not in sys.modules:
+        return  # bài test không dùng Qt: không nạp PySide6
+    from PySide6.QtCore import QCoreApplication, QEvent, QThread
+    from PySide6.QtWidgets import QApplication
+
+    app = QApplication.instance()
+    if app is None:
+        return
+    roots = [w for w in QApplication.topLevelWidgets() if w.parentWidget() is None]
+    threads = [t for w in roots for t in w.findChildren(QThread)]
+    if scan_all_threads:
+        threads += [o for o in gc.get_objects() if isinstance(o, QThread)]
+    _wait_qthreads(threads)
+    for widget in roots:
+        widget.deleteLater()  # không gọi close(): closeEvent có thể hỏi lưu bằng hộp thoại modal → treo pytest
+    for _ in range(3):
+        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+        app.processEvents()
+
+
+@pytest.fixture(autouse=True)
+def _release_qt_widgets_after_test() -> Iterator[None]:
+    yield
+    _release_qt_widgets()
+
+
+def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
+    gc.collect()
+    _release_qt_widgets(scan_all_threads=True)
 
 
 def _find_windows_unicode_font() -> str | None:
