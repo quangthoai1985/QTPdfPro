@@ -212,6 +212,64 @@ def test_render_region_maps_pixels_back_to_page(rotation: int, view: int) -> Non
     assert fitz.Pixmap(png).width == region.size[0]
 
 
+def test_order_by_columns_reads_left_column_first() -> None:
+    """Phần đầu văn bản hành chính 2 cột: chép ra hết cột cơ quan rồi mới tới Quốc hiệu, không xen từng hàng;
+    phần thân một cột bên dưới giữ thứ tự trên → dưới."""
+    R = fitz.Rect
+    rects = [
+        R(60, 40, 260, 54),    # 0 ỦY BAN NHÂN DÂN TỈNH AN   (trái, hàng 1)
+        R(320, 40, 560, 54),   # 1 CỘNG HÒA XÃ HỘI…          (phải, hàng 1)
+        R(130, 58, 190, 72),   # 2 GIANG                     (trái, hàng 2)
+        R(380, 58, 500, 72),   # 3 VIỆT NAM                  (phải, hàng 2)
+        R(70, 76, 250, 90),    # 4 SỞ GIÁO DỤC…              (trái, hàng 3)
+        R(340, 76, 540, 90),   # 5 Độc lập - Tự do…          (phải, hàng 3)
+        R(60, 130, 540, 144),  # 6 thân bài dòng 1 (cả bề ngang)
+        R(60, 148, 300, 162),  # 7 thân bài dòng 2
+    ]
+    assert ts.order_by_columns(rects) == [0, 2, 4, 1, 3, 5, 6, 7]
+    # Một cột có thụt đầu dòng: không bị tách thành hai cột
+    body = [R(100, 10, 520, 24), R(72, 28, 520, 42), R(72, 46, 300, 60)]
+    assert ts.order_by_columns(body) == [0, 1, 2]
+
+
+_INSTALLED_BUNDLE = None
+try:  # conftest đổi QT_PDF_PRO_DATA sang thư mục tạm khi chạy → tìm bộ mô hình thật lúc nạp module
+    from qtpdfpro.core import ocr_models as _ocr_models
+
+    _INSTALLED_BUNDLE = _ocr_models.find_bundle()
+except Exception:
+    pass
+
+
+@pytest.mark.skipif(_INSTALLED_BUNDLE is None, reason="chưa cài bộ mô hình OCR (ocr --install)")
+def test_real_models_recognize_scanned_region(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Chạy mô hình thật: bản scan 200 dpi của hai cột + một đoạn → đọc đúng chữ, đúng thứ tự cột."""
+    from qtpdfpro.core import ocr_models
+    from qtpdfpro.core.ocr import OcrEngine
+
+    monkeypatch.setenv(ocr_models.MODELS_ENV, str(_INSTALLED_BUNDLE.root))
+    src = fitz.open()
+    p = src.new_page(width=595, height=842)
+    kw = _font_kwargs()
+    p.insert_text((70, 80), "ỦY BAN NHÂN DÂN", fontsize=13, **kw)
+    p.insert_text((70, 98), "XÃ VĨNH TẾ", fontsize=13, **kw)
+    p.insert_text((330, 80), "CỘNG HÒA XÃ HỘI CHỦ NGHĨA", fontsize=13, **kw)
+    p.insert_text((350, 98), "Độc lập - Tự do - Hạnh phúc", fontsize=13, **kw)
+    p.insert_text((72, 200), "Căn cứ Luật Tổ chức chính quyền địa phương ngày 19 tháng 02 năm 2025;", fontsize=13, **kw)
+    pix = p.get_pixmap(dpi=200)
+    doc = fitz.open()
+    page = doc.new_page(width=595, height=842)
+    page.insert_image(page.rect, pixmap=pix)
+    assert ts.is_scanned_page(page)
+    engine = OcrEngine.load()
+    head = ts.recognize_region(engine, ts.render_region(page, fitz.Rect(50, 60, 560, 110)))
+    assert head.text().split("\n") == ["ỦY BAN NHÂN DÂN", "XÃ VĨNH TẾ", "CỘNG HÒA XÃ HỘI CHỦ NGHĨA",
+                                       "Độc lập - Tự do - Hạnh phúc"]
+    body = ts.recognize_region(engine, ts.render_region(page, fitz.Rect(60, 180, 560, 210)))
+    assert body.text() == "Căn cứ Luật Tổ chức chính quyền địa phương ngày 19 tháng 02 năm 2025;"
+    assert body.page_rects[0].intersects(fitz.Rect(72, 186, 540, 204))
+
+
 def test_is_scanned_page(tmp_path: Path) -> None:
     with fitz.open(_scanned_pdf(tmp_path / "s.pdf")) as doc:
         assert ts.is_scanned_page(doc[0]) is True

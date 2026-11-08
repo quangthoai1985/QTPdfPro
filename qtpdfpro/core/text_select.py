@@ -211,6 +211,42 @@ def selection_text(words: Sequence[Word], join_lines: bool = False) -> str:
     return lines_to_text(word_lines(words), join_lines)
 
 
+def _largest_gap(spans: Sequence[Tuple[float, float]]) -> Tuple[float, float]:
+    """Khoảng trống lớn nhất giữa các đoạn [a, b] (không tính hai mép ngoài): (độ rộng, vị trí cắt)."""
+    best_w, best_at = 0.0, 0.0
+    reach = None
+    for a, b in sorted(spans):
+        if reach is not None and a - reach > best_w:
+            best_w, best_at = a - reach, (a + reach) / 2
+        reach = b if reach is None else max(reach, b)
+    return best_w, best_at
+
+
+def order_by_columns(rects: Sequence[fitz.Rect], min_gutter: float = 1.2) -> List[int]:
+    """Thứ tự đọc theo cột (cắt XY đệ quy) cho dòng chữ nhận dạng được: mỗi lần cắt tại khoảng trắng lớn nhất —
+    khe dọc giữa hai cột (rộng ≥ `min_gutter` × chiều cao dòng) thì đọc hết cột trái rồi mới sang cột phải,
+    không thì cắt ngang theo hàng. Phần đầu văn bản hành chính 2 cột chép ra «cơ quan… / Quốc hiệu…» thay vì
+    xen kẽ từng hàng. Trả về danh sách chỉ số."""
+
+    def cut(idx: List[int]) -> List[int]:
+        if len(idx) <= 1:
+            return idx
+        hs = sorted(rects[i].height for i in idx)
+        h = max(1.0, hs[len(hs) // 2])
+        vw, vx = _largest_gap([(rects[i].x0, rects[i].x1) for i in idx])
+        hw, hy = _largest_gap([(rects[i].y0, rects[i].y1) for i in idx])
+        if vw >= min_gutter * h and vw > hw:
+            left = [i for i in idx if rects[i].x1 <= vx]
+            return cut(left) + cut([i for i in idx if rects[i].x1 > vx])
+        if hw > 0:
+            top = [i for i in idx if rects[i].y1 <= hy]
+            return cut(top) + cut([i for i in idx if rects[i].y1 > hy])
+        # dòng chồng lấn theo cả hai chiều: trên → dưới, trái → phải
+        return sorted(idx, key=lambda i: ((rects[i].y0 + rects[i].y1) / 2, rects[i].x0))
+
+    return cut(list(range(len(rects))))
+
+
 # ─── Nhận dạng vùng trên trang ảnh quét ────────────────────────────────────
 
 
@@ -297,15 +333,15 @@ def recognize_region(engine, region: RegionImage, clean_ink: bool = True) -> Reg
     `clean_ink`: xoá nét đỏ / xanh (con dấu, chữ ký) trước khi đọc như OCR cả tệp.
     """
     t0 = time.perf_counter()
-    lines = engine.ocr_image(region.rgb, region.zoom, clean_ink)
-    out = RegionText(region.page_index)
-    for ln in lines:
+    found: List[TextLine] = []
+    for ln in engine.ocr_image(region.rgb, region.zoom, clean_ink):
         text = (ln.text or "").strip()
-        if not text:
-            continue
-        px = fitz.Rect(*(v * region.zoom for v in ln.bbox))
-        out.lines.append(TextLine(px, normalize_vietnamese_text(text)))
-        out.page_rects.append(region.rect_to_page(px))
+        if text:
+            found.append(TextLine(fitz.Rect(*(v * region.zoom for v in ln.bbox)), normalize_vietnamese_text(text)))
+    out = RegionText(region.page_index)
+    for i in order_by_columns([ln.rect for ln in found]):  # hai cột → hết cột trái rồi mới sang cột phải
+        out.lines.append(found[i])
+        out.page_rects.append(region.rect_to_page(found[i].rect))
     out.seconds = time.perf_counter() - t0
     return out
 

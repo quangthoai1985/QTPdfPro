@@ -7,6 +7,12 @@
 
 ## [Chưa phát hành]
 
+### 2026-11-08 — Thử OCR vùng với bộ mô hình thật; đọc phần đầu 2 cột đúng thứ tự cột
+- Cài bộ mô hình OCR v1 vào máy phát triển (`%LOCALAPPDATA%\QTPdfPro\modules\ocr-vi-1`). Đường tải công khai `github.com/<repo>/releases/download/...` trả **HTTP 504** liên tục (cả với kho khác như `cli/cli` → sự cố phía GitHub / đường mạng), nên tải bằng `gh release download` (đi qua API) rồi cài bằng đúng các bước của `install_models` (kích thước + SHA-256 ghim khớp, giải nén chặn zip-slip, `read_bundle(verify_hashes=True)`).
+- Đo trên bản scan giả của `samples/nd30/quyet_dinh_mau.pdf` (200 dpi xám, nhiễu, nghiêng 0,3°, JPEG 80): đoạn «Căn cứ…», tiêu đề + trích yếu: **0% lỗi ký tự**; cả trang 1: **1/1343 ký tự (0,07%)** sau khi sửa thứ tự cột (trước đó 4%). Giao diện thật: kéo khung đoạn «Căn cứ…» → đúng 100%, 4,5 giây gồm cả nạp mô hình lần đầu.
+- **Sửa**: phần đầu văn bản hành chính 2 cột bị chép xen kẽ từng hàng («…TỈNH AN / CỘNG HÒA… / GIANG / VIỆT NAM…») vì `ocr.order_lines` gom theo hàng. `text_select.order_by_columns` sắp theo cột kiểu cắt XY đệ quy (cắt tại khoảng trắng lớn nhất; khe dọc ≥ 1,2 × chiều cao dòng → hết cột trái rồi mới sang cột phải), dùng trong `recognize_region`. OCR cả tệp (`ocr.py`) không đổi.
+- Kiểm thử: thêm `test_order_by_columns_reads_left_column_first` và `test_real_models_recognize_scanned_region` (chạy mô hình thật, tự bỏ qua khi máy chưa cài). `python -m pytest -q tests` → 208 qua, 2 bỏ qua (tổng 210).
+
 ### 2026-11-08 — Sửa lỗi pytest thoát mã lỗi truy cập bộ nhớ sau khi mọi test đã qua
 - **Triệu chứng**: `python -m pytest -q tests/test_ui.py` báo «7 passed» nhưng tiến trình thoát mã -1073740791 / -1073741819 khoảng 2/5 lần (cả `python -m pytest -q tests`); faulthandler: «Fatal Python error: Aborted» rồi «access violation», không có khung Python → lỗi xảy ra khi trình thông dịch đã tắt. Chạy riêng từng test thì không bị.
 - **Nguyên nhân**: các bài test GUI tạo `MainWindow` / hộp thoại rồi chỉ `close()`. Đối tượng C++ vẫn sống cả sau `gc.collect()` (tín hiệu nối tới lambda giữ vòng tham chiếu mà `gc` không thấy) — cuối `test_ui.py` còn **69 cửa sổ cấp trên** (3 `MainWindow`, 2 `ConvertToDocxDialog`, 21 `QMenu`, 39 `QFrame`…). Lúc Python tắt, PySide huỷ hết chúng theo thứ tự tuỳ ý trong khi trình thông dịch đã tắt dở.
