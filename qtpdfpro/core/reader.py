@@ -83,6 +83,7 @@ class PDFDocumentReader:
         self._render_cache: "OrderedDict[Tuple[int, int, int], RenderedPageBuffer]" = OrderedDict()
         self._page_rotations: Dict[int, int] = {}
         self._layout_cache: Dict[int, PageLayoutSummary] = {}
+        self._page_size_cache: Dict[int, Tuple[float, float]] = {}  # (rộng, cao) pt của page.rect
         self._edit_session: Optional[EditSession] = None
 
     @staticmethod
@@ -112,6 +113,7 @@ class PDFDocumentReader:
         """Đóng tài liệu PDF và giải phóng bộ nhớ đệm."""
         self._render_cache.clear()
         self._layout_cache.clear()
+        self._page_size_cache.clear()
         if getattr(self, "_doc", None) is not None and not self._doc.is_closed:
             self._doc.close()
 
@@ -155,8 +157,46 @@ class PDFDocumentReader:
         for key in [k for k in self._render_cache if k[0] in targets]:
             self._render_cache.pop(key, None)
 
+    @property
+    def is_closed(self) -> bool:
+        return getattr(self, "_doc", None) is None or bool(self._doc.is_closed)
+
+    def count_form_widgets(self) -> int:
+        """Số vùng chữ ký số / con dấu / trường biểu mẫu (widget) trong cả tài liệu — nhanh (vài ms cho
+        hàng trăm trang), không phân tích bố cục; cùng cách đếm với `PageLayoutSummary.signature_count`."""
+        try:
+            if not self._doc.is_pdf or not self._doc.is_form_pdf:
+                return 0
+            return sum(1 for page in self._doc for _w in (page.widgets() or []))
+        except Exception:
+            return 0
+
+    def page_has_text(self, page_index: int, min_chars: int = 20) -> bool:
+        """Trang có lớp chữ thật (≥ `min_chars` ký tự không phải khoảng trắng) — ảnh quét chưa OCR thì không."""
+        self._check_page_index(page_index)
+        try:
+            text = self._doc[page_index].get_text("text")
+        except Exception:
+            return False
+        return sum(1 for ch in text if not ch.isspace()) >= min_chars
+
+    def quick_table_count(self, page_index: int) -> int:
+        """Số bảng có viền trên trang cho thanh thông báo: trang không có nét vẽ vector nào (ảnh quét, chỉ có
+        chữ) không thể có bảng kẻ đường → trả 0 ngay, không chạy `find_tables`."""
+        self._check_page_index(page_index)
+        cached = self._layout_cache.get(page_index)
+        if cached is not None:
+            return cached.table_count
+        try:
+            if not self._doc[page_index].get_cdrawings():
+                return 0
+        except Exception:
+            pass
+        return self.get_page_layout(page_index).table_count
+
     def _reopen(self, path: Path) -> None:
         self._render_cache.clear()
+        self._page_size_cache.clear()
         if not self._doc.is_closed:
             self._doc.close()
         self.path = path.resolve()
@@ -246,12 +286,15 @@ class PDFDocumentReader:
     def get_page_size(self, page_index: int) -> Tuple[float, float]:
         """Trả về `(width_pt, height_pt)` của trang sau khi tính góc xoay."""
         self._check_page_index(page_index)
-        page = self._doc[page_index]
-        rect = page.rect
+        size = self._page_size_cache.get(page_index)
+        if size is None:  # nạp trang PyMuPDF tốn công → nhớ kích thước (bố cục khung đọc gọi cho mọi trang)
+            rect = self._doc[page_index].rect
+            size = (float(rect.width), float(rect.height))
+            self._page_size_cache[page_index] = size
         extra_rot = self._page_rotations.get(page_index, 0) % 360
         if extra_rot in (90, 270):
-            return float(rect.height), float(rect.width)
-        return float(rect.width), float(rect.height)
+            return size[1], size[0]
+        return size
 
     def rotate_page(self, page_index: int, delta_degrees: int = 90) -> int:
         """Xoay hiển thị của một trang thêm `delta_degrees` (bội số của 90)."""
@@ -268,15 +311,18 @@ class PDFDocumentReader:
     def get_page_rotation(self, page_index: int) -> int:
         return self._page_rotations.get(page_index, 0)
 
-    def render_page(self, page_index: int, scale: float = 1.0) -> RenderedPageBuffer:
-        """Kết xuất trang `page_index` ở tỷ lệ `scale` (1.0 = 72 DPI, 2.0 = 144 DPI) sang RGB."""
+    def render_page(self, page_index: int, scale: float = 1.0, cache: bool = True) -> RenderedPageBuffer:
+        """Kết xuất trang `page_index` ở tỷ lệ `scale` (1.0 = 72 DPI, 2.0 = 144 DPI) sang RGB.
+
+        `cache=False` (ảnh thu nhỏ): không đọc / ghi bộ đệm LRU để không đẩy ảnh trang của khung đọc ra ngoài.
+        """
         self._check_page_index(page_index)
-        clamped_scale = max(0.15, min(6.0, float(scale)))
+        clamped_scale = max(0.05 if not cache else 0.15, min(6.0, float(scale)))
         scale_key = int(round(clamped_scale * 1000))
         extra_rot = self._page_rotations.get(page_index, 0) % 360
         cache_key = (page_index, scale_key, extra_rot)
 
-        if cache_key in self._render_cache:
+        if cache and cache_key in self._render_cache:
             self._render_cache.move_to_end(cache_key)
             return self._render_cache[cache_key]
 
@@ -295,6 +341,8 @@ class PDFDocumentReader:
             rotation=extra_rot,
             rgb_bytes=bytes(pix.samples),
         )
+        if not cache:
+            return buf
 
         self._render_cache[cache_key] = buf
         while len(self._render_cache) > self._cache_size:
@@ -387,10 +435,14 @@ class PDFDocumentReader:
         return hits
 
     def get_page_layout(self, page_index: int) -> PageLayoutSummary:
-        """Phân tích và trả về cấu trúc bố cục của trang `page_index` (có cache)."""
+        """Phân tích và trả về cấu trúc bố cục của trang `page_index` (có cache).
+
+        Dùng cho giao diện đọc / lệnh `inspect`: dò bảng bằng thuật toán đường kẻ, không gọi mô hình ONNX
+        của `pymupdf_layout` (chậm ~20 lần; bản đóng gói vốn không có).
+        """
         self._check_page_index(page_index)
         if page_index not in self._layout_cache:
-            self._layout_cache[page_index] = analyze_page_layout(self._doc[page_index])
+            self._layout_cache[page_index] = analyze_page_layout(self._doc[page_index], use_layout_model=False)
         return self._layout_cache[page_index]
 
     def _check_page_index(self, page_index: int) -> None:

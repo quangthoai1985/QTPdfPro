@@ -55,8 +55,32 @@ class PageLayoutSummary:
         return "hybrid"
 
 
-def analyze_page_layout(page: fitz.Page, include_vectors: bool = True) -> PageLayoutSummary:
-    """Phân tích toàn bộ thành phần trên một trang PDF."""
+def _find_tables_quietly(page: fitz.Page, use_layout_model: bool):
+    """`page.find_tables()` ẩn thông báo quảng cáo pymupdf_layout ra stdout.
+
+    `use_layout_model=False`: không gọi mô hình ONNX của gói `pymupdf_layout` (≈0,7 s/trang, chỉ có khi
+    môi trường cài gói đó — bản đóng gói đã loại) mà dùng thuật toán đường kẻ cổ điển (≈30 ms/trang).
+    """
+    import contextlib
+    import io as _io
+
+    with contextlib.redirect_stdout(_io.StringIO()):
+        if not use_layout_model:
+            try:
+                return page.find_tables(use_layout=False)
+            except TypeError:  # PyMuPDF cũ không có tham số này (cũng không có mô hình bố cục)
+                pass
+        return page.find_tables()
+
+
+def analyze_page_layout(
+    page: fitz.Page, include_vectors: bool = True, use_layout_model: bool = True
+) -> PageLayoutSummary:
+    """Phân tích toàn bộ thành phần trên một trang PDF.
+
+    `use_layout_model=False` dùng cho giao diện đọc (soi bố cục, thanh thông báo): nhanh hơn ~20 lần khi
+    môi trường có `pymupdf_layout`; bộ chuyển đổi giữ mặc định để kết quả chuyển đổi không đổi.
+    """
     rect = page.rect
     summary = PageLayoutSummary(
         page_index=page.number,
@@ -141,13 +165,9 @@ def analyze_page_layout(page: fitz.Page, include_vectors: bool = True) -> PageLa
             except Exception:
                 pass
 
-    # 2. Phát hiện bảng biểu bằng PyMuPDF find_tables (ẩn thông báo quảng cáo pymupdf_layout ra stdout)
+    # 2. Phát hiện bảng biểu bằng PyMuPDF find_tables
     try:
-        import contextlib
-        import io as _io
-
-        with contextlib.redirect_stdout(_io.StringIO()):
-            finder = page.find_tables()
+        finder = _find_tables_quietly(page, use_layout_model)
         for idx, tbl in enumerate(finder.tables, start=1):
             tbbox: BBox = tuple(float(v) for v in tbl.bbox)  # type: ignore[assignment]
             summary.table_count += 1

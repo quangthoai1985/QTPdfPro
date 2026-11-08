@@ -6,16 +6,18 @@ import os
 from pathlib import Path
 from typing import Callable, List, Optional
 
-from PySide6.QtCore import QSize, Qt, QTimer, QUrl, Signal
+from PySide6.QtCore import QEvent, QSize, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import (
     QAction,
     QCloseEvent,
+    QColor,
     QDesktopServices,
     QDragEnterEvent,
     QDropEvent,
     QIcon,
     QImage,
     QKeySequence,
+    QPainter,
     QPixmap,
 )
 from PySide6.QtWidgets import (
@@ -78,6 +80,10 @@ from qtpdfpro.ui.theme import get_stylesheet
 from qtpdfpro.ui.tool_catalog import CATEGORIES, COMING_SOON_LABEL, TOOLS, get_tool
 from qtpdfpro.ui.default_app import DefaultAppController
 from qtpdfpro.ui.update_dialog import UpdateController
+
+# Ô ảnh thu nhỏ ở ngăn «Trang» (px logic); số ảnh kết xuất mỗi lượt trước khi trả quyền cho vòng lặp sự kiện
+THUMB_BOX_W, THUMB_BOX_H = 96, 132
+THUMB_BATCH = 4
 
 # Thanh công cụ nhanh khi xem tài liệu (thay cho cột trái): nút theo chế độ đang chọn trên thanh chế độ.
 # Mỗi mục = (nhãn ngắn, khoá công cụ trong tool_catalog | lệnh riêng bắt đầu bằng «:», chú thích khi trỏ chuột).
@@ -212,11 +218,21 @@ class PDFDocumentTab(QWidget):
         self.sidebar_tabs.setMinimumWidth(240)
         self.sidebar_tabs.setMaximumWidth(390)
 
-        # Ngăn 1: Trang thu nhỏ (Thumbnails)
+        # Ngăn 1: Trang thu nhỏ (Thumbnails) — ảnh kết xuất dần theo vùng đang nhìn (`_render_visible_thumbnails`)
         self.thumb_list = QListWidget()
-        self.thumb_list.setIconSize(QSize(96, 132))
+        self.thumb_list.setIconSize(QSize(THUMB_BOX_W, THUMB_BOX_H))
         self.thumb_list.setSpacing(6)
+        self.thumb_list.setUniformItemSizes(True)
         self.thumb_list.currentRowChanged.connect(self._on_thumb_selected)
+        self.thumb_list.itemClicked.connect(self._on_thumb_clicked)
+        self.thumb_list.verticalScrollBar().valueChanged.connect(lambda _v: self._schedule_thumbnails())
+        self.thumb_list.viewport().installEventFilter(self)
+        self._thumb_done: set[int] = set()
+        self._thumb_placeholders: dict[tuple[int, int], QIcon] = {}
+        self._thumb_timer = QTimer(self)
+        self._thumb_timer.setSingleShot(True)
+        self._thumb_timer.setInterval(0)
+        self._thumb_timer.timeout.connect(self._render_visible_thumbnails)
         self.sidebar_tabs.addTab(self.thumb_list, "Trang")
 
         # Ngăn 2: Mục lục (Bookmarks / TOC)
@@ -246,8 +262,11 @@ class PDFDocumentTab(QWidget):
         search_layout.addWidget(self.search_results_list, 1)
         self.sidebar_tabs.addTab(search_panel, "Tìm kiếm")
 
-        # Ngăn 4: Soi bố cục (Layout Inspector)
+        # Ngăn 4: Soi bố cục (Layout Inspector) — chỉ phân tích trang khi ngăn đang hiện (`_refresh_inspector`)
         inspector_panel = QWidget()
+        self.inspector_panel = inspector_panel
+        self._inspector_page: Optional[int] = None  # trang đang hiển thị trong ngăn (None = cần phân tích lại)
+        inspector_panel.installEventFilter(self)
         insp_layout = QVBoxLayout(inspector_panel)
         self.chk_overlay = QCheckBox("Hiển thị khung bố cục && chữ ký trên PDF")
         self.chk_overlay.setChecked(self.settings.show_layout_overlay)
@@ -301,16 +320,29 @@ class PDFDocumentTab(QWidget):
         self.right_rail = self._build_right_rail()
         root_layout.addWidget(self.right_rail)
 
+        # Mở tệp nhanh: không phân tích bố cục mọi trang lúc mở. Thanh thông báo tính sau khi tab đã hiện
+        # (`_analyze_document`), bảng biểu dò dần từng trang lúc rảnh (`_scan_tables_step`).
+        self.signature_banner.setVisible(False)
+        self._banner_sigs = 0
+        self._banner_tables = 0
+        self._table_scan_next = 0
+        self._analysis_timer = QTimer(self)
+        self._analysis_timer.setSingleShot(True)
+        self._analysis_timer.setInterval(30)
+        self._analysis_timer.timeout.connect(self._analyze_document)
+        self._table_scan_timer = QTimer(self)
+        self._table_scan_timer.setInterval(15)
+        self._table_scan_timer.timeout.connect(self._scan_tables_step)
+
         self._populate_thumbnails()
         self._populate_toc()
-        self._update_document_banner()
         self.viewer.pageChanged.connect(self._on_viewer_page_changed)
         self.viewer.zoomChanged.connect(self._on_viewer_zoom_changed)
         self.sidebar_tabs.currentChanged.connect(self._sync_rail_buttons)
         self.sidebar_tabs.currentChanged.connect(lambda _i: self._refresh_annotation_list_if_visible())
-        self._update_inspector(0)
         self._sync_rail_status()
         self._sync_rail_buttons()
+        self._analysis_timer.start()
 
     def _build_left_tools_panel(self) -> QFrame:
         panel = QFrame()
@@ -625,18 +657,52 @@ class PDFDocumentTab(QWidget):
         self.lbl_rail_page.setText(f"{cur}/{total}")
         self.lbl_rail_zoom.setText(f"{self.viewer.zoom_percent}%")
 
-    def _update_document_banner(self) -> None:
-        total_sigs = 0
-        total_tables = 0
-        for pno in range(self.reader.page_count):
-            ly = self.reader.get_page_layout(pno)
-            total_sigs += ly.signature_count
-            total_tables += ly.table_count
-
+    def _analyze_document(self) -> None:
+        """Chạy một lần ngay sau khi tab hiện: đếm chữ ký số / con dấu (nhanh) + nhận diện văn bản hành chính
+        ở trang đầu. Không phải văn bản hành chính và không có chữ ký → dò bảng biểu dần từng trang."""
+        if self.reader.is_closed:
+            return
+        self._banner_sigs = self.reader.count_form_widgets()
         try:
-            self.is_admin_document = self.reader.page_count > 0 and is_admin_document(self.reader.doc, 0)
+            # Trang đầu không có lớp chữ (ảnh quét) thì không thể nhận ra Quốc hiệu – Tiêu ngữ: bỏ qua bước
+            # nhận diện (nó còn mã hoá PNG cả ảnh quét ~0,3 s chỉ để rồi trả False).
+            self.is_admin_document = (
+                self.reader.page_count > 0
+                and self.reader.page_has_text(0)
+                and is_admin_document(self.reader.doc, 0)
+            )
         except Exception:
             self.is_admin_document = False
+        self._update_document_banner()
+        if not self.is_admin_document and not self._banner_sigs and self.reader.page_count > 0:
+            self._table_scan_next = 0
+            self._table_scan_timer.start()
+
+    def _scan_tables_step(self) -> None:
+        """Dò bảng biểu một trang mỗi lượt (lúc rảnh) để thanh thông báo không làm chậm việc mở tệp."""
+        if self.reader.is_closed or self._table_scan_next >= self.reader.page_count:
+            self._table_scan_timer.stop()
+            return
+        try:
+            tables = self.reader.quick_table_count(self._table_scan_next)
+        except Exception:
+            tables = 0
+        self._table_scan_next += 1
+        if tables:
+            self._banner_tables += tables
+            self._update_document_banner()
+
+    def wait_for_document_analysis(self) -> None:
+        """Chạy hết phần phân tích nền ngay (bài kiểm thử / khi cần kết quả thanh thông báo)."""
+        if self._analysis_timer.isActive():
+            self._analysis_timer.stop()
+            self._analyze_document()
+        while self._table_scan_timer.isActive():
+            self._scan_tables_step()
+
+    def _update_document_banner(self) -> None:
+        total_sigs = self._banner_sigs
+        total_tables = self._banner_tables
 
         if self.is_admin_document:
             sig_txt = f" có {total_sigs} chữ ký số / con dấu" if total_sigs else ""
@@ -662,8 +728,20 @@ class PDFDocumentTab(QWidget):
             self.signature_banner.setVisible(False)
 
     def close_document(self) -> None:
+        for timer in (self._analysis_timer, self._table_scan_timer, self._thumb_timer):
+            timer.stop()
         self.viewer.set_interaction(None)
         self.reader.close()
+
+    def eventFilter(self, obj, event) -> bool:  # noqa: N802 (tên hàm Qt)
+        etype = event.type()
+        if etype not in (QEvent.Type.Resize, QEvent.Type.Show) or not hasattr(self, "_analysis_timer"):
+            return super().eventFilter(obj, event)  # sự kiện lúc đang dựng tab → bỏ qua
+        if obj is self.thumb_list.viewport():
+            self._schedule_thumbnails()
+        elif obj is self.inspector_panel and etype == QEvent.Type.Show:
+            QTimer.singleShot(0, self._refresh_inspector)
+        return super().eventFilter(obj, event)
 
     # ─── Chế độ chỉnh sửa (chú thích) ─────────────────────────────────────
 
@@ -811,32 +889,97 @@ class PDFDocumentTab(QWidget):
         self.modifiedChanged.emit(self.reader.has_unsaved_changes)
 
     def _refresh_thumbnail(self, page_index: int) -> None:
-        item = self.thumb_list.item(page_index)
-        if item is None or page_index >= 60:
-            return
-        buf = self.reader.render_page(page_index, scale=0.18)
-        qimg = QImage(buf.rgb_bytes, buf.width, buf.height, buf.stride, QImage.Format.Format_RGB888).copy()
-        item.setIcon(QIcon(QPixmap.fromImage(qimg)))
+        """Trang vừa đổi nội dung → vẽ lại ảnh thu nhỏ (ngay nếu đang nhìn thấy, không thì khi cuộn tới)."""
+        self._thumb_done.discard(page_index)
+        self._schedule_thumbnails()
+
+    def _thumb_placeholder(self, w_pt: float, h_pt: float) -> QIcon:
+        """Ảnh giữ chỗ (trang trắng đúng tỷ lệ) cho trang chưa kết xuất ảnh thu nhỏ."""
+        scale = min(THUMB_BOX_W / max(1.0, w_pt), THUMB_BOX_H / max(1.0, h_pt))
+        key = (max(1, round(w_pt * scale)), max(1, round(h_pt * scale)))
+        icon = self._thumb_placeholders.get(key)
+        if icon is None:
+            pm = QPixmap(*key)
+            pm.fill(QColor("#FFFFFF"))
+            painter = QPainter(pm)
+            painter.setPen(QColor("#CBD5E1"))
+            painter.drawRect(0, 0, key[0] - 1, key[1] - 1)
+            painter.end()
+            icon = QIcon(pm)
+            self._thumb_placeholders[key] = icon
+        return icon
 
     def _populate_thumbnails(self) -> None:
+        """Tạo đủ mục cho mọi trang ngay (ảnh giữ chỗ); ảnh thật kết xuất dần theo vùng đang nhìn thấy."""
         self.thumb_list.blockSignals(True)
+        self.thumb_list.setUpdatesEnabled(False)
         self.thumb_list.clear()
+        self._thumb_done.clear()
         for idx in range(self.reader.page_count):
             item = QListWidgetItem(f"Trang {idx + 1}")
-            if idx < 60:
-                buf = self.reader.render_page(idx, scale=0.18)
-                qimg = QImage(
-                    buf.rgb_bytes,
-                    buf.width,
-                    buf.height,
-                    buf.stride,
-                    QImage.Format.Format_RGB888,
-                ).copy()
-                item.setIcon(QIcon(QPixmap.fromImage(qimg)))
+            item.setIcon(self._thumb_placeholder(*self.reader.get_page_size(idx)))
             self.thumb_list.addItem(item)
         if self.reader.page_count > 0:
             self.thumb_list.setCurrentRow(0)
+        self.thumb_list.setUpdatesEnabled(True)
         self.thumb_list.blockSignals(False)
+        self._schedule_thumbnails()
+
+    def _schedule_thumbnails(self) -> None:
+        if not self._thumb_timer.isActive():
+            self._thumb_timer.start()
+
+    def _visible_thumb_rows(self) -> range:
+        """Các hàng đang nằm trong vùng nhìn của danh sách ảnh thu nhỏ (tìm nhị phân, kèm vài hàng đệm)."""
+        lst = self.thumb_list
+        n = lst.count()
+        if n == 0:
+            return range(0)
+        vp = lst.viewport().rect()
+        lo, hi = 0, n - 1
+        while lo < hi:  # hàng đầu tiên có mép dưới nằm dưới mép trên vùng nhìn
+            mid = (lo + hi) // 2
+            if lst.visualItemRect(lst.item(mid)).bottom() < vp.top():
+                lo = mid + 1
+            else:
+                hi = mid
+        last = lo
+        while last + 1 < n and lst.visualItemRect(lst.item(last + 1)).top() <= vp.bottom():
+            last += 1
+        return range(max(0, lo - 2), min(n, last + 4))
+
+    def thumbnail_pixmap(self, page_index: int) -> QPixmap:
+        """Ảnh thu nhỏ vừa ô `THUMB_BOX_W × THUMB_BOX_H`, nét theo mật độ điểm ảnh màn hình."""
+        dpr = max(1.0, self.thumb_list.devicePixelRatioF())
+        w_pt, h_pt = self.reader.get_page_size(page_index)
+        scale = min(THUMB_BOX_W / max(1.0, w_pt), THUMB_BOX_H / max(1.0, h_pt)) * dpr
+        buf = self.reader.render_page(page_index, scale=scale, cache=False)
+        qimg = QImage(buf.rgb_bytes, buf.width, buf.height, buf.stride, QImage.Format.Format_RGB888).copy()
+        pm = QPixmap.fromImage(qimg)
+        pm.setDevicePixelRatio(dpr)
+        return pm
+
+    def _render_visible_thumbnails(self) -> None:
+        """Kết xuất ảnh thu nhỏ còn thiếu trong vùng nhìn, mỗi lượt tối đa `THUMB_BATCH` ảnh để giao diện
+        vẫn mượt; còn thì hẹn lượt sau."""
+        if self.reader.is_closed or not self.thumb_list.isVisible():
+            return
+        budget = THUMB_BATCH
+        for row in self._visible_thumb_rows():
+            if row in self._thumb_done:
+                continue
+            item = self.thumb_list.item(row)
+            if item is None:
+                continue
+            try:
+                item.setIcon(QIcon(self.thumbnail_pixmap(row)))
+            except Exception:
+                pass
+            self._thumb_done.add(row)
+            budget -= 1
+            if budget == 0:
+                self._schedule_thumbnails()
+                return
 
     def _populate_toc(self) -> None:
         self.toc_tree.clear()
@@ -861,7 +1004,14 @@ class PDFDocumentTab(QWidget):
         self.toc_tree.expandToDepth(1)
 
     def _on_thumb_selected(self, row: int) -> None:
+        """Đổi hàng (chuột / phím mũi tên) → khung đọc chuyển ngay tới trang đó."""
         if 0 <= row < self.reader.page_count and row != self.viewer.current_page:
+            self.viewer.go_to_page(row)
+
+    def _on_thumb_clicked(self, item: QListWidgetItem) -> None:
+        """Nhấp lại đúng trang đang chọn (đã cuộn lệch khỏi đầu trang) → đưa đầu trang về vùng nhìn."""
+        row = self.thumb_list.row(item)
+        if 0 <= row < self.reader.page_count:
             self.viewer.go_to_page(row)
 
     def _on_toc_clicked(self, item: QTreeWidgetItem, _col: int) -> None:
@@ -873,7 +1023,8 @@ class PDFDocumentTab(QWidget):
         self.thumb_list.blockSignals(True)
         self.thumb_list.setCurrentRow(page_idx)
         self.thumb_list.blockSignals(False)
-        self._update_inspector(page_idx)
+        self._inspector_page = None
+        self._refresh_inspector()
         self._sync_rail_status()
 
     def _on_viewer_zoom_changed(self, _zoom_pct: int) -> None:
@@ -884,7 +1035,17 @@ class PDFDocumentTab(QWidget):
         self.settings.show_layout_overlay = checked
         self.settings.save()
 
+    def _refresh_inspector(self) -> None:
+        """Cập nhật ngăn «Soi bố cục» cho trang hiện tại — chỉ khi ngăn đang hiện (phân tích trang tốn công,
+        không làm khi mở tệp hay khi cuộn qua từng trang mà ngăn đang ẩn)."""
+        if self.reader.is_closed or not self.inspector_panel.isVisible():
+            return
+        page = self.viewer.current_page
+        if self._inspector_page != page and 0 <= page < self.reader.page_count:
+            self._update_inspector(page)
+
     def _update_inspector(self, page_idx: int) -> None:
+        self._inspector_page = page_idx
         ly = self.reader.get_page_layout(page_idx)
         w_mm = ly.width * 25.4 / 72.0
         h_mm = ly.height * 25.4 / 72.0

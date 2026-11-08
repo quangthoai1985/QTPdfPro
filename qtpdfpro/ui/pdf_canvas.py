@@ -135,6 +135,7 @@ class PDFScrollViewer(QScrollArea):
 
         self._page_rects_px: List[QRectF] = []
         self._effective_scale: float = 1.25
+        self._tracking_suspended: bool = False  # go_to_page đang cuộn → không dò lại trang hiện tại
 
         self._panning: bool = False
         self._pan_start_global = QPoint()
@@ -349,22 +350,30 @@ class PDFScrollViewer(QScrollArea):
         self._surface.update()
 
     def go_to_page(self, page_index: int) -> None:
-        """Di chuyển tới trang `page_index` (0-based)."""
+        """Di chuyển tới trang `page_index` (0-based) — khung đọc cuộn tới ngay lập tức."""
         if self.reader.page_count == 0:
             return
         clamped = max(0, min(self.reader.page_count - 1, int(page_index)))
+        changed = clamped != self._current_page
         self._current_page = clamped
         if self._continuous:
             if clamped < len(self._page_rects_px):
                 top_y = int(self._page_rects_px[clamped].top()) - 10
-                self.verticalScrollBar().blockSignals(True)
-                self.verticalScrollBar().setValue(max(0, top_y))
-                self.verticalScrollBar().blockSignals(False)
+                # KHÔNG blockSignals thanh cuộn: QScrollArea dời nội dung nhờ chính tín hiệu valueChanged —
+                # chặn tín hiệu thì thanh cuộn nhảy nhưng trang không đổi cho tới lần lăn chuột kế tiếp.
+                # Chỉ tạm bỏ việc dò «trang hiện tại» theo vị trí cuộn để giữ đúng trang vừa chọn
+                # (trang cuối không cuộn được tới mép trên vẫn là trang được chọn).
+                self._tracking_suspended = True
+                try:
+                    self.verticalScrollBar().setValue(max(0, top_y))
+                finally:
+                    self._tracking_suspended = False
         else:
             self._recompute_layout()
             self.verticalScrollBar().setValue(0)
         self._surface.update()
-        self.pageChanged.emit(self._current_page)
+        if changed:
+            self.pageChanged.emit(self._current_page)
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
@@ -441,16 +450,27 @@ class PDFScrollViewer(QScrollArea):
         self._surface.resize(canvas_w, canvas_h)
         self._surface.update()
 
+    def _page_index_at_y(self, y: float) -> Optional[int]:
+        """Trang (chế độ cuộn liên tục) chứa toạ độ dọc `y` kể cả khe giữa trang — tìm nhị phân."""
+        rects = self._page_rects_px
+        if not rects:
+            return None
+        lo, hi = 0, len(rects) - 1
+        while lo < hi:  # trang đầu tiên có mép dưới (gồm khe) ≥ y
+            mid = (lo + hi) // 2
+            if rects[mid].bottom() + self.PAGE_GAP < y:
+                lo = mid + 1
+            else:
+                hi = mid
+        return lo if rects[lo].top() <= y <= rects[lo].bottom() + self.PAGE_GAP else None
+
     def _on_scroll_changed(self, value: int) -> None:
-        if not self._continuous or not self._page_rects_px:
+        if not self._continuous or not self._page_rects_px or self._tracking_suspended:
             self._surface.update()
             return
         viewport_mid = value + self.viewport().height() * 0.35
-        best_page = self._current_page
-        for idx, r in enumerate(self._page_rects_px):
-            if r.top() <= viewport_mid <= r.bottom() + self.PAGE_GAP:
-                best_page = idx
-                break
+        found = self._page_index_at_y(viewport_mid)
+        best_page = self._current_page if found is None else found
         if best_page != self._current_page:
             self._current_page = best_page
             self.pageChanged.emit(self._current_page)
