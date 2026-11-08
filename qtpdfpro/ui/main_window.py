@@ -19,6 +19,7 @@ from PySide6.QtGui import (
     QKeySequence,
     QPainter,
     QPixmap,
+    QShortcut,
 )
 from PySide6.QtWidgets import (
     QButtonGroup,
@@ -75,6 +76,7 @@ from qtpdfpro.ui.organizer_dialog import PageOrganizerDialog
 from qtpdfpro.ui.pdf_canvas import PDFScrollViewer
 from qtpdfpro.ui.print_dialog import PrintDialog
 from qtpdfpro.ui.signature_dialog import SignatureCreateDialog, SignatureManagerDialog
+from qtpdfpro.ui.text_select_tool import TextSelectTool
 from qtpdfpro.ui.pdf_tools_dialog import PDF_TOOL_DIALOGS
 from qtpdfpro.ui.theme import get_stylesheet
 from qtpdfpro.ui.tool_catalog import CATEGORIES, COMING_SOON_LABEL, TOOLS, get_tool
@@ -84,6 +86,7 @@ from qtpdfpro.ui.update_dialog import UpdateController
 # Ô ảnh thu nhỏ ở ngăn «Trang» (px logic); số ảnh kết xuất mỗi lượt trước khi trả quyền cho vòng lặp sự kiện
 THUMB_BOX_W, THUMB_BOX_H = 96, 132
 THUMB_BATCH = 4
+POINTER_MODES = ("select", "hand")  # chuột trái trên khung đọc: chọn chữ (V) | bàn tay kéo cuộn (H)
 
 # Thanh công cụ nhanh khi xem tài liệu (thay cho cột trái): nút theo chế độ đang chọn trên thanh chế độ.
 # Mỗi mục = (nhãn ngắn, khoá công cụ trong tool_catalog | lệnh riêng bắt đầu bằng «:», chú thích khi trỏ chuột).
@@ -139,6 +142,7 @@ class PDFDocumentTab(QWidget):
     statusMessage = Signal(str)
     toolRequested = Signal(str)  # khoá công cụ trong tool_catalog (MainWindow.run_tool)
     toolsPanelHideRequested = Signal()  # nút ✕ của cột công cụ → MainWindow ẩn ở mọi tab & ghi nhớ
+    pointerModeRequested = Signal(str)  # "select" | "hand" (phím V/H, nút thanh dọc, menu) → MainWindow áp mọi tab
 
     def __init__(
         self,
@@ -209,6 +213,21 @@ class PDFDocumentTab(QWidget):
         self.fill_toolbar.manageSignaturesRequested.connect(self.open_signature_library)
         self.annot_controller.signatureNeeded.connect(self._create_signature_for_placement)
         self._toolset = "edit"
+        # Công cụ «Chọn chữ» (V) / «Bàn tay» (H) khi không ở chế độ chỉnh sửa — như Acrobat
+        self.text_select = TextSelectTool(
+            self.reader, models_provider=lambda: getattr(self.window(), "ocr_models", None), parent=self
+        )
+        self.text_select.message.connect(self.statusMessage)
+        self.text_select.highlightRequested.connect(self._highlight_selection)
+        self.text_select.searchRequested.connect(self._search_for_text)
+        self.text_select.pointerModeRequested.connect(self.pointerModeRequested)
+        self._pointer_mode = settings.pointer_mode if settings.pointer_mode in POINTER_MODES else "select"
+        self._pointer_shortcuts: List[QShortcut] = []
+        for seq, mode in (("V", "select"), ("H", "hand")):
+            sc = QShortcut(QKeySequence(seq), self)
+            sc.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+            sc.activated.connect(lambda m=mode: self.pointerModeRequested.emit(m))
+            self._pointer_shortcuts.append(sc)
         center_layout.addWidget(self.edit_toolbar)
         center_layout.addWidget(self.fill_toolbar)
         center_layout.addWidget(self.viewer, 1)
@@ -342,6 +361,7 @@ class PDFDocumentTab(QWidget):
         self.sidebar_tabs.currentChanged.connect(lambda _i: self._refresh_annotation_list_if_visible())
         self._sync_rail_status()
         self._sync_rail_buttons()
+        self._apply_pointer_mode()
         self._analysis_timer.start()
 
     def _build_left_tools_panel(self) -> QFrame:
@@ -556,6 +576,28 @@ class PDFDocumentTab(QWidget):
         rlayout.setContentsMargins(4, 8, 4, 8)
         rlayout.setSpacing(6)
 
+        # Chế độ con trỏ: Chọn chữ (V) / Bàn tay (H)
+        self.pointer_btns: dict[str, QPushButton] = {}
+        group = QButtonGroup(rail)
+        group.setExclusive(True)
+        for mode, label, tip in (
+            ("select", "Aa\nChọn", "<b>Chọn chữ (V)</b><br/>Kéo qua chữ để chọn rồi Ctrl+C; kéo từ chỗ trống để chọn "
+             "theo khung. Trang ảnh quét: kéo khung quanh chữ để nhận dạng (OCR).<br/>Giữ Space để tạm kéo cuộn."),
+            ("hand", "✋\nTay", "<b>Bàn tay (H)</b><br/>Kéo để cuộn trang."),
+        ):
+            btn = QPushButton(label)
+            btn.setObjectName("railIconBtn")
+            btn.setCheckable(True)
+            btn.setToolTip(tip)
+            btn.clicked.connect(lambda _c=False, m=mode: self.pointerModeRequested.emit(m))
+            group.addButton(btn)
+            rlayout.addWidget(btn)
+            self.pointer_btns[mode] = btn
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.HLine)
+        sep.setObjectName("railSeparator")
+        rlayout.addWidget(sep)
+
         # Nhóm nút đóng/mở các ngăn bên phải (Trang, Mục lục, Tìm kiếm, Soi bố cục)
         self.rail_tab_btns: List[QPushButton] = []
         tab_specs = [
@@ -730,6 +772,7 @@ class PDFDocumentTab(QWidget):
     def close_document(self) -> None:
         for timer in (self._analysis_timer, self._table_scan_timer, self._thumb_timer):
             timer.stop()
+        self.text_select.cancel()
         self.viewer.set_interaction(None)
         self.reader.close()
 
@@ -747,7 +790,53 @@ class PDFDocumentTab(QWidget):
 
     @property
     def edit_mode(self) -> bool:
-        return self.viewer.interaction is not None
+        return self.viewer.interaction is self.annot_controller
+
+    # ─── Chế độ con trỏ: Chọn chữ / Bàn tay ───────────────────────────────
+
+    @property
+    def pointer_mode(self) -> str:
+        return self._pointer_mode
+
+    def set_pointer_mode(self, mode: str) -> None:
+        """«select» = chuột trái chọn chữ (công cụ `text_select`), «hand» = chuột trái kéo cuộn trang.
+        Đang ở chế độ chỉnh sửa thì chỉ ghi nhớ, áp dụng khi thoát."""
+        if mode not in POINTER_MODES:
+            return
+        self._pointer_mode = mode
+        if mode == "hand":
+            self.text_select.clear_selection()
+        self._apply_pointer_mode()
+
+    def _apply_pointer_mode(self) -> None:
+        for mode, btn in self.pointer_btns.items():
+            btn.setChecked(mode == self._pointer_mode)
+            btn.setEnabled(not self.edit_mode)
+        for sc in self._pointer_shortcuts:
+            sc.setEnabled(not self.edit_mode)  # V / H của thanh chỉnh sửa dùng cho công cụ khác
+        if self.edit_mode:
+            return
+        self.viewer.set_interaction(self.text_select if self._pointer_mode == "select" else None)
+
+    def _highlight_selection(self, page_index: int, rects: list) -> None:
+        """Menu chuột phải «Tô sáng vùng chọn» của công cụ Chọn chữ."""
+        if page_index is None or not rects or not self.reader.is_pdf:
+            return
+        try:
+            ses = self.annot_controller.session
+            ses.add_markup(page_index, "highlight", rects, self.annot_controller.style("highlight").copy())
+        except Exception as exc:
+            self.statusMessage.emit(f"Không tô sáng được: {exc}")
+            return
+        self._on_annotations_changed(page_index)
+        self.statusMessage.emit(f"Đã tô sáng {len(rects)} dòng chữ — Ctrl+Z để hoàn tác, Ctrl+S để lưu.")
+
+    def _search_for_text(self, text: str) -> None:
+        self.sidebar_tabs.setVisible(True)
+        self.sidebar_tabs.setCurrentIndex(2)
+        self._sync_rail_buttons()
+        self.search_input.setText(text)
+        self.run_search()
 
     @property
     def toolset(self) -> str:
@@ -778,7 +867,9 @@ class PDFDocumentTab(QWidget):
         elif group not in (toolset, "both"):  # công cụ của bộ kia → chọn công cụ đầu tiên của bộ này
             self.annot_controller.set_tool("fill_text" if toolset == "fill" else "highlight")
         self.active_toolbar.sync_from_controller()
+        self.text_select.clear_selection()
         self.viewer.set_interaction(self.annot_controller)
+        self._apply_pointer_mode()
         self._sync_history()
         self.viewer.setFocus()
         if not was:
@@ -801,6 +892,7 @@ class PDFDocumentTab(QWidget):
         for bar in (self.edit_toolbar, self.fill_toolbar):
             bar.set_shortcuts_enabled(False)
             bar.setVisible(False)
+        self._apply_pointer_mode()  # về lại Chọn chữ / Bàn tay
         self.editModeChanged.emit(False)
 
     # ─── Điền & Ký: thư viện chữ ký ───────────────────────────────────────
@@ -882,6 +974,7 @@ class PDFDocumentTab(QWidget):
 
     def after_save(self) -> None:
         """Làm mới hiển thị sau khi lưu (tệp có thể vừa được mở lại / đổi đường dẫn)."""
+        self.text_select.reset()
         self.viewer.refresh_pages(range(self.reader.page_count))
         self._annot_list_dirty = True
         self._refresh_annotation_list_if_visible()
@@ -1218,6 +1311,17 @@ class MainWindow(QMainWindow):
         act_fit_page.setShortcut(QKeySequence("Ctrl+0"))
         act_fit_page.triggered.connect(lambda: self._with_active_tab(lambda t: t.viewer.set_zoom_mode("fit_page")))
         view_menu.addAction(act_fit_page)
+        view_menu.addSeparator()
+        # Chế độ con trỏ — phím V / H là QShortcut của từng tab (tắt khi đang chỉnh sửa vì thanh chỉnh sửa
+        # dùng V / H cho công cụ khác), nên ở đây chỉ ghi gợi ý phím sau dấu Tab, không đăng ký phím tắt.
+        self.pointer_actions: dict[str, QAction] = {}
+        for mode, label in (("select", "Công cụ Chọn chữ\tV"), ("hand", "Công cụ Bàn tay (kéo cuộn)\tH")):
+            act = QAction(label, self)
+            act.setCheckable(True)
+            act.setChecked(self.settings.pointer_mode == mode)
+            act.triggered.connect(lambda _c=False, m=mode: self.set_pointer_mode(m))
+            view_menu.addAction(act)
+            self.pointer_actions[mode] = act
         view_menu.addSeparator()
         self.act_toggle_tools_panel = QAction("Ẩn/Hiện bảng Tất cả công cụ (bên trái)", self)
         self.act_toggle_tools_panel.setShortcut(QKeySequence("F3"))
@@ -1604,6 +1708,23 @@ class MainWindow(QMainWindow):
         else:
             self.run_tool(key)
 
+    def set_pointer_mode(self, mode: str) -> None:
+        """Chuyển Chọn chữ ↔ Bàn tay ở mọi tab tài liệu và ghi nhớ cho lần mở sau."""
+        if mode not in POINTER_MODES:
+            return
+        if self.settings.pointer_mode != mode:
+            self.settings.pointer_mode = mode
+            self.settings.save()
+        for m, act in self.pointer_actions.items():
+            act.setChecked(m == mode)
+        for i in range(self.doc_tabs.count()):
+            w = self.doc_tabs.widget(i)
+            if isinstance(w, PDFDocumentTab):
+                w.set_pointer_mode(mode)
+        self.statusBar().showMessage(
+            "Chọn chữ — kéo qua chữ để chọn, Ctrl+C để chép; trang ảnh quét: kéo khung để nhận dạng. Giữ Space để kéo cuộn."
+            if mode == "select" else "Bàn tay — kéo để cuộn trang (V để quay lại chọn chữ).", 6000)
+
     def set_tools_panel_visible(self, visible: bool) -> None:
         """Hiện/ẩn cột «Tất cả công cụ» ở mọi tab tài liệu và ghi nhớ cho lần mở sau."""
         visible = bool(visible)
@@ -1776,6 +1897,7 @@ class MainWindow(QMainWindow):
         tab.set_tool_category(self._mode_category)
         tab.tools_panel.setVisible(self.settings.show_tools_panel)
         tab.toolsPanelHideRequested.connect(lambda: self.set_tools_panel_visible(False))
+        tab.pointerModeRequested.connect(self.set_pointer_mode)
         tab.viewer.pageChanged.connect(lambda _p: self._sync_toolbar_with_active_tab())
         tab.viewer.zoomChanged.connect(lambda _z: self._sync_toolbar_with_active_tab())
         tab.extract_page_text_btn.clicked.connect(self.action_extract_current_page_text)

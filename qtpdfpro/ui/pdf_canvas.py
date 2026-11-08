@@ -57,6 +57,8 @@ class CanvasInteraction(Protocol):
 
     def cursor(self) -> Qt.CursorShape: ...
 
+    # Tuỳ chọn: `context_menu(viewer, page_index | None, pt | None, global_pos)` — chuột phải trên trang
+
 
 class _PageDrawSurface(QWidget):
     """Bề mặt vẽ nội bộ nằm trong QScrollArea."""
@@ -73,10 +75,12 @@ class _PageDrawSurface(QWidget):
     def mousePressEvent(self, event: QMouseEvent) -> None:
         handler = self._canvas._interaction
         btn = event.button()
-        if handler is not None and btn == Qt.MouseButton.LeftButton:
+        if handler is not None and btn == Qt.MouseButton.LeftButton and not self._canvas._space_pan:
             self.setFocus(Qt.FocusReason.MouseFocusReason)
             self._canvas._interaction_press(event)
             return
+        if btn == Qt.MouseButton.LeftButton:
+            self.setFocus(Qt.FocusReason.MouseFocusReason)
         if btn in (Qt.MouseButton.LeftButton, Qt.MouseButton.MiddleButton):
             self._canvas._start_pan(event.globalPosition().toPoint(), event.position().toPoint())
         super().mousePressEvent(event)
@@ -84,7 +88,7 @@ class _PageDrawSurface(QWidget):
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
         if self._canvas._panning:
             self._canvas._update_pan(event.globalPosition().toPoint())
-        elif self._canvas._interaction is not None:
+        elif self._canvas._interaction is not None and not self._canvas._space_pan:
             self._canvas._interaction_move(event)
         super().mouseMoveEvent(event)
 
@@ -104,10 +108,44 @@ class _PageDrawSurface(QWidget):
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
         handler = self._canvas._interaction
+        if event.key() == Qt.Key.Key_Space and handler is not None and not self._canvas._panning:
+            # Giữ Space = tạm dùng bàn tay kéo cuộn (như Acrobat), thả ra lại về công cụ đang chọn
+            if not event.isAutoRepeat():
+                self._canvas._space_pan = True
+                self.setCursor(Qt.CursorShape.OpenHandCursor)
+            event.accept()
+            return
         if handler is not None and handler.key_press(self._canvas, event):
             event.accept()
             return
         super().keyPressEvent(event)
+
+    def keyReleaseEvent(self, event: QKeyEvent) -> None:
+        if event.key() == Qt.Key.Key_Space and not event.isAutoRepeat() and self._canvas._space_pan:
+            self._canvas._space_pan = False
+            if not self._canvas._panning:
+                self._canvas.refresh_cursor()
+            event.accept()
+            return
+        super().keyReleaseEvent(event)
+
+    def focusOutEvent(self, event) -> None:
+        if self._canvas._space_pan:
+            self._canvas._space_pan = False
+            self._canvas.refresh_cursor()
+        super().focusOutEvent(event)
+
+    def contextMenuEvent(self, event) -> None:
+        handler = self._canvas._interaction
+        show = getattr(handler, "context_menu", None) if handler is not None else None
+        if show is None:
+            super().contextMenuEvent(event)
+            return
+        pos = QPointF(event.pos())
+        pno = self._canvas.page_at(pos)
+        pt = self._canvas.widget_to_page(pno, pos) if pno is not None else None
+        show(self._canvas, pno, pt, event.globalPos())
+        event.accept()
 
 
 class PDFScrollViewer(QScrollArea):
@@ -138,6 +176,7 @@ class PDFScrollViewer(QScrollArea):
         self._tracking_suspended: bool = False  # go_to_page đang cuộn → không dò lại trang hiện tại
 
         self._panning: bool = False
+        self._space_pan: bool = False  # đang giữ phím Space → chuột trái kéo cuộn dù có công cụ chuột
         self._pan_start_global = QPoint()
         self._pan_start_scroll = QPoint()
 
@@ -502,7 +541,10 @@ class PDFScrollViewer(QScrollArea):
 
     def _end_pan(self) -> None:
         self._panning = False
-        self.refresh_cursor()
+        if self._space_pan:
+            self._surface.setCursor(Qt.CursorShape.OpenHandCursor)
+        else:
+            self.refresh_cursor()
 
     def _paint_surface(self, surface: QWidget, event: QPaintEvent) -> None:
         painter = QPainter(surface)

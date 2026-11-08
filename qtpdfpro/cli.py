@@ -219,6 +219,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_update_command(sub)
     _add_assoc_command(sub)
     _add_ocr_command(sub)
+    _add_text_command(sub)
     _add_print_command(sub)
     _add_office_commands(sub)
     return parser
@@ -408,6 +409,62 @@ def _add_ocr_command(sub) -> None:
     mg.add_argument("--install", action="store_true", help="Tải và cài bộ mô hình OCR (~88 MB, kiểm SHA-256)")
     mg.add_argument("--remove", action="store_true", help="Xoá bộ mô hình OCR đã cài")
     p.add_argument("--json", action="store_true", help="In kết quả dạng JSON")
+
+
+def _add_text_command(sub) -> None:
+    """Lệnh «text»: lấy chữ của một trang / một vùng như công cụ «Chọn» trên khung đọc (kể cả trang ảnh quét)."""
+    p = sub.add_parser("text", help="Lấy chữ một trang hoặc một vùng (trang ảnh quét: tự nhận dạng OCR vùng đó)")
+    p.add_argument("input_pdf", help="Tệp PDF")
+    p.add_argument("--page", type=int, default=1, help="Trang (bắt đầu từ 1, mặc định 1)")
+    p.add_argument("--rect", help="Vùng x0,y0,x1,y1 (pt, gốc trên-trái của trang chưa xoay); bỏ trống = cả trang")
+    p.add_argument("--join", action="store_true", help="Nối các dòng bị ngắt thành đoạn liền")
+    p.add_argument("--ocr", action="store_true", help="Luôn nhận dạng ảnh vùng (kể cả trang đã có chữ)")
+    p.add_argument("--dpi", type=int, default=0, help="Độ phân giải kết xuất khi OCR (mặc định: theo ảnh quét)")
+    p.add_argument("--password", help="Mật khẩu mở tệp (nếu có)")
+    p.add_argument("--json", action="store_true", help="In kết quả dạng JSON")
+
+
+def _run_text(args: argparse.Namespace) -> int:
+    import fitz
+
+    from qtpdfpro.core import text_select as ts
+
+    try:
+        with PDFDocumentReader(args.input_pdf, password=args.password) as reader:
+            if not 1 <= args.page <= reader.page_count:
+                print(f"Lỗi: trang {args.page} ngoài phạm vi 1..{reader.page_count}.", file=sys.stderr)
+                return 2
+            page = reader.doc[args.page - 1]
+            if args.rect:
+                try:
+                    vals = [float(v) for v in args.rect.replace(";", ",").split(",")]
+                    rect = fitz.Rect(*vals).normalize()
+                except (ValueError, TypeError):
+                    print("Lỗi: --rect phải có dạng x0,y0,x1,y1", file=sys.stderr)
+                    return 2
+            else:
+                rect = page.rect * page.derotation_matrix
+            words = ts.select_area(ts.page_words(page), rect)
+            use_ocr = args.ocr or ts.is_scanned_page(page) or not words
+            lines: list = []
+            if use_ocr:
+                region = ts.render_region(page, rect, dpi=args.dpi)
+                res = ts.recognize_region(ocr_mod.OcrEngine.load(), region)
+                text = res.text(args.join)
+                lines = [{"text": ln.text, "bbox": [round(v, 2) for v in r]} for ln, r in zip(res.lines, res.page_rects)]
+            else:
+                text = ts.selection_text(words, args.join)
+                lines = [{"text": ln.text, "bbox": [round(v, 2) for v in ln.rect]} for ln in ts.word_lines(words)]
+    except (ocr_mod.OcrError, ocr_models.OcrModelError, PdfToolError, FileNotFoundError, PermissionError,
+            ValueError) as exc:
+        print(f"Lỗi: {exc}", file=sys.stderr)
+        return 1
+    if args.json:
+        print(json.dumps({"page": args.page, "mode": "ocr" if use_ocr else "text", "text": text, "lines": lines},
+                         ensure_ascii=False, indent=2))
+    else:
+        print(text)
+    return 0
 
 
 def _run_ocr(args: argparse.Namespace) -> int:
@@ -1193,6 +1250,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         return _run_assoc(args)
     if args.command == "ocr":
         return _run_ocr(args)
+    if args.command == "text":
+        return _run_text(args)
     if args.command in OFFICE_COMMANDS:
         return _run_office_command(args)
 

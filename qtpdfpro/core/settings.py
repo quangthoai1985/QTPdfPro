@@ -37,6 +37,7 @@ class AppSettings:
     continuous_scroll: bool = True
     show_layout_overlay: bool = False
     show_tools_panel: bool = False  # Cột «Tất cả công cụ» bên trái khi xem tài liệu (F3); mặc định dùng thanh công cụ nhanh
+    pointer_mode: str = "select"  # Chuột trái trên khung đọc: "select" (chọn chữ, phím V) | "hand" (bàn tay cuộn, phím H)
     normalize_vietnamese: bool = True
     fix_table_padding: bool = True
     prevent_line_overflow: bool = True

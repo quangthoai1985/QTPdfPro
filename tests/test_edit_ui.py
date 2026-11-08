@@ -118,7 +118,8 @@ def test_edit_mode_annotate_with_mouse_undo_save(sample_vietnamese_pdf: Path, mo
     assert tab.reader.has_unsaved_changes is False
     assert win.doc_tab_bar.tabText(win.doc_tabs.indexOf(tab)).startswith("📄 ")
     tab.exit_edit_mode()
-    assert viewer.interaction is None
+    assert viewer.interaction is tab.text_select  # thoát chỉnh sửa → về công cụ Chọn chữ (mặc định)
+    assert not tab.edit_mode
     win.close_tab_at(0)
     app.processEvents()
     with fitz.open(str(sample_vietnamese_pdf)) as doc:

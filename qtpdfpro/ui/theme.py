@@ -169,6 +169,8 @@ QLabel#heroIcon { font-size: 28px; padding-right: 6px; }
 QLabel#heroTitle { font-size: 16px; font-weight: 600; color: @text; }
 QLabel#heroDesc { font-size: 13px; color: @muted; }
 QFrame#sectionCard { background-color: @card; border: 1px solid @border; border-radius: 14px; }
+QFrame#ocrPopup { background-color: @card; border: 1px solid @border_strong; border-radius: 10px; }
+QFrame#ocrPopup QLabel { color: @text; background: transparent; }
 QLabel#sectionTitle { font-size: 17px; font-weight: 600; color: @text; }
 QFrame#toolCard, QFrame#toolCardSoon { background-color: @card; border: 1px solid @border; border-radius: 12px; }
 QFrame#toolCard:hover { border-color: @accent; background-color: @card_hover; }
