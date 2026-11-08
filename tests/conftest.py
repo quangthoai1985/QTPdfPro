@@ -21,6 +21,14 @@ def isolated_app_data(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return data_dir
 
 
+@pytest.fixture(scope="session")
+def qapp():
+    """QApplication dùng chung cho các bài test GUI."""
+    from PySide6.QtWidgets import QApplication
+
+    return QApplication.instance() or QApplication([])
+
+
 # ─── Dọn cửa sổ Qt sau mỗi bài test ───
 # Các bài test GUI tạo `MainWindow`/hộp thoại rồi chỉ `close()`: đối tượng C++ vẫn sống (tín hiệu nối tới lambda
 # giữ tham chiếu vòng mà `gc` không thấy). Tới lúc Python tắt, PySide huỷ hàng chục cửa sổ còn sót theo thứ tự
