@@ -7,6 +7,22 @@
 
 ## [Chưa phát hành]
 
+### 2026-11-08 — Tổng kết phiên (đọc trước) — mọi thay đổi đã lên `main`, CHƯA phát hành
+Người dùng yêu cầu ghi bàn giao, **chưa cần phát hành** bản cập nhật mới. Các commit của phiên (cũ → mới):
+
+| Commit | Nội dung | Chi tiết |
+|---|---|---|
+| `d7f8e47` | Nhấp ảnh thu nhỏ chuyển trang ngay; mở tệp PDF nhanh hơn | mục «Nhấp ảnh thu nhỏ…» bên dưới |
+| `0ff86b0` | Công cụ Chọn chữ / Bàn tay như Acrobat; OCR vùng trên bản scan (Đợt 1) | mục «Công cụ «Chọn chữ» / «Bàn tay»…» |
+| `70fe630` | `tests/conftest.py` huỷ cửa sổ Qt → pytest thoát mã 0 ổn định (phiên phụ làm) | mục «Sửa lỗi pytest thoát mã…» |
+| `c4458e0` | OCR vùng đọc phần đầu 2 cột đúng thứ tự cột; thử với bộ mô hình thật | mục «Thử OCR vùng với bộ mô hình thật…» |
+| `5c36d27` | Đường tải dự phòng qua API GitHub (bản cập nhật + bộ mô hình OCR) | mục «Đường tải dự phòng…» |
+| `8a4ccdf` | Chọn chữ Đợt 2: nhận dạng ngầm trang scan → chọn chữ như PDF thường, lưu đệm, «Lưu thành PDF tìm kiếm được» | mục «Công cụ «Chọn chữ» Đợt 2…» |
+
+- **Môi trường đã đổi trong phiên**: `git config --global` = `quangthoai1985` / `quangthoaiphoto@yahoo.com` (commit `d7f8e47` đã sửa tác giả bằng `--amend` + `push --force-with-lease`); máy phát triển **đã cài bộ mô hình OCR** (`%LOCALAPPDATA%\QTPdfPro\modules\ocr-vi-1`, tải qua `gh release download` vì đường tải công khai của GitHub trả 504, kiểm SHA-256 khớp mã ghim).
+- **Kết quả kiểm thử cuối phiên**: `python -m pytest -q tests` → 219 qua, 2 bỏ qua, **mã thoát 0**. Chuyển đổi 3 văn bản mẫu `samples/nd30` (`--mode nd30 --verify-layout`): điểm chuẩn xác 100% / 99,9% / 99,9%; bước kiểm chứng bằng Word **không chạy được vì máy chưa cài Microsoft Word** (bộ chuyển đổi không đổi trong phiên).
+- **Việc còn dở**: mục «Việc còn dở / Ưu tiên kế tiếp» cuối phần này và `CLAUDE.md` mục 6.
+
 ### 2026-11-08 — Công cụ «Chọn chữ» Đợt 2: chọn chữ trên trang ảnh quét như PDF thường, lưu PDF tìm kiếm được
 - **Nhận dạng ngầm trang đang xem** (`ui/ocr_layer_service.py` → `OcrLayerService`, mỗi tab một dịch vụ): ở công cụ Chọn chữ, trang ảnh quét đang xem (+ trang kế) được nhận dạng thành **lớp chữ tạm** — xong thì kéo chọn theo dòng, nhấp đúp, nhấp ba lần, Ctrl+A, Ctrl+C trên trang scan **y như PDF thường** (trước đó chỉ kéo khung → OCR vùng). Chỉ chạy khi máy **đã có** bộ mô hình (không tự tải 88 MB ngầm; tải lần đầu vẫn do người dùng kéo khung / mở hộp thoại OCR — tải xong thì tự nhận dạng cả trang luôn); Bàn tay / chế độ chỉnh sửa không nhận dạng; đổi trang thì trang mới được ưu tiên. Ảnh trang kết xuất ở luồng giao diện, nhận dạng ở `QThread`. Nhãn «⏳ Đang nhận dạng chữ…» góc trên-phải trang + thanh trạng thái báo tiến độ; trong lúc chờ vẫn kéo khung OCR vùng được.
 - **Lưu đệm** (`core/ocr_layer.py` → `OcrLayerCache`): `<thư mục dữ liệu>/ocr_cache/<sha256 tệp>.json` (băm tệp ở luồng nền, giữ 300 tệp gần nhất, bỏ khi bộ mô hình đổi phiên bản; lưu tệp có chú thích → ghi lại theo khoá mới). Mở lại tệp: có lớp chữ sau ~1 giây.
@@ -57,11 +73,13 @@
 - **Sửa** `tests/test_ocr.py::test_real_models_read_vietnamese` lỗi `OcrModelsMissing` trên máy **đã** cài mô hình OCR: `skipif` gọi `find_bundle()` lúc nạp module (thư mục dữ liệu thật) nhưng khi chạy, `conftest` đã đổi `QT_PDF_PRO_DATA` sang thư mục tạm. Test giờ đặt `QT_PDF_PRO_OCR_MODELS` (`ocr_models.MODELS_ENV`) trỏ về bộ mô hình đã tìm thấy.
 - Kiểm thử: `python -m pytest -q tests` → 185 qua, 1 bỏ qua.
 
-### Việc còn dở / Ưu tiên kế tiếp cho Agent phiên sau
-1. **Kiểm thử engine NĐ30 trên văn bản thật** (PDF ký số VGCA, PDF xuất từ phần mềm quản lý văn bản, PDF in từ LibreOffice): chạy `python -m qtpdfpro.cli convert <tệp> --mode nd30 --verify-layout` (hoặc `cli batch <thư mục> --verify-layout`) và xử lý các trường hợp «Lệch nhỏ».
-2. **v1.1+** (các mục v0.6–v0.8 còn lại) theo «Lộ trình gần» (`docs/DE_XUAT_TINH_NANG.md`): **Xem 2 trang song song**, **V1** một cửa sổ duy nhất, **V2** thông báo «Đã lưu», phần còn lại của **A3** (đầu – chân trang, Bates, dấu nước ảnh), **A4** (metadata, làm sạch `scrub`), **A5** chèn ảnh chữ ký / con dấu; sau đó v0.7 (B1, B2), v0.8 (V3, V5), **OCR Tiếng Việt** (B3 phát hành ở v1.2.0 — còn thử thêm bản scan mờ / nghiêng / có bảng, dựng bảng Word từ trang scan, trang cài đặt quản lý mô-đun của V5). Còn in thử 1 trang ra giấy trên máy in thật khi người dùng đồng ý.
+### Việc còn dở / Ưu tiên kế tiếp cho Agent phiên sau (cập nhật 2026-11-08)
+1. **Phát hành v1.2.2 khi người dùng yêu cầu** (chưa yêu cầu): gom các mục «2026-11-08 — …» ở trên thành `## [1.2.2]`, quy trình ở `CLAUDE.md` mục 6.4. Chưa chạy thử các tính năng mới trên bản `.exe` đóng gói.
+2. **Hoàn thiện công cụ «Chọn chữ»**: chọn liền qua nhiều trang; thêm vào danh mục công cụ / `Ctrl+K`; bong bóng OCR đôi khi che chữ phía trên vùng chọn; trang đã «xoay xem» không dùng lại lớp chữ khi lưu PDF tìm kiếm được; khung từ trên trang scan là ước lượng theo số ký tự.
+3. **Kiểm thử engine NĐ30 trên văn bản thật** (PDF ký số VGCA, PDF xuất từ phần mềm quản lý văn bản, PDF in từ LibreOffice): chạy `python -m qtpdfpro.cli convert <tệp> --mode nd30 --verify-layout` (hoặc `cli batch <thư mục> --verify-layout`) và xử lý các trường hợp «Lệch nhỏ».
+4. **Lộ trình** (`docs/DE_XUAT_TINH_NANG.md`): **Xem 2 trang song song**, **V1** một cửa sổ duy nhất, **V2** thông báo «Đã lưu», phần còn lại của **A3** (đầu – chân trang, Bates, dấu nước ảnh), **A4** (metadata, làm sạch `scrub`), **A6** giai đoạn 2 (điền AcroForm); sau đó **B1** (áp công cụ trên tab có Hoàn tác), **B2** (so sánh 2 PDF), **V5** (trang quản lý mô-đun), **B4** (ký số USB token, v2.0). OCR: thử thêm bản scan mờ / nghiêng / có bảng, dựng bảng Word từ trang scan. In thử 1 trang ra giấy trên máy in thật khi người dùng đồng ý.
    - «Chỉnh sửa PDF» mở rộng: đổi cỡ hộp chữ/hình bằng tay nắm, sửa kiểu dáng chú thích đã có, che thông tin (redaction), dấu đóng có ảnh chữ ký.
-3. Tuỳ chọn: chuyển hàng loạt song song bằng nhiều tiến trình (`ProcessPoolExecutor`, cần `multiprocessing.freeze_support()` cho bản PyInstaller).
+5. Tuỳ chọn: chuyển hàng loạt song song bằng nhiều tiến trình (`ProcessPoolExecutor`, cần `multiprocessing.freeze_support()` cho bản PyInstaller); ký số (code signing) bộ cài để SmartScreen không cảnh báo.
 
 ---
 
