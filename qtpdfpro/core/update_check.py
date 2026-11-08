@@ -34,7 +34,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, List, NamedTuple, Optional
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlsplit
+from urllib.parse import quote, unquote, urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from qtpdfpro import __app_name__, __github_repo__, __version__
@@ -74,6 +74,10 @@ class UpdateError(Exception):
 
 class UpdateCancelled(UpdateError):
     """Người dùng huỷ giữa chừng."""
+
+
+class NetworkUnavailable(UpdateError):
+    """Mất kết nối / máy chủ GitHub tạm lỗi (HTTP 5xx) — có thể thử đường tải khác (`open_asset`)."""
 
 
 class ReleaseNotFound(UpdateError):
@@ -143,6 +147,7 @@ class ReleaseAsset:
     size: int = 0
     sha256: str = ""  # hex chữ thường, lấy từ trường `digest` = "sha256:…" (rỗng nếu API không trả)
     content_type: str = ""
+    api_url: str = ""  # https://api.github.com/repos/<kho>/releases/assets/<id> — đường tải dự phòng (`open_asset`)
 
 
 @dataclass
@@ -232,12 +237,14 @@ def _asset_from_item(item: Optional[dict]) -> Optional[ReleaseAsset]:
         size = max(0, int(item.get("size") or 0))
     except (TypeError, ValueError):
         size = 0
+    api_url = str(item.get("url") or "").strip()
     return ReleaseAsset(
         name=str(item["name"]),
         url=url,
         size=size,
         sha256=sha,
         content_type=str(item.get("content_type") or ""),
+        api_url=api_url if api_url.startswith("https://api.github.com/") else "",
     )
 
 
@@ -308,10 +315,12 @@ def _open(url: str, allowed_hosts: frozenset, timeout: float, accept: str):
             raise ReleaseNotFound("Kho chưa có bản phát hành chính thức nào.") from exc
         if exc.code in (403, 429):
             raise UpdateError("GitHub đang tạm giới hạn số lần truy vấn — hãy thử lại sau ít phút.") from exc
+        if exc.code >= 500:
+            raise NetworkUnavailable(f"Máy chủ GitHub trả lỗi HTTP {exc.code}.") from exc
         raise UpdateError(f"Máy chủ GitHub trả lỗi HTTP {exc.code}.") from exc
     except (URLError, OSError) as exc:
         reason = getattr(exc, "reason", exc)
-        raise UpdateError(f"Không kết nối được tới GitHub ({reason}). Kiểm tra mạng rồi thử lại.") from exc
+        raise NetworkUnavailable(f"Không kết nối được tới GitHub ({reason}). Kiểm tra mạng rồi thử lại.") from exc
     final_url = resp.geturl() if hasattr(resp, "geturl") else url
     try:
         validate_url(final_url, allowed_hosts)
@@ -319,6 +328,64 @@ def _open(url: str, allowed_hosts: frozenset, timeout: float, accept: str):
         resp.close()
         raise
     return resp
+
+
+_PUBLIC_ASSET_RE = re.compile(r"^https://github\.com/([^/?#]+/[^/?#]+)/releases/download/([^/?#]+)/([^/?#]+)$")
+
+
+def _read_json(resp, what: str = "Phản hồi của GitHub") -> Any:
+    try:
+        raw = resp.read(MAX_API_BYTES + 1)
+    finally:
+        resp.close()
+    if len(raw) > MAX_API_BYTES:
+        raise UpdateError(f"{what} quá lớn.")
+    try:
+        return json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError) as exc:
+        raise UpdateError(f"{what} không phải JSON hợp lệ.") from exc
+
+
+def api_asset_url(asset: ReleaseAsset, timeout: float = API_TIMEOUT) -> str:
+    """URL API `releases/assets/<id>` của tệp đính kèm: có sẵn từ phản hồi `releases/latest`; không có (bộ mô hình
+    OCR ghim trong mã) thì tra bản phát hành theo thẻ lấy từ URL công khai `github.com/<kho>/releases/download/<thẻ>/<tệp>`.
+    Trả về chuỗi rỗng nếu không xác định được."""
+    if asset.api_url:
+        return asset.api_url
+    m = _PUBLIC_ASSET_RE.match(asset.url or "")
+    if not m:
+        return ""
+    repo, tag, name = m.group(1), unquote(m.group(2)), unquote(m.group(3))
+    data = _read_json(_open(f"https://api.github.com/repos/{repo}/releases/tags/{quote(tag, safe='')}",
+                            API_HOSTS, timeout, "application/vnd.github+json"))
+    for item in (data.get("assets") if isinstance(data, dict) else None) or []:
+        if isinstance(item, dict) and str(item.get("name") or "") == name:
+            url = str(item.get("url") or "")
+            return url if url.startswith("https://api.github.com/") else ""
+    return ""
+
+
+def open_asset(asset: ReleaseAsset, timeout: float = DOWNLOAD_TIMEOUT):
+    """Mở luồng tải tệp đính kèm bản phát hành (trình cập nhật, bộ mô hình OCR).
+
+    Đường chính `github.com/<kho>/releases/download/...`. Nếu GitHub trả lỗi máy chủ (5xx) hoặc mất kết nối thì
+    thử đường API `api.github.com/repos/<kho>/releases/assets/<id>` với `Accept: application/octet-stream`
+    (2026-11-08: đường chính trả HTTP 504 liên tục trong khi đường API vẫn tải được). Lỗi bảo mật (host lạ), 404,
+    giới hạn truy vấn: không thử đường khác. Người gọi vẫn kiểm kích thước + SHA-256 như cũ.
+    """
+    try:
+        return _open(asset.url, DOWNLOAD_HOSTS, timeout, "application/octet-stream")
+    except NetworkUnavailable as first:
+        try:
+            api = api_asset_url(asset, min(timeout, API_TIMEOUT))
+        except UpdateError:
+            api = ""
+        if not api:
+            raise
+        try:
+            return _open(api, API_HOSTS | DOWNLOAD_HOSTS, timeout, "application/octet-stream")
+        except NetworkUnavailable:
+            raise first from None
 
 
 def release_api_url(repo: str = __github_repo__) -> str:
@@ -332,16 +399,7 @@ def fetch_latest_release(repo: str = __github_repo__, timeout: float = API_TIMEO
         resp = _open(release_api_url(repo), API_HOSTS, timeout, "application/vnd.github+json")
     except ReleaseNotFound:
         return None
-    try:
-        raw = resp.read(MAX_API_BYTES + 1)
-    finally:
-        resp.close()
-    if len(raw) > MAX_API_BYTES:
-        raise UpdateError("Phản hồi của GitHub quá lớn.")
-    try:
-        data = json.loads(raw.decode("utf-8"))
-    except (UnicodeDecodeError, ValueError) as exc:
-        raise UpdateError("Phản hồi của GitHub không phải JSON hợp lệ.") from exc
+    data = _read_json(resp)
     if not isinstance(data, dict):
         raise UpdateError("Phản hồi của GitHub không đúng định dạng.")
     return parse_release(data)
@@ -428,7 +486,7 @@ def download_asset(
     final = folder / asset.name
     part = folder / f"{asset.name}.part"
 
-    resp = _open(asset.url, DOWNLOAD_HOSTS, timeout, "application/octet-stream")
+    resp = open_asset(asset, timeout)
     limit = asset.size or MAX_ASSET_BYTES
     total = asset.size
     if not total:

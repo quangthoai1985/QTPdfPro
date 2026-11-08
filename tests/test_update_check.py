@@ -18,7 +18,7 @@ from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Callable, Dict
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
 from urllib.request import Request
 
 import pytest
@@ -261,6 +261,77 @@ def test_download_rejects_untrusted_hosts(monkeypatch: pytest.MonkeyPatch, tmp_p
     with pytest.raises(uc.UpdateError, match="không tin cậy"):
         uc.download_asset(_asset(payload), dest)
     assert list(dest.iterdir()) == []
+
+
+API_ASSET_URL = f"https://api.github.com/repos/{__github_repo__}/releases/assets/123"
+TAG_URL = f"https://api.github.com/repos/{__github_repo__}/releases/tags/v0.9.0"
+
+
+def _gateway_timeout(url: str = ASSET_URL) -> HTTPError:
+    return HTTPError(url, 504, "Gateway Timeout", None, None)
+
+
+def test_download_falls_back_to_api_when_github_download_fails(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """2026-11-08: `github.com/.../releases/download/...` trả 504 liên tục → tải qua API `releases/assets/<id>`."""
+    payload = make_app_zip()
+    asset = _asset(payload)
+    asset.api_url = API_ASSET_URL
+    calls = fake_network(monkeypatch, {ASSET_URL: _gateway_timeout, API_ASSET_URL: lambda: FakeResponse(payload, CDN_URL)})
+    path = uc.download_asset(asset, tmp_path / "dl")
+    assert path.read_bytes() == payload
+    assert [c["url"] for c in calls] == [ASSET_URL, API_ASSET_URL]
+    assert {k.lower(): v for k, v in calls[1]["headers"].items()}["accept"] == "application/octet-stream"
+
+    # Mất kết nối (timeout) cũng thử đường API
+    calls = fake_network(monkeypatch, {ASSET_URL: lambda: URLError("timed out"),
+                                       API_ASSET_URL: lambda: FakeResponse(payload, CDN_URL)})
+    assert uc.download_asset(asset, tmp_path / "dl2").read_bytes() == payload
+
+    # Tệp lấy từ phản hồi API `releases/latest` mang sẵn URL API của asset
+    item = {"name": ASSET_NAME, "browser_download_url": ASSET_URL, "url": API_ASSET_URL, "size": 3}
+    assert uc.select_asset([item], "0.9.0").api_url == API_ASSET_URL
+    assert uc.select_asset([dict(item, url="https://evil.example.com/a")], "0.9.0").api_url == ""
+
+
+def test_download_fallback_finds_api_url_by_release_tag(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Tệp ghim trong mã (bộ mô hình OCR) không có URL API → tra bản phát hành theo thẻ trong URL công khai."""
+    payload = make_app_zip()
+    tag_json = {"assets": [{"name": "khac.zip", "url": API_ASSET_URL + "9"},
+                           {"name": ASSET_NAME, "url": API_ASSET_URL}]}
+    calls = fake_network(monkeypatch, {
+        ASSET_URL: _gateway_timeout,
+        TAG_URL: lambda: FakeResponse(json.dumps(tag_json).encode(), TAG_URL),
+        API_ASSET_URL: lambda: FakeResponse(payload, CDN_URL),
+    })
+    assert uc.download_asset(_asset(payload), tmp_path / "dl").read_bytes() == payload
+    assert [c["url"] for c in calls] == [ASSET_URL, TAG_URL, API_ASSET_URL]
+
+
+def test_download_does_not_fall_back_on_404_rate_limit_or_when_api_also_down(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    payload = make_app_zip()
+    asset = _asset(payload)
+    asset.api_url = API_ASSET_URL
+    calls = fake_network(monkeypatch, {ASSET_URL: lambda: HTTPError(ASSET_URL, 404, "Not Found", None, None)})
+    with pytest.raises(uc.ReleaseNotFound):
+        uc.download_asset(asset, tmp_path / "dl")
+    assert len(calls) == 1
+    calls = fake_network(monkeypatch, {ASSET_URL: lambda: HTTPError(ASSET_URL, 429, "Too Many", None, None)})
+    with pytest.raises(uc.UpdateError, match="giới hạn"):
+        uc.download_asset(asset, tmp_path / "dl")
+    assert len(calls) == 1
+    # Cả hai đường cùng lỗi → báo lỗi của đường chính, không để lại tệp dở
+    fake_network(monkeypatch, {ASSET_URL: _gateway_timeout,
+                               API_ASSET_URL: lambda: HTTPError(API_ASSET_URL, 503, "Unavailable", None, None)})
+    with pytest.raises(uc.NetworkUnavailable, match="HTTP 504"):
+        uc.download_asset(asset, tmp_path / "dl")
+    assert list((tmp_path / "dl").iterdir()) == []
+    # URL không theo mẫu GitHub (máy chủ thử nghiệm cục bộ) → không có đường dự phòng
+    local = uc.ReleaseAsset(name=ASSET_NAME, url="https://github.com/khong-hop-le", size=len(payload))
+    fake_network(monkeypatch, {local.url: _gateway_timeout})
+    with pytest.raises(uc.NetworkUnavailable):
+        uc.download_asset(local, tmp_path / "dl")
 
 
 def test_download_cancel_midway(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

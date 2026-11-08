@@ -335,6 +335,36 @@ def test_install_models_downloads_verifies_and_installs(monkeypatch: pytest.Monk
     assert ocr_models.status()["installed"] and ocr_models.remove_models() and not ocr_models.is_installed()
 
 
+def test_install_models_falls_back_to_github_api_on_504(monkeypatch: pytest.MonkeyPatch, isolated_app_data: Path):
+    """Đường tải công khai trả 504 (như 2026-11-08) → tra thẻ `ocr-models-v1` qua API rồi tải `releases/assets/<id>`."""
+    from urllib.error import HTTPError
+
+    monkeypatch.delenv(ocr_models.MODELS_ENV, raising=False)
+    body = _bundle_zip(FILES)
+    tag_url = "https://api.github.com/repos/quangthoai1985/QTPdfPro/releases/tags/ocr-models-v1"
+    api_url = "https://api.github.com/repos/quangthoai1985/QTPdfPro/releases/assets/669367871"
+    seen = []
+
+    def fake(req, timeout, hosts):
+        seen.append((req.full_url, req.get_header("Accept")))
+        if req.full_url == URL:
+            raise HTTPError(URL, 504, "Gateway Timeout", None, None)
+        if req.full_url == tag_url:
+            data = {"assets": [{"name": "QTPdfPro_OCR_vi_v1.zip", "url": api_url}]}
+            return FakeResponse(json.dumps(data).encode(), tag_url)
+        if req.full_url == api_url:
+            return FakeResponse(body, "https://release-assets.githubusercontent.com/x")
+        raise AssertionError(req.full_url)
+
+    monkeypatch.setattr(uc, "_urlopen", fake)
+    asset = uc.ReleaseAsset(name="QTPdfPro_OCR_vi_v1.zip", url=URL, size=len(body),
+                            sha256=hashlib.sha256(body).hexdigest())
+    bundle = ocr_models.install_models(asset=asset)
+    assert bundle.root == ocr_models.bundle_dir() and ocr_models.is_installed()
+    assert [u for u, _ in seen] == [URL, tag_url, api_url]
+    assert seen[-1][1] == "application/octet-stream"
+
+
 def test_install_models_rejects_bad_hash_zip_slip_and_untrusted_host(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.delenv(ocr_models.MODELS_ENV, raising=False)
     asset = _serve(monkeypatch, _bundle_zip(FILES), URL)

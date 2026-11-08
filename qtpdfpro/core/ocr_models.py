@@ -139,7 +139,7 @@ def status() -> Dict:
 
 def _download(asset: uc.ReleaseAsset, dest: Path, progress_cb: Optional[ProgressCallback],
               should_cancel: Optional[CancelCheck], timeout: float) -> None:
-    resp = uc._open(asset.url, uc.DOWNLOAD_HOSTS, timeout, "application/octet-stream")
+    resp = uc.open_asset(asset, timeout)  # github.com lỗi 5xx / mất kết nối → tự thử đường API của GitHub
     part = dest.with_name(dest.name + ".part")
     hasher = hashlib.sha256()
     done = 0
