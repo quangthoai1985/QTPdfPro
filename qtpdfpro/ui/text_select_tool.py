@@ -4,8 +4,9 @@ dạng chữ (OCR) đúng vùng đó.
 Gắn vào `PDFScrollViewer.set_interaction` khi chế độ con trỏ là «Chọn» (phím V); chế độ «Bàn tay» (phím H) gỡ
 công cụ để chuột trái kéo cuộn trang. Lõi chọn chữ / ghép đoạn / nhận dạng vùng ở `core/text_select.py`.
 
-- Kéo bắt đầu trên chữ → chọn theo dòng, đúng thứ tự đọc; kéo từ chỗ trống (hoặc giữ Alt) → khung chữ nhật.
-- Nhấp đúp = một từ, nhấp ba lần = cả dòng, Shift+nhấp = mở rộng, Ctrl+A = cả trang.
+- Kéo bắt đầu trên chữ → chọn theo dòng, đúng thứ tự đọc, **liền qua nhiều trang** (giữ chuột ở mép dưới khung
+  đọc thì tự cuộn); kéo từ chỗ trống (hoặc giữ Alt) → khung chữ nhật trên một trang.
+- Nhấp đúp = một từ, nhấp ba lần = cả dòng, Shift+nhấp = mở rộng (cả sang trang khác), Ctrl+A = cả trang.
 - Ctrl+C sao chép, Ctrl+Shift+C sao chép nối dòng thành đoạn; chuột phải: menu đầy đủ.
 - Trang ảnh quét (hoặc khung không có chữ thật): ảnh vùng kết xuất ở luồng giao diện, nhận dạng ở `QThread`
   (chỉ ONNX Runtime + numpy, không gọi PyMuPDF ngoài luồng chính), kết quả hiện trong bong bóng sửa được và tự
@@ -70,7 +71,10 @@ class _RegionOcrWorker(QThread):
 
 
 class OcrResultPopup(QFrame):
-    """Bong bóng nổi trên khung đọc: trạng thái nhận dạng + chữ đọc được (sửa được) + nút Sao chép."""
+    """Bong bóng nổi trên khung đọc: trạng thái nhận dạng + chữ đọc được (sửa được) + nút Sao chép.
+
+    Kéo phần tiêu đề / nền để dời bong bóng đi chỗ khác (`user_moved` — từ đó công cụ không tự đặt lại vị trí cho tới
+    lần nhận dạng sau)."""
 
     copyRequested = Signal()
     joinToggled = Signal(bool)
@@ -81,6 +85,10 @@ class OcrResultPopup(QFrame):
         self.setObjectName("ocrPopup")  # màu nền / viền theo giao diện Sáng / Tối: ui/theme.py
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setFixedWidth(POPUP_WIDTH)
+        self.setCursor(Qt.CursorShape.OpenHandCursor)
+        self.setToolTip("Kéo để dời bong bóng")
+        self.user_moved = False
+        self._drag_offset: Optional[QPoint] = None
         lay = QVBoxLayout(self)
         lay.setContentsMargins(10, 8, 10, 10)
         lay.setSpacing(6)
@@ -100,6 +108,8 @@ class OcrResultPopup(QFrame):
         self.progress.setFixedHeight(6)
         lay.addWidget(self.progress)
         self.text_edit = QPlainTextEdit()
+        self.text_edit.viewport().setCursor(Qt.CursorShape.IBeamCursor)
+        self.text_edit.setToolTip("")
         lay.addWidget(self.text_edit)
         row = QHBoxLayout()
         self.chk_join = QCheckBox("Nối dòng thành đoạn")
@@ -151,10 +161,70 @@ class OcrResultPopup(QFrame):
     def text(self) -> str:
         return self.text_edit.toPlainText()
 
+    # Kéo để dời (nhấn trên tiêu đề / nền — các ô nhập, nút tự xử lý chuột của chúng)
+    def mousePressEvent(self, event: QMouseEvent) -> None:  # noqa: N802 - API Qt
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._drag_offset = event.position().toPoint()
+            self.setCursor(Qt.CursorShape.ClosedHandCursor)
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event: QMouseEvent) -> None:  # noqa: N802 - API Qt
+        if self._drag_offset is not None and event.buttons() & Qt.MouseButton.LeftButton:
+            parent = self.parentWidget()
+            pos = self.mapToParent(event.position().toPoint()) - self._drag_offset
+            if parent is not None:
+                pos.setX(min(max(0, pos.x()), max(0, parent.width() - self.width())))
+                pos.setY(min(max(0, pos.y()), max(0, parent.height() - self.height())))
+            self.move(pos)
+            self.user_moved = True
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event: QMouseEvent) -> None:  # noqa: N802 - API Qt
+        if self._drag_offset is not None:
+            self._drag_offset = None
+            self.setCursor(Qt.CursorShape.OpenHandCursor)
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
+
     def _show(self) -> None:
         self.adjustSize()
         self.show()
         self.raise_()
+
+
+def place_beside(target: QRect, w: int, h: int, area_w: int, area_h: int, gap: int = 8) -> QPoint:
+    """Góc trên-trái cho bong bóng `w`×`h` đặt cạnh vùng `target` trong khung `area_w`×`area_h` mà không che vùng đó:
+    thử dưới → phải → trái → trên (phía trên thường là đoạn chữ người dùng vừa đọc); không chỗ nào đủ thì chọn chỗ
+    che ít nhất."""
+    def clamp(v: int, lo: int, hi: int) -> int:
+        return min(max(lo, v), max(lo, hi))
+
+    x_al = clamp(target.left(), gap, area_w - w - gap)
+    y_al = clamp(target.top(), gap, area_h - h - gap)
+    cands = [
+        QPoint(x_al, target.bottom() + gap),
+        QPoint(target.right() + gap, y_al),
+        QPoint(target.left() - w - gap, y_al),
+        QPoint(x_al, target.top() - h - gap),
+    ]
+    area = QRect(0, 0, area_w, area_h)
+    for c in cands:
+        box = QRect(c.x(), c.y(), w, h)
+        if area.contains(box) and not box.intersects(target):
+            return c
+
+    def overlap(c: QPoint) -> int:
+        box = QRect(clamp(c.x(), gap, area_w - w - gap), clamp(c.y(), gap, area_h - h - gap), w, h)
+        inter = box.intersected(target)
+        return inter.width() * inter.height() if not inter.isEmpty() else 0
+
+    best = min(cands, key=overlap)
+    return QPoint(clamp(best.x(), gap, area_w - w - gap), clamp(best.y(), gap, area_h - h - gap))
 
 
 # ─── Công cụ Chọn ──────────────────────────────────────────────────────────
@@ -166,6 +236,7 @@ class _Drag:
     start: fitz.Point
     current: fitz.Point
     mode: str  # "text" (theo dòng chữ) | "area" (khung chữ nhật)
+    current_page: int = -1  # trang dưới con trỏ khi kéo chọn chữ (≠ `page` khi kéo sang trang khác)
 
 
 class TextSelectTool(QObject):
@@ -195,10 +266,11 @@ class TextSelectTool(QObject):
         self._words: Dict[int, List[ts.Word]] = {}
         self._scanned: Dict[int, bool] = {}
         self._drag: Optional[_Drag] = None
-        self._sel_page: Optional[int] = None
-        self._sel_words: List[ts.Word] = []
+        self._sel_page: Optional[int] = None  # trang đầu của vùng chọn (vùng nhận dạng: trang của vùng)
+        self._sel_map: Dict[int, List[ts.Word]] = {}  # trang → từ đã chọn (nhiều trang khi kéo liền qua trang)
         self._sel_area: Optional[fitz.Rect] = None  # khung đã kéo (chọn vùng / vùng nhận dạng)
         self._anchor: Optional[fitz.Point] = None  # điểm đầu để Shift+nhấp mở rộng
+        self._anchor_page: Optional[int] = None
         self._ocr: Optional[ts.RegionText] = None
         self._ocr_target: Optional[tuple] = None  # (trang, khung) đang / sẽ nhận dạng
         self._ocr_queued = False
@@ -258,11 +330,18 @@ class TextSelectTool(QObject):
 
     @property
     def has_selection(self) -> bool:
-        return bool(self._sel_words) or self._ocr is not None
+        return any(self._sel_map.values()) or self._ocr is not None
 
     @property
     def selection_page(self) -> Optional[int]:
         return self._sel_page
+
+    @property
+    def selection_pages(self) -> List[int]:
+        """Các trang có chữ đang chọn (theo thứ tự trang)."""
+        if self._ocr is not None:
+            return [self._ocr.page_index]
+        return sorted(p for p, w in self._sel_map.items() if w)
 
     @property
     def ocr_result(self) -> Optional[ts.RegionText]:
@@ -276,10 +355,12 @@ class TextSelectTool(QObject):
     def popup(self) -> Optional[OcrResultPopup]:
         return self._popup
 
-    def selection_rects(self) -> List[fitz.Rect]:
+    def selection_rects(self, page_index: Optional[int] = None) -> List[fitz.Rect]:
+        """Khung tô của vùng chọn trên trang `page_index` (mặc định: trang đầu của vùng chọn)."""
         if self._ocr is not None:
-            return list(self._ocr.page_rects)
-        return ts.selection_rects(self._sel_words)
+            return list(self._ocr.page_rects) if page_index in (None, self._ocr.page_index) else []
+        page = self._sel_page if page_index is None else page_index
+        return ts.selection_rects(self._sel_map.get(page, [])) if page is not None else []
 
     def selected_text(self, join_lines: Optional[bool] = None) -> str:
         """Chữ đang chọn. `join_lines=None`: như đang hiển thị (chữ chọn trên trang: giữ ngắt dòng; chữ nhận dạng:
@@ -291,12 +372,22 @@ class TextSelectTool(QObject):
             if shown and (join_lines is None or join_lines == popup_join):
                 return popup.text().strip()
             return self._ocr.text(popup_join if join_lines is None else join_lines)
-        return ts.selection_text(self._sel_words, bool(join_lines))
+        join = bool(join_lines)
+        return ts.join_page_texts([ts.selection_text(self._sel_map[p], join) for p in self.selection_pages], join)
 
     def _set_selection(self, page_index: Optional[int], words: List[ts.Word], area: Optional[fitz.Rect] = None) -> None:
         self._sel_page = page_index
-        self._sel_words = list(words)
+        self._sel_map = {page_index: list(words)} if page_index is not None and words else {}
         self._sel_area = area
+        self._ocr = None
+        self.selectionChanged.emit()
+        self._repaint()
+
+    def _set_multi_selection(self, sel: Dict[int, List[ts.Word]]) -> None:
+        """Vùng chọn chữ qua nhiều trang (kéo liền / Shift+nhấp sang trang khác)."""
+        self._sel_map = {p: list(w) for p, w in sorted(sel.items()) if w}
+        self._sel_page = min(self._sel_map) if self._sel_map else None
+        self._sel_area = None
         self._ocr = None
         self.selectionChanged.emit()
         self._repaint()
@@ -304,6 +395,7 @@ class TextSelectTool(QObject):
     def clear_selection(self) -> None:
         self._drag = None
         self._anchor = None
+        self._anchor_page = None
         self._ocr_target = None
         self._ocr_queued = False
         self._waiting_models = False
@@ -324,7 +416,8 @@ class TextSelectTool(QObject):
         self._announce()
 
     def bounding_rect(self) -> Optional[fitz.Rect]:
-        """Khung bao vùng chọn (toạ độ trang chưa xoay) — cho «Sao chép ảnh» / «Nhận dạng vùng này»."""
+        """Khung bao vùng chọn trên trang đầu (toạ độ trang chưa xoay) — cho «Sao chép ảnh» / «Nhận dạng vùng này» /
+        đặt bong bóng."""
         if self._sel_area is not None:
             return fitz.Rect(self._sel_area)
         rects = self.selection_rects()
@@ -347,7 +440,7 @@ class TextSelectTool(QObject):
 
     def copy_image(self) -> bool:
         rect = self.bounding_rect()
-        if rect is None or self._sel_page is None:
+        if rect is None or self._sel_page is None or len(self.selection_pages) > 1:
             return False
         try:
             region = ts.render_region(self.reader.doc[self._sel_page], rect, dpi=200,
@@ -374,6 +467,7 @@ class TextSelectTool(QObject):
         self._set_selection(page_index, [], rect)
         self._ocr_target = (page_index, rect)
         popup = self._ensure_popup()
+        popup.user_moved = False  # vùng mới → đặt bong bóng lại cạnh vùng chọn
         models = self.models_provider() if self.models_provider is not None else None
         if models is not None:
             self._connect_models(models)
@@ -520,21 +614,16 @@ class TextSelectTool(QObject):
 
     def _place_popup(self) -> None:
         popup, viewer = self._popup, self.viewer
-        if popup is None or viewer is None or not popup.isVisible() or self._sel_page is None:
+        if popup is None or viewer is None or not popup.isVisible() or self._sel_page is None or popup.user_moved:
             return
         rect = self.bounding_rect()
         vp = viewer.viewport()
+        popup.adjustSize()
         if rect is None:
             popup.move(vp.width() - popup.width() - 12, 12)
             return
         wr = viewer.page_rect_to_widget(self._sel_page, rect).translated(QPointF(viewer.widget().pos()))
-        popup.adjustSize()
-        x = min(max(8, int(wr.left())), max(8, vp.width() - popup.width() - 8))
-        y = int(wr.bottom()) + 8
-        if y + popup.height() > vp.height() - 8:
-            y = int(wr.top()) - popup.height() - 8
-        y = min(max(8, y), max(8, vp.height() - popup.height() - 8))
-        popup.move(x, y)
+        popup.move(place_beside(wr.toAlignedRect(), popup.width(), popup.height(), vp.width(), vp.height()))
 
     def _hook_viewer(self, viewer) -> None:
         self.viewer = viewer
@@ -559,6 +648,26 @@ class TextSelectTool(QObject):
             return Qt.CursorShape.CrossCursor
         return Qt.CursorShape.IBeamCursor
 
+    def _pointer_target(self, viewer, page_index: Optional[int], pt: Optional[fitz.Point], event) -> tuple:
+        """(trang, điểm trên trang đó) dưới con trỏ khi đang kéo — khung đọc chỉ báo toạ độ theo trang lúc nhấn chuột;
+        kéo sang trang khác (kể cả khe giữa hai trang, hoặc ra ngoài vùng trang) thì lấy trang gần con trỏ nhất."""
+        page_near = getattr(viewer, "page_near", None)
+        if page_near is not None and event is not None:
+            pos = event.position()
+            near = page_near(pos)
+            if near is not None:
+                return near, viewer.widget_to_page(near, pos)
+        return page_index, pt
+
+    def _text_range(self, page0: int, p0, page1: int, p1) -> Dict[int, List[ts.Word]]:
+        return ts.select_pages_range(self._range_words, page0, p0, page1, p1)
+
+    def _range_words(self, page_index: int) -> List[ts.Word]:
+        """Từ của trang để chọn liền qua trang: trang ảnh quét chưa nhận dạng thì không có từ (bỏ qua)."""
+        if not 0 <= page_index < self.reader.page_count or self.needs_ocr(page_index):
+            return []
+        return self.words(page_index)
+
     def press(self, viewer, page_index: int, pt: fitz.Point, event: QMouseEvent) -> None:
         self._hook_viewer(viewer)
         mods = event.modifiers()
@@ -574,15 +683,16 @@ class TextSelectTool(QObject):
             return
         scanned = self.needs_ocr(page_index)  # trang ảnh quét chưa có lớp chữ nhận dạng
         words = self.words(page_index)
-        if (mods & Qt.KeyboardModifier.ShiftModifier and self._sel_page == page_index and self._anchor is not None
+        if (mods & Qt.KeyboardModifier.ShiftModifier and self._anchor is not None and self._anchor_page is not None
                 and not scanned and self._ocr is None):
-            self._drag = _Drag(page_index, fitz.Point(self._anchor), pt, "text")
-            self._set_selection(page_index, ts.select_range(words, self._anchor, pt))
+            a_page = self._anchor_page
+            self._drag = _Drag(a_page, fitz.Point(self._anchor), pt, "text", page_index)
+            self._set_multi_selection(self._text_range(a_page, self._anchor, page_index, pt))
             return
         if self._popup is not None and not self.ocr_busy:
             self._popup.hide()
         area = bool(mods & Qt.KeyboardModifier.AltModifier) or scanned or not ts.near_text(words, pt)
-        self._drag = _Drag(page_index, fitz.Point(pt), fitz.Point(pt), "area" if area else "text")
+        self._drag = _Drag(page_index, fitz.Point(pt), fitz.Point(pt), "area" if area else "text", page_index)
         if scanned:
             self.request_layer(page_index)
             busy = self.layer is not None and self.layer.busy_page == page_index
@@ -600,28 +710,35 @@ class TextSelectTool(QObject):
                 self._hover_cursor = shape
                 viewer.refresh_cursor(shape)
             return
-        d.current = fitz.Point(pt)
-        words = self.words(d.page)
         if d.mode == "text":
-            self._sel_page, self._sel_words, self._sel_area, self._ocr = d.page, ts.select_range(words, d.start, pt), None, None
-        elif not self.needs_ocr(d.page):
+            cur, cpt = self._pointer_target(viewer, page_index, pt, event)
+            d.current_page, d.current = cur, fitz.Point(cpt)
+            self._sel_map = self._text_range(d.page, d.start, cur, cpt)
+            self._sel_page = min(self._sel_map) if self._sel_map else None
+            self._sel_area, self._ocr = None, None
+            return
+        d.current = fitz.Point(pt)
+        if not self.needs_ocr(d.page):
             area = fitz.Rect(d.start, pt).normalize()
-            self._sel_page, self._sel_words, self._sel_area, self._ocr = d.page, ts.select_area(words, area), None, None
+            picked = ts.select_area(self.words(d.page), area)
+            self._sel_page, self._sel_area, self._ocr = d.page, None, None
+            self._sel_map = {d.page: picked} if picked else {}
 
     def release(self, viewer, page_index: int, pt: fitz.Point, event: QMouseEvent) -> None:
         d, self._drag = self._drag, None
         if d is None:
             return
-        moved = math.hypot(pt.x - d.start.x, pt.y - d.start.y)
+        cur, cpt = self._pointer_target(viewer, page_index, pt, event) if d.mode == "text" else (page_index, pt)
+        moved = math.hypot(cpt.x - d.start.x, cpt.y - d.start.y) if cur == d.page else float("inf")
         if moved < 1.5:  # nhấp chuột: bỏ chọn
             if not event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
-                self._anchor = fitz.Point(pt)
+                self._anchor, self._anchor_page = fitz.Point(pt), page_index
                 self._set_selection(None, [])
             return
         words = self.words(d.page)
         if d.mode == "text":
-            self._anchor = fitz.Point(d.start)
-            self._set_selection(d.page, ts.select_range(words, d.start, pt))
+            self._anchor, self._anchor_page = fitz.Point(d.start), d.page
+            self._set_multi_selection(self._text_range(d.page, d.start, cur, cpt))
             self._announce()
             return
         rect = fitz.Rect(d.start, pt).normalize()
@@ -642,6 +759,7 @@ class TextSelectTool(QObject):
         word = ts.select_word(self.words(page_index), pt)
         if word:
             self._anchor = fitz.Point(word[0][0], (word[0][1] + word[0][3]) / 2)
+            self._anchor_page = page_index
             self._set_selection(page_index, word)
             self._announce()
 
@@ -665,10 +783,10 @@ class TextSelectTool(QObject):
     def paint(self, viewer, painter: QPainter, page_index: int) -> None:
         t = viewer.page_transform(page_index)
         d = self._drag
+        color = OCR_COLOR if self._ocr is not None else SELECTION_COLOR
+        for r in self.selection_rects(page_index):
+            painter.fillRect(viewer.page_rect_to_widget(page_index, r, t), color)
         if self._sel_page == page_index:
-            color = OCR_COLOR if self._ocr is not None else SELECTION_COLOR
-            for r in self.selection_rects():
-                painter.fillRect(viewer.page_rect_to_widget(page_index, r, t), color)
             target = self._ocr_target
             if target is not None and target[0] == page_index and (self.ocr_busy or self._ocr is not None):
                 painter.setPen(QPen(QColor("#16A34A"), 1.2, Qt.PenStyle.DashLine))
@@ -710,14 +828,23 @@ class TextSelectTool(QObject):
         a.setEnabled(has_text)
         a = menu.addAction("📋 Sao chép nối dòng thành đoạn\tCtrl+Shift+C", lambda: self.copy(True))
         a.setEnabled(has_text)
+        pages = self.selection_pages
         a = menu.addAction("🖼 Sao chép ảnh vùng chọn", self.copy_image)
-        a.setEnabled(self.bounding_rect() is not None)
+        a.setEnabled(self.bounding_rect() is not None and len(pages) <= 1)
+        if len(pages) > 1:
+            a.setToolTip("Chỉ chụp được ảnh vùng chọn nằm trên một trang")
         menu.addSeparator()
         sel_page = self._sel_page
-        rects = ts.selection_rects(self._sel_words)
-        a = menu.addAction("🖍 Tô sáng vùng chọn",
-                           lambda: (self.highlightRequested.emit(sel_page, rects), self.clear_selection()))
-        a.setEnabled(bool(rects) and sel_page is not None and self._ocr is None)
+        by_page = {p: ts.selection_rects(self._sel_map[p]) for p in pages} if self._ocr is None else {}
+
+        def _highlight() -> None:
+            for p, rs in by_page.items():
+                if rs:
+                    self.highlightRequested.emit(p, rs)
+            self.clear_selection()
+
+        a = menu.addAction("🖍 Tô sáng vùng chọn", _highlight)
+        a.setEnabled(any(by_page.values()))
         short = " ".join(text.split())
         a = menu.addAction(f"🔎 Tìm «{short[:30]}{'…' if len(short) > 30 else ''}» trong tài liệu",
                            lambda: self.searchRequested.emit(short))

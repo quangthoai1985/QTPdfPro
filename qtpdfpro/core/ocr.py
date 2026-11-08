@@ -94,6 +94,9 @@ class OcrPage:
     skipped: bool = False  # trang đã có lớp chữ → không OCR
     seconds: float = 0.0
     ink_images: List[Tuple[Tuple[float, float, float, float], bytes]] = field(default_factory=list)  # con dấu, chữ ký
+    # `bbox` của dòng theo trang hiển thị XOAY THÊM góc này (thuận chiều kim đồng hồ) — lớp chữ dùng lại từ công cụ
+    # Chọn chữ khi người dùng đang xoay xem trang quét nằm ngang; 0 = trang hiển thị như thường
+    view_rotation: int = 0
 
     @property
     def text(self) -> str:
@@ -623,6 +626,17 @@ def _ocr_font_file(bold: bool = False, italic: bool = False) -> Optional[str]:
     return str(path) if path.exists() else None
 
 
+def view_matrix(page: fitz.Page, view_rotation: int = 0) -> fitz.Matrix:
+    """Trang chưa xoay → khung nhìn (pt, gốc trên-trái) khi trang hiển thị được xoay thêm `view_rotation` độ (như
+    `text_select.render_region` kết xuất) — giống hệt trang có /Rotate = /Rotate hiện tại + `view_rotation`."""
+    view_rotation = int(view_rotation) % 360
+    if not view_rotation:
+        return fitz.Matrix(page.rotation_matrix)
+    rot = fitz.Matrix(view_rotation)
+    turned = page.rect * rot
+    return page.rotation_matrix * rot * fitz.Matrix(1, 0, 0, 1, -turned.x0, -turned.y0)
+
+
 class _TextLayer:
     """Tài liệu tạm: mỗi trang đích một trang cùng khổ (chưa xoay) chứa chữ ẩn, một phông Times New Roman chung
     → `subset_fonts` + thu gọn `/W`/`ToUnicode`, rồi `show_pdf_page` lên trang đích (không đụng phông của tệp gốc)."""
@@ -637,7 +651,9 @@ class _TextLayer:
         """Trang tạm cho `page` (khổ chưa xoay); trả về số trang trong tài liệu tạm."""
         box = page.cropbox
         tmp = self.doc.new_page(width=box.width, height=box.height)
-        derot = page.derotation_matrix
+        extra = int(getattr(ocr_page, "view_rotation", 0)) % 360
+        derot = ~view_matrix(page, extra) if extra else page.derotation_matrix
+        rotate = (page.rotation + extra) % 360
         for line in ocr_page.lines:
             text = line.text
             x0, y0, x1, y1 = line.bbox
@@ -647,12 +663,12 @@ class _TextLayer:
             if width <= 0:
                 continue
             # chân chữ đo từ ảnh; kéo giãn theo chiều dòng cho khớp bề rộng → tô chọn / tìm kiếm đúng chỗ.
-            # Trang /Rotate 90° / 270°: trong toạ độ chưa xoay dòng chữ chạy theo trục dọc
+            # Trang /Rotate (+ góc xoay xem) 90° / 270°: trong toạ độ chưa xoay dòng chữ chạy theo trục dọc
             origin = fitz.Point(x0, line.base_y) * derot
             sx = max(0.3, min(3.0, (x1 - x0) / width))
-            stretch = fitz.Matrix(1, sx) if page.rotation % 180 else fitz.Matrix(sx, 1)
+            stretch = fitz.Matrix(1, sx) if rotate % 180 else fitz.Matrix(sx, 1)
             tmp.insert_text(origin, text, fontsize=size, fontname="QTOCR", fontfile=self.fontfile,
-                            render_mode=3, rotate=page.rotation, morph=(origin, stretch))
+                            render_mode=3, rotate=rotate, morph=(origin, stretch))
             self.used.append(text)
         return tmp.number
 

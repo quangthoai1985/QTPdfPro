@@ -20,7 +20,7 @@ import math
 import re
 import time
 from dataclasses import dataclass, field
-from typing import List, Optional, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 import fitz  # PyMuPDF
 import numpy as np
@@ -112,14 +112,66 @@ def near_text(words: Sequence[Word], pt) -> bool:
     return word_index_at(words, pt, pad=0.45) is not None
 
 
+def _range_index(words: Sequence[Word], p) -> int:
+    """Từ ứng với một đầu vùng kéo chọn: điểm nằm dưới mọi dòng chữ → từ cuối trang, trên mọi dòng → từ đầu trang
+    (kéo ra khe giữa hai trang là chọn tới hết trang), còn lại là từ gần nhất (ưu tiên cùng dòng)."""
+    p = fitz.Point(p)
+    if p.y > max(w[3] for w in words):
+        return len(words) - 1
+    if p.y < min(w[1] for w in words):
+        return 0
+    return _nearest_word(words, p)
+
+
 def select_range(words: Sequence[Word], p0, p1) -> List[Word]:
     """Mọi từ từ vị trí `p0` tới `p1` theo thứ tự đọc (như kéo chuột trong trình đọc)."""
     if not words:
         return []
-    i0, i1 = _nearest_word(words, fitz.Point(p0)), _nearest_word(words, fitz.Point(p1))
+    i0, i1 = _range_index(words, p0), _range_index(words, p1)
     if i0 > i1:
         i0, i1 = i1, i0
     return list(words[i0:i1 + 1])
+
+
+def select_pages_range(words_of, start_page: int, p0, end_page: int, p1) -> Dict[int, List[Word]]:
+    """Kéo chọn liền qua nhiều trang: từ `p0` trên trang `start_page` tới `p1` trên trang `end_page` (thứ tự đọc;
+    hai đầu đảo được). `words_of(trang)` trả về danh sách từ của trang. Trang giữa lấy cả trang; trang không có chữ
+    (ảnh quét chưa nhận dạng) bị bỏ qua. Trả về {trang: từ} theo thứ tự trang."""
+    if start_page == end_page:
+        rng = select_range(words_of(start_page), p0, p1)
+        return {start_page: rng} if rng else {}
+    if start_page > end_page:
+        start_page, p0, end_page, p1 = end_page, p1, start_page, p0
+    out: Dict[int, List[Word]] = {}
+    for pno in range(start_page, end_page + 1):
+        words = words_of(pno)
+        if not words:
+            continue
+        if pno == start_page:
+            picked = list(words[_range_index(words, p0):])
+        elif pno == end_page:
+            picked = list(words[:_range_index(words, p1) + 1])
+        else:
+            picked = list(words)
+        if picked:
+            out[pno] = picked
+    return out
+
+
+_SENTENCE_END = tuple(".!?:;…\"»)]”")
+
+
+def join_page_texts(texts: Sequence[str], join_lines: bool = False) -> str:
+    """Ghép chữ chọn được của nhiều trang liên tiếp. Nối dòng (`join_lines`): câu bị ngắt ở cuối trang (không kết thúc
+    bằng dấu câu, trang sau bắt đầu bằng chữ thường) được nối bằng dấu cách; còn lại xuống dòng."""
+    parts = [t.strip() for t in texts if t and t.strip()]
+    if not parts:
+        return ""
+    out = parts[0]
+    for nxt in parts[1:]:
+        cont = join_lines and not out.endswith(_SENTENCE_END) and nxt[:1].islower() and not _LIST_ITEM_RE.match(nxt)
+        out += (" " if cont else "\n") + nxt
+    return out
 
 
 def select_area(words: Sequence[Word], rect) -> List[Word]:

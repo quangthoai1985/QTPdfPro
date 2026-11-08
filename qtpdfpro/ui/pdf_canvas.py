@@ -16,10 +16,12 @@ from typing import Dict, Iterable, List, Optional, Protocol, Tuple
 
 import fitz  # PyMuPDF
 
-from PySide6.QtCore import QPoint, QPointF, QRectF, Qt, Signal
+from PySide6.QtCore import QEvent, QPoint, QPointF, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import (
     QColor,
+    QCursor,
     QFont,
+    QGuiApplication,
     QImage,
     QKeyEvent,
     QMouseEvent,
@@ -182,6 +184,10 @@ class PDFScrollViewer(QScrollArea):
 
         self._interaction: Optional[CanvasInteraction] = None
         self._drag_page: Optional[int] = None
+        # Giữ chuột ở mép trên / dưới khi đang kéo chọn / vẽ: tự cuộn đều tay cả khi chuột đứng yên
+        self._autoscroll_timer = QTimer(self)
+        self._autoscroll_timer.setInterval(40)
+        self._autoscroll_timer.timeout.connect(self._autoscroll_tick)
 
         self._surface = _PageDrawSurface(self)
         self.setWidget(self._surface)
@@ -249,6 +255,24 @@ class PDFScrollViewer(QScrollArea):
                 return idx
         return None
 
+    def page_near(self, pos: QPointF) -> Optional[int]:
+        """Trang gần điểm `pos` nhất (toạ độ khung vẽ): trang chứa điểm, khe giữa hai trang thuộc trang phía trên, phía
+        trên trang đầu / dưới trang cuối → trang đầu / cuối. Chế độ một trang: luôn là trang đang xem."""
+        rects = self._page_rects_px
+        if not rects:
+            return None
+        if not self._continuous:
+            return self._current_page
+        y = pos.y()
+        if y < rects[0].top():
+            return 0
+        if y > rects[-1].bottom():
+            return len(rects) - 1
+        found = self._page_index_at_y(y)
+        if found is not None:
+            return found
+        return min(range(len(rects)), key=lambda i: min(abs(rects[i].top() - y), abs(rects[i].bottom() - y)))
+
     def page_transform(self, page_index: int) -> QTransform:
         """Phép biến đổi toạ độ trang chưa xoay → toạ độ khung vẽ (đã gồm thu phóng và mọi góc xoay)."""
         m = self.reader.page_view_matrix(page_index, self._effective_scale)
@@ -300,6 +324,7 @@ class PDFScrollViewer(QScrollArea):
     def _interaction_release(self, event: QMouseEvent) -> None:
         pno = self._drag_page
         self._drag_page = None
+        self._autoscroll_timer.stop()
         if pno is None:
             return
         self._interaction.release(self, pno, self.widget_to_page(pno, event.position()), event)
@@ -322,6 +347,24 @@ class PDFScrollViewer(QScrollArea):
             bar.setValue(bar.value() - step)
         elif local.y() > vp.height() - margin:
             bar.setValue(bar.value() + step)
+        else:
+            self._autoscroll_timer.stop()
+            return
+        if not self._autoscroll_timer.isActive():
+            self._autoscroll_timer.start()
+
+    def _autoscroll_tick(self) -> None:
+        """Chuột vẫn giữ ở mép vùng nhìn (không di chuyển): cuộn tiếp và báo vị trí mới cho công cụ chuột như một lần
+        di chuột (vùng chọn chữ kéo dài theo trang vừa cuộn tới)."""
+        if (self._drag_page is None or self._interaction is None
+                or not QGuiApplication.mouseButtons() & Qt.MouseButton.LeftButton):
+            self._autoscroll_timer.stop()
+            return
+        gpos = QCursor.pos()
+        pos = QPointF(self._surface.mapFromGlobal(gpos))
+        event = QMouseEvent(QEvent.Type.MouseMove, pos, QPointF(gpos), Qt.MouseButton.NoButton,
+                            Qt.MouseButton.LeftButton, QGuiApplication.keyboardModifiers())
+        self._interaction_move(event)
 
     def set_canvas_theme(self, theme: str) -> None:
         """Cập nhật màu nền vùng vẽ PDF theo giao diện `'light'` hoặc `'dark'`."""

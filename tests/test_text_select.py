@@ -429,3 +429,168 @@ def test_scanned_page_drag_recognizes_region(tmp_path: Path) -> None:
     assert any(a.text().startswith("🔤 Nhận dạng chữ cả trang") for a in menu.actions())
     win.close()
     app.processEvents()
+
+
+# ─── Hoàn thiện: chọn liền nhiều trang, bong bóng không che chữ, danh mục công cụ ─────────────
+
+
+def _multi_pdf(path: Path) -> Path:
+    doc = fitz.open()
+    kw = _font_kwargs()
+    for lines in (["Trang một dòng đầu", "trang một dòng cuối"],
+                  ["Trang hai dòng đầu", "trang hai dòng cuối"],
+                  ["Trang ba dòng đầu", "trang ba dòng cuối"]):
+        page = doc.new_page(width=595, height=842)
+        page.insert_text((72, 100), lines[0], fontsize=14, **kw)
+        page.insert_text((72, 760), lines[1], fontsize=14, **kw)
+    doc.save(str(path))
+    doc.close()
+    return path
+
+
+def test_select_pages_range_and_join_page_texts(tmp_path: Path) -> None:
+    with fitz.open(_multi_pdf(tmp_path / "m.pdf")) as doc:
+        words = {i: ts.page_words(doc[i]) for i in range(3)}
+        words_of = lambda i: words.get(i, [])  # noqa: E731
+        sel = ts.select_pages_range(words_of, 0, (140, 755), 2, (110, 96))  # «dòng cuối» trang 1 → «Trang ba»
+        assert sorted(sel) == [0, 1, 2]
+        assert ts.selection_text(sel[0]) == "dòng cuối"
+        assert ts.selection_text(sel[1]) == "Trang hai dòng đầu\ntrang hai dòng cuối"
+        assert ts.selection_text(sel[2]) == "Trang ba"
+        # Kéo ngược (từ trang sau lên trang trước) cho cùng kết quả; trang không có chữ bị bỏ qua
+        assert ts.select_pages_range(words_of, 2, (110, 96), 0, (140, 755)) == sel
+        words[1] = []
+        assert sorted(ts.select_pages_range(words_of, 0, (140, 755), 2, (110, 96))) == [0, 2]
+    assert ts.join_page_texts(["Căn cứ Luật tổ chức", "chính quyền địa phương;"]) == \
+        "Căn cứ Luật tổ chức\nchính quyền địa phương;"
+    assert ts.join_page_texts(["Căn cứ Luật tổ chức", "chính quyền địa phương;"], True) == \
+        "Căn cứ Luật tổ chức chính quyền địa phương;"
+    assert ts.join_page_texts(["Hết điều 1.", "điều 2"], True) == "Hết điều 1.\nđiều 2"
+    assert ts.join_page_texts(["", "  ", "Một"], True) == "Một"
+
+
+def test_drag_and_shift_click_select_across_pages(tmp_path: Path) -> None:
+    app = _app()
+    win, tab = _open(app, _multi_pdf(tmp_path / "ui_multi.pdf"))
+    viewer, tool = tab.viewer, tab.text_select
+    surface = viewer.widget()
+    # Kéo từ «dòng cuối» trang 1 sang «Trang hai» trang 2 (bước giữa rơi vào khe giữa hai trang)
+    a = viewer.page_transform(0).map(QPointF(140, 755))
+    b = viewer.page_transform(1).map(QPointF(110, 96))
+    _mouse(surface, QEvent.Type.MouseButtonPress, a)
+    gap_y = (viewer.page_transform(0).map(QPointF(0, 842)).y() + viewer.page_transform(1).map(QPointF(0, 0)).y()) / 2
+    _mouse(surface, QEvent.Type.MouseMove, QPointF(a.x(), gap_y), LEFT, LEFT)
+    assert tool.selection_pages == [0]  # trong khe giữa hai trang: tới hết trang 1
+    assert tool.selected_text() == "dòng cuối"
+    _mouse(surface, QEvent.Type.MouseMove, b, LEFT, LEFT)
+    _mouse(surface, QEvent.Type.MouseButtonRelease, b, LEFT, Qt.MouseButton.NoButton)
+    assert tool.selection_pages == [0, 1]
+    assert tool.selected_text() == "dòng cuối\nTrang hai"
+    _key(surface, Qt.Key.Key_C, Qt.KeyboardModifier.ControlModifier)
+    assert QGuiApplication.clipboard().text() == "dòng cuối\nTrang hai"
+
+    # Shift+nhấp trên trang 3 → mở rộng từ điểm đầu (trang 1) sang trang 3
+    c = viewer.page_transform(2).map(QPointF(112, 96))
+    _mouse(surface, QEvent.Type.MouseButtonPress, c, mods=Qt.KeyboardModifier.ShiftModifier)
+    _mouse(surface, QEvent.Type.MouseButtonRelease, c, LEFT, Qt.MouseButton.NoButton, Qt.KeyboardModifier.ShiftModifier)
+    assert tool.selection_pages == [0, 1, 2]
+    assert tool.selected_text().split("\n") == ["dòng cuối", "Trang hai dòng đầu", "trang hai dòng cuối", "Trang ba"]
+    assert len(tool.selection_rects(1)) == 2 and tool.selection_rects(5) == []
+
+    # Menu chuột phải: ảnh vùng chọn chỉ cho một trang; tô sáng → chú thích trên cả ba trang
+    menu = tool.build_context_menu(2)
+    actions = {a.text().split("\t")[0]: a for a in menu.actions() if a.text()}
+    assert not actions["🖼 Sao chép ảnh vùng chọn"].isEnabled()
+    actions["🖍 Tô sáng vùng chọn"].trigger()
+    app.processEvents()
+    pages = sorted({a.page_index for a in tab.annot_controller.session.list_annotations()})
+    assert pages == [0, 1, 2]
+    win.close()
+    app.processEvents()
+
+
+def test_viewer_page_near_covers_gaps_and_outside(tmp_path: Path) -> None:
+    app = _app()
+    win, tab = _open(app, _multi_pdf(tmp_path / "near.pdf"))
+    viewer = tab.viewer
+    r0, r1 = viewer._page_rects_px[0], viewer._page_rects_px[1]
+    assert viewer.page_near(QPointF(r0.center().x(), r0.top() - 5)) == 0
+    assert viewer.page_near(QPointF(r0.center().x(), (r0.bottom() + r1.top()) / 2)) == 0
+    assert viewer.page_near(QPointF(r1.center().x(), r1.top() + 3)) == 1
+    assert viewer.page_near(QPointF(5, viewer._page_rects_px[-1].bottom() + 50)) == 2
+    win.close()
+    app.processEvents()
+
+
+def test_place_beside_avoids_covering_selection() -> None:
+    from PySide6.QtCore import QRect
+
+    from qtpdfpro.ui.text_select_tool import place_beside
+
+    def box(pt, w=400, h=200):
+        return QRect(pt.x(), pt.y(), w, h)
+
+    area_w, area_h = 1200, 800
+    sel = QRect(100, 100, 300, 60)  # còn chỗ phía dưới → đặt dưới
+    assert place_beside(sel, 400, 200, area_w, area_h).y() == sel.bottom() + 8
+    sel = QRect(100, 550, 300, 60)  # sát đáy → sang phải (không lên trên che đoạn vừa đọc)
+    pos = place_beside(sel, 400, 200, area_w, area_h)
+    assert pos.x() > sel.right() and not box(pos).intersects(sel)
+    sel = QRect(20, 550, 1100, 60)  # rộng cả trang, sát đáy → phía trên
+    pos = place_beside(sel, 400, 200, area_w, area_h)
+    assert pos.y() + 200 <= sel.top() and not box(pos).intersects(sel)
+    sel = QRect(0, 0, 1200, 800)  # che kín → vẫn nằm trong khung
+    pos = place_beside(sel, 400, 200, area_w, area_h)
+    assert QRect(0, 0, area_w, area_h).contains(box(pos))
+
+
+def test_ocr_popup_drag_keeps_user_position(tmp_path: Path) -> None:
+    app = _app()
+    win, tab = _open(app, _scanned_pdf(tmp_path / "scan_popup.pdf"))
+    tool = tab.text_select
+    engine = _InkEngine()
+    tool.engine_factory = lambda: engine
+    models = _Models(installed=True)
+    tool.models_provider = lambda: models
+    _drag(tab.viewer, 0, (60, 290), (215, 340))
+    tool.wait_ocr()
+    popup = tool.popup
+    assert popup is not None and popup.isVisible() and tool.ocr_result is not None
+    # Bong bóng không đè lên vùng vừa nhận dạng
+    vp_sel = tab.viewer.page_rect_to_widget(0, tool.bounding_rect()).translated(QPointF(tab.viewer.widget().pos()))
+    assert not popup.geometry().intersects(vp_sel.toAlignedRect())
+    # Kéo tiêu đề bong bóng → giữ nguyên chỗ người dùng đặt kể cả khi cuộn trang
+    start = QPointF(popup.title_lbl.geometry().center())
+    _mouse(popup, QEvent.Type.MouseButtonPress, start)
+    _mouse(popup, QEvent.Type.MouseMove, start + QPointF(-60, 40), LEFT, LEFT)
+    _mouse(popup, QEvent.Type.MouseButtonRelease, start + QPointF(-60, 40), LEFT, Qt.MouseButton.NoButton)
+    assert popup.user_moved
+    moved_to = popup.pos()
+    tab.viewer.verticalScrollBar().setValue(tab.viewer.verticalScrollBar().value() + 30)
+    app.processEvents()
+    assert popup.pos() == moved_to
+    # Vùng mới → bong bóng lại tự đặt cạnh vùng chọn
+    _drag(tab.viewer, 0, (60, 290), (215, 340))
+    tool.wait_ocr()
+    assert not popup.user_moved
+    win.close()
+    app.processEvents()
+
+
+def test_select_text_and_hand_tools_in_catalog(tmp_path: Path) -> None:
+    from qtpdfpro.ui.main_window import STRIP_TOOLS
+    from qtpdfpro.ui.tool_catalog import get_tool, tools_for
+
+    assert get_tool("select_text").ready and get_tool("hand_tool").ready
+    assert "select_text" in [t.key for t in tools_for("all", "chon chu")]
+    assert "hand_tool" in [t.key for t in tools_for("all", "ban tay")]
+    assert ("Aa Chọn chữ", "select_text") in STRIP_TOOLS["read"]
+    app = _app()
+    win, tab = _open(app, _text_pdf(tmp_path / "cat.pdf"))
+    win.run_tool("hand_tool")
+    assert tab.pointer_mode == "hand" and tab.viewer.interaction is None
+    tab.enter_edit_mode()
+    win.run_tool("select_text")  # thoát chế độ chỉnh sửa, về Chọn chữ
+    assert not tab.edit_mode and tab.pointer_mode == "select" and tab.viewer.interaction is tab.text_select
+    win.close()
+    app.processEvents()

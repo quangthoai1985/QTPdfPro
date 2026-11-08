@@ -270,3 +270,100 @@ def test_no_background_ocr_without_models_or_in_hand_mode(tmp_path: Path) -> Non
     assert tab.ocr_layer.has_layer(1) and engine.calls >= 1
     win.close()
     app.processEvents()
+
+
+# ─── Hoàn thiện: khung từ theo khe mực, dùng lại lớp chữ của trang đang xoay xem ──────────────
+
+
+def test_split_line_words_snaps_to_ink_gaps() -> None:
+    # Ba «từ» mực rộng 10 / 60 / 20 cột, cách nhau 8 cột; chia theo số ký tự sẽ lệch rất xa
+    ink = np.zeros(120, dtype=bool)
+    ink[2:12] = ink[20:80] = ink[88:108] = True
+    words = ocr_layer.split_line_words("ab cdefgh ij", fitz.Rect(0, 0, 120, 20), ink)
+    boxes = [(round(r.x0), round(r.x1)) for r, _w in words]
+    assert [w for _r, w in words] == ["ab", "cdefgh", "ij"]
+    assert boxes == [(2, 12), (20, 80), (88, 108)]
+    # Khe giữa các chữ cái trong một từ (hẹp) không bị coi là ranh giới từ
+    ink2 = np.ones(100, dtype=bool)
+    ink2[30:32] = False  # khe 2 cột giữa hai chữ cái
+    ink2[48:58] = False  # khe 10 cột = dấu cách
+    words2 = ocr_layer.split_line_words("xin chào", fitz.Rect(0, 0, 100, 20), ink2)
+    assert [(round(r.x0), round(r.x1)) for r, _w in words2] == [(0, 48), (58, 100)]
+    # Không tìm thấy khe gần ranh giới ước lượng → giữ khung theo tỷ lệ ký tự
+    flat = np.ones(100, dtype=bool)
+    assert [(round(r.x0), round(r.x1)) for r, _ in ocr_layer.split_line_words("ab cd", fitz.Rect(0, 0, 100, 20), flat)] \
+        == [(0, 40), (60, 100)]
+
+
+def test_recognize_page_word_boxes_follow_real_word_gaps(tmp_path: Path) -> None:
+    text = "Ủy ban nhân dân tỉnh An Giang quyết định"
+    src = fitz.open()
+    p = src.new_page(width=595, height=842)
+    p.insert_text((72, 100), text, fontsize=16, **_font_kwargs())
+    truth = [fitz.Rect(w[:4]) for w in p.get_text("words")]
+    pix = p.get_pixmap(dpi=200)
+    doc = fitz.open()
+    page = doc.new_page(width=595, height=842)
+    page.insert_image(page.rect, pixmap=pix)
+    res = ocr_layer.recognize_page(_BandEngine([text]), ocr_layer.prepare_page_image(page))
+    assert [w[4] for w in res.words] == text.split()
+    for w, t in zip(res.words, truth):
+        assert abs(w[0] - t.x0) < 1.5 and abs(w[2] - t.x1) < 1.5, (w[4], w[:4], tuple(t))
+    doc.close()
+    src.close()
+
+
+def test_view_matrix_matches_page_with_extra_rotate() -> None:
+    for base in (0, 90, 180, 270):
+        for extra in (0, 90, 180, 270):
+            doc = fitz.open()
+            doc.new_page(width=300, height=500)
+            doc.new_page(width=300, height=500)
+            doc[0].set_rotation(base)
+            doc[1].set_rotation((base + extra) % 360)
+            got, want = ocr_mod.view_matrix(doc[0], extra), doc[1].rotation_matrix
+            assert all(abs(a - b) < 1e-6 for a, b in zip(got, want)), (base, extra)
+            doc.close()
+
+
+@pytest.mark.parametrize("base,extra", [(0, 90), (0, 270), (90, 180), (270, 180)])
+def test_rotated_view_layer_reused_for_searchable_pdf(tmp_path: Path, base: int, extra: int) -> None:
+    """Trang quét nằm ngang người dùng xoay xem cho đúng chiều: lớp chữ nhận dạng khi xem được dùng lại khi lưu PDF
+    tìm kiếm được, đặt đúng chỗ dòng chữ trên trang (trước đây trang xoay xem phải nhận dạng lại)."""
+    # Dải mực nằm dọc trên trang chưa xoay (dòng chữ chạy dọc trang — bản scan bị quay ngang)
+    ink_rect = fitz.Rect(120, 200, 150, 560)
+    src = fitz.open()
+    p = src.new_page(width=595, height=842)
+    p.draw_rect(ink_rect, color=None, fill=(0, 0, 0))
+    pix = p.get_pixmap(dpi=100)
+    path = tmp_path / f"rot_{base}_{extra}.pdf"
+    doc = fitz.open()
+    page = doc.new_page(width=595, height=842)
+    page.insert_image(page.rect, pixmap=pix)
+    page.set_rotation(base)
+    doc.save(str(path))
+    doc.close()
+    src.close()
+    with fitz.open(str(path)) as doc:
+        page = doc[0]
+        res = ocr_layer.recognize_page(_BandEngine(["Dòng chữ quay ngang"]),
+                                       ocr_layer.prepare_page_image(page, view_rotation=extra), extra)
+        assert res.view_rotation == extra and len(res.lines) == 1
+        word_box = fitz.Rect(res.words[0][:4])
+        for w in res.words[1:]:
+            word_box |= fitz.Rect(w[:4])
+        assert word_box.intersects(ink_rect)
+    cached = ocr_layer.CachedOcrEngine({0: res}, factory=lambda: pytest.fail("không được nhận dạng lại"))
+    out = tmp_path / f"rot_{base}_{extra}_ocr.pdf"
+    ocr_mod.ocr_pdf(path, out, engine=cached)
+    assert cached.reused == [0]
+    with fitz.open(str(out)) as doc:
+        words = doc[0].get_text("words")
+        assert " ".join(w[4] for w in words) == "Dòng chữ quay ngang"
+        box = fitz.Rect(words[0][:4])
+        for w in words[1:]:
+            box |= fitz.Rect(w[:4])
+        # Chữ ẩn chạy dọc trang chưa xoay, phủ suốt chiều dài dải mực (bề ngang theo cỡ chữ, không theo dải mực)
+        assert abs(box.y0 - ink_rect.y0) < 3 and abs(box.y1 - ink_rect.y1) < 3, (tuple(box), tuple(ink_rect))
+        assert ink_rect.x0 <= (box.x0 + box.x1) / 2 <= ink_rect.x1
+        assert box.height > box.width * 3

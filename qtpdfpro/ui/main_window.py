@@ -104,7 +104,7 @@ STRIP_TOOLS: dict[str, list[tuple[str, str]]] = {
         ("🖨️ In", "print"),
     ],
     "read": [
-        ("🔎 Tìm kiếm", "search"), ("📋 Trích văn bản", "extract_text"), ("📑 Mục lục", "bookmarks"),
+        ("Aa Chọn chữ", "select_text"), ("🔎 Tìm kiếm", "search"), ("📋 Trích văn bản", "extract_text"), ("📑 Mục lục", "bookmarks"),
         ("↺ Xoay trái", ":rotate_left"), ("↻ Xoay phải", "rotate_view"), ("📖 Đọc tập trung", "read_mode"),
         ("ℹ️ Thuộc tính", "doc_info"), ("🖨️ In", "print"),
     ],
@@ -1755,6 +1755,16 @@ class MainWindow(QMainWindow):
         else:
             self.run_tool(key)
 
+    def activate_pointer_tool(self, mode: str) -> None:
+        """Công cụ «Chọn & sao chép chữ» / «Bàn tay» từ danh mục, Ctrl+K hay thanh công cụ nhanh: thoát chế độ chỉnh sửa
+        (nếu đang bật), đổi chế độ con trỏ rồi trả bàn phím cho khung đọc để Ctrl+A / Ctrl+C dùng được ngay."""
+        tab = self.active_tab()
+        if tab is not None and tab.edit_mode:
+            tab.exit_edit_mode()
+        self.set_pointer_mode(mode)
+        if tab is not None:
+            tab.viewer.widget().setFocus()
+
     def set_pointer_mode(self, mode: str) -> None:
         """Chuyển Chọn chữ ↔ Bàn tay ở mọi tab tài liệu và ghi nhớ cho lần mở sau."""
         if mode not in POINTER_MODES:
@@ -2066,6 +2076,8 @@ class MainWindow(QMainWindow):
             "ocr": self.action_ocr,
             "layout_inspect": lambda: self._open_inspector(True),
             "sig_inspect": lambda: self._open_inspector(True),
+            "select_text": lambda: self.activate_pointer_tool("select"),
+            "hand_tool": lambda: self.activate_pointer_tool("hand"),
             "search": lambda: self._with_active_tab(lambda t: t.focus_search()),
             "extract_text": self.action_extract_current_page_text,
             "bookmarks": lambda: self._with_active_tab(lambda t: t._on_rail_tab_clicked(1)),

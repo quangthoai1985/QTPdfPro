@@ -51,7 +51,7 @@
 | **v0.8.0** — Phát hành chuyên nghiệp | ~~Bộ cài + Portable + «Mở bằng QT PDF Pro»~~ (xong ở v1.0.0) · Tải mô-đun khi cần (kiểm tra cập nhật V4 đã có từ v0.5.0) | ~~V3~~, V5 |
 | **v1.1.0** — *đã phát hành 2026-10-23* | «Điền & Ký» giai đoạn 1 (gõ chữ bắt dòng chấm, ✓ ✕, ngày, chữ ký hình ảnh) | A5, A6 (giai đoạn 1) |
 | **v1.2.0** — *đã phát hành 2026-10-23* | OCR tiếng Việt → PDF tìm kiếm được & DOCX chuẩn NĐ30 | B3, V5 (mô-đun OCR) |
-| **v1.2.2** — *đã lên `main` 2026-11-08, chưa phát hành* | Nhấp ảnh thu nhỏ chuyển trang ngay · mở tệp nhanh · Công cụ Chọn chữ / Bàn tay + chọn chữ trên bản scan · đường tải dự phòng qua API GitHub | B5, V4/V5 (tải dự phòng) |
+| **v1.2.2** — *đã lên `main` 2026-11-08, chưa phát hành* | Nhấp ảnh thu nhỏ chuyển trang ngay · mở tệp nhanh · Công cụ Chọn chữ / Bàn tay + chọn chữ trên bản scan + chọn liền nhiều trang · đường tải dự phòng qua API GitHub | B5, V4/V5 (tải dự phòng) |
 | **v2.0.0** — Ký số | Ký số bằng USB token qua kho chứng thư Windows · Xác thực chữ ký đầy đủ | B4 |
 
 Mọi mục đều theo quy tắc của `CLAUDE.md`: phần xử lý viết trong `qtpdfpro/core/` (không import PySide6), có lệnh CLI (hỗ trợ `--json`) và bài test; ghi tệp qua tệp tạm, từ chối ghi đè tệp nguồn đang mở như `page_ops.save_pdf`; chuỗi giao diện tiếng Việt có dấu.
@@ -109,7 +109,8 @@ Mọi mục đều theo quy tắc của `CLAUDE.md`: phần xử lý viết tron
   - PDF có chữ: kéo theo dòng (thứ tự đọc) / theo khung (kéo từ chỗ trống, Alt), nhấp đúp = từ, ba lần = dòng, Shift+nhấp, Ctrl+A; Ctrl+C, **Ctrl+Shift+C nối dòng thành đoạn**; chuột phải: sao chép ảnh vùng, tô sáng, tìm, OCR vùng; phông TCVN3 chép ra Unicode.
   - Bản scan — **Đợt 1**: kéo khung → OCR đúng vùng ở luồng nền, bong bóng sửa được + tự chép; phần đầu 2 cột đọc theo cột (cắt XY). **Đợt 2**: trang đang xem (+ trang kế) nhận dạng ngầm thành lớp chữ tạm khi máy đã có bộ mô hình → chọn chữ như PDF thường; lưu đệm `<dữ liệu>/ocr_cache/<sha256>.json`; «💾 Lưu thành PDF tìm kiếm được» dùng lại trang đã nhận dạng (`CachedOcrEngine`).
   - Đo với mô hình thật (bản scan giả 200 dpi, nhiễu, nghiêng 0,3°): đoạn văn 0% lỗi ký tự, cả trang 0,07%; mở lại có lớp chữ sau ~1 giây.
-  - Còn lại: chọn liền qua nhiều trang, mục trong danh mục công cụ / Ctrl+K, chạy thử trên bản `.exe`.
+  - **Hoàn thiện** (2026-11-08 tối): kéo chọn liền qua nhiều trang (tự cuộn khi giữ chuột ở mép, Shift+nhấp sang trang khác, tô sáng nhiều trang); mục «Chọn & sao chép chữ» / «Bàn tay kéo trang» trong danh mục, Ctrl+K, thanh công cụ nhanh; bong bóng OCR không che vùng chọn + kéo dời được; khung từ trên bản scan theo khe mực thật (lệch mép trung vị 3,63 → 0,51 pt); trang xoay xem dùng lại lớp chữ khi lưu PDF tìm kiếm được.
+  - Còn lại: chạy thử trên bản `.exe`.
 - [ ] **B4. Ký số bằng USB token & Xác thực chữ ký đầy đủ** — *v2.0* (chi tiết ở Giai đoạn 4).
   - cit-pdf chỉ ký bằng tệp PFX/P12 và xác thực không kiểm thu hồi — trong khi ở Việt Nam đa số dùng **USB token** (VGCA, Viettel-CA, VNPT-CA). Ký qua kho chứng thư Windows (driver token đăng ký chứng thư vào đó) hoặc PKCS#11; chuẩn PAdES (B-LT/LTA) bằng `pyHanko`, dấu thời gian TSA, hình hiển thị dùng ảnh con dấu từ A5.
   - Xác thực: `/ByteRange` phủ toàn tệp, phát hiện **«tài liệu đã bị sửa sau khi ký»** (bản ghi bổ sung sau chữ ký), chuỗi chứng thư tới gốc tin cậy (Root CA quốc gia, gốc của Ban Cơ yếu Chính phủ cho VGCA), kiểm OCSP/CRL. Nối với «Soi chữ ký số & con dấu» sẵn có.
