@@ -55,6 +55,7 @@ from PySide6.QtWidgets import (
 from qtpdfpro import __app_name__, __github_repo__, __version__
 from qtpdfpro.core import fill_sign
 from qtpdfpro.core.converter import is_admin_document
+from qtpdfpro.core.ocr_layer import CachedOcrEngine
 from qtpdfpro.core.reader import PDFDocumentReader, SearchHit
 from qtpdfpro.core.settings import AppSettings
 from qtpdfpro.core.word_com_bridge import is_ms_word_available
@@ -76,6 +77,7 @@ from qtpdfpro.ui.organizer_dialog import PageOrganizerDialog
 from qtpdfpro.ui.pdf_canvas import PDFScrollViewer
 from qtpdfpro.ui.print_dialog import PrintDialog
 from qtpdfpro.ui.signature_dialog import SignatureCreateDialog, SignatureManagerDialog
+from qtpdfpro.ui.ocr_layer_service import OcrLayerService, shared_ocr_engine
 from qtpdfpro.ui.text_select_tool import TextSelectTool
 from qtpdfpro.ui.pdf_tools_dialog import PDF_TOOL_DIALOGS
 from qtpdfpro.ui.theme import get_stylesheet
@@ -143,6 +145,7 @@ class PDFDocumentTab(QWidget):
     toolRequested = Signal(str)  # khoá công cụ trong tool_catalog (MainWindow.run_tool)
     toolsPanelHideRequested = Signal()  # nút ✕ của cột công cụ → MainWindow ẩn ở mọi tab & ghi nhớ
     pointerModeRequested = Signal(str)  # "select" | "hand" (phím V/H, nút thanh dọc, menu) → MainWindow áp mọi tab
+    saveSearchableRequested = Signal()  # tài liệu ảnh quét → «Lưu thành PDF tìm kiếm được» (MainWindow)
 
     def __init__(
         self,
@@ -185,8 +188,15 @@ class PDFDocumentTab(QWidget):
         self.banner_info_lbl.setWordWrap(True)
         self.banner_convert_btn = QPushButton("⚡ Xuất Word chuẩn 1:1 ngay")
         self.banner_convert_btn.setObjectName("primaryConvertBtn")
+        self.banner_ocr_btn = QPushButton("💾 Lưu thành PDF tìm kiếm được")
+        self.banner_ocr_btn.setObjectName("primaryConvertBtn")
+        self.banner_ocr_btn.setToolTip("Thêm lớp chữ ẩn (OCR) vào bản sao của tệp: tìm kiếm và chọn chữ được ở mọi "
+                                       "trình đọc PDF. Trang đã nhận dạng khi xem không phải nhận dạng lại.")
+        self.banner_ocr_btn.setVisible(False)
+        self.banner_ocr_btn.clicked.connect(self.saveSearchableRequested)
         banner_layout.addWidget(self.banner_info_lbl, 1)
         banner_layout.addWidget(self.banner_convert_btn)
+        banner_layout.addWidget(self.banner_ocr_btn)
         center_layout.addWidget(self.signature_banner)
 
         self.viewer = PDFScrollViewer(self.reader, self)
@@ -213,14 +223,22 @@ class PDFDocumentTab(QWidget):
         self.fill_toolbar.manageSignaturesRequested.connect(self.open_signature_library)
         self.annot_controller.signatureNeeded.connect(self._create_signature_for_placement)
         self._toolset = "edit"
-        # Công cụ «Chọn chữ» (V) / «Bàn tay» (H) khi không ở chế độ chỉnh sửa — như Acrobat
+        # Công cụ «Chọn chữ» (V) / «Bàn tay» (H) khi không ở chế độ chỉnh sửa — như Acrobat.
+        # Trang ảnh quét: `ocr_layer` nhận dạng ngầm trang đang xem thành lớp chữ tạm (khi máy đã có bộ mô hình).
+        self.ocr_layer = OcrLayerService(self.reader, parent=self)
         self.text_select = TextSelectTool(
-            self.reader, models_provider=lambda: getattr(self.window(), "ocr_models", None), parent=self
+            self.reader, models_provider=lambda: getattr(self.window(), "ocr_models", None), parent=self,
+            layer=self.ocr_layer,
         )
         self.text_select.message.connect(self.statusMessage)
         self.text_select.highlightRequested.connect(self._highlight_selection)
         self.text_select.searchRequested.connect(self._search_for_text)
         self.text_select.pointerModeRequested.connect(self.pointerModeRequested)
+        self.text_select.saveSearchableRequested.connect(self.saveSearchableRequested)
+        self.ocr_layer.message.connect(self.statusMessage)
+        self.ocr_layer.pageReady.connect(self._on_ocr_layer_ready)
+        self.ocr_layer.busyChanged.connect(lambda: self.viewer.widget().update())
+        self.is_scanned_document = False
         self._pointer_mode = settings.pointer_mode if settings.pointer_mode in POINTER_MODES else "select"
         self._pointer_shortcuts: List[QShortcut] = []
         for seq, mode in (("V", "select"), ("H", "hand")):
@@ -715,10 +733,25 @@ class PDFDocumentTab(QWidget):
             )
         except Exception:
             self.is_admin_document = False
+        self.is_scanned_document = (
+            not self.is_admin_document and self.reader.page_count > 0 and self.ocr_layer.is_scanned(0)
+        )
+        self._layer_armed = True  # từ giờ đổi trang / bật Chọn chữ mới xin nhận dạng ngầm (không làm chậm lúc mở)
         self._update_document_banner()
-        if not self.is_admin_document and not self._banner_sigs and self.reader.page_count > 0:
+        if self.is_scanned_document:
+            self._request_ocr_layer()  # máy đã có bộ mô hình → nhận dạng ngầm trang đang xem ngay
+        elif not self.is_admin_document and not self._banner_sigs and self.reader.page_count > 0:
             self._table_scan_next = 0
             self._table_scan_timer.start()
+
+    def _request_ocr_layer(self) -> None:
+        """Trang đang xem là ảnh quét & đang ở công cụ Chọn chữ → nhận dạng ngầm (+ trang kế)."""
+        if self._pointer_mode == "select" and not self.edit_mode and not self.reader.is_closed:
+            self.ocr_layer.request(self.viewer.current_page)
+
+    def _on_ocr_layer_ready(self, page_index: int) -> None:
+        self.text_select.on_layer_ready(page_index)
+        self.viewer.widget().update()
 
     def _scan_tables_step(self) -> None:
         """Dò bảng biểu một trang mỗi lượt (lúc rảnh) để thanh thông báo không làm chậm việc mở tệp."""
@@ -745,8 +778,16 @@ class PDFDocumentTab(QWidget):
     def _update_document_banner(self) -> None:
         total_sigs = self._banner_sigs
         total_tables = self._banner_tables
+        self.banner_ocr_btn.setVisible(self.is_scanned_document)
+        self.banner_convert_btn.setVisible(not self.is_scanned_document)
 
-        if self.is_admin_document:
+        if self.is_scanned_document:
+            self.banner_info_lbl.setText(
+                "📷 <b>Tài liệu ảnh quét</b> — công cụ Chọn chữ (V) nhận dạng chữ ngay trên máy để chọn &amp; sao chép; "
+                "lưu thành PDF tìm kiếm được để tìm kiếm và chọn chữ ở mọi trình đọc PDF."
+            )
+            self.signature_banner.setVisible(True)
+        elif self.is_admin_document:
             sig_txt = f" có {total_sigs} chữ ký số / con dấu" if total_sigs else ""
             self.banner_info_lbl.setText(
                 f"🏛️ <b>Văn bản hành chính{sig_txt}</b> — Xuất Word chuẩn thể thức NĐ30: giữ đúng lề, giãn dòng, "
@@ -773,6 +814,7 @@ class PDFDocumentTab(QWidget):
         for timer in (self._analysis_timer, self._table_scan_timer, self._thumb_timer):
             timer.stop()
         self.text_select.cancel()
+        self.ocr_layer.cancel()
         self.viewer.set_interaction(None)
         self.reader.close()
 
@@ -817,6 +859,8 @@ class PDFDocumentTab(QWidget):
         if self.edit_mode:
             return
         self.viewer.set_interaction(self.text_select if self._pointer_mode == "select" else None)
+        if self._pointer_mode == "select" and getattr(self, "_layer_armed", False):
+            self._request_ocr_layer()
 
     def _highlight_selection(self, page_index: int, rects: list) -> None:
         """Menu chuột phải «Tô sáng vùng chọn» của công cụ Chọn chữ."""
@@ -975,6 +1019,7 @@ class PDFDocumentTab(QWidget):
     def after_save(self) -> None:
         """Làm mới hiển thị sau khi lưu (tệp có thể vừa được mở lại / đổi đường dẫn)."""
         self.text_select.reset()
+        self.ocr_layer.file_changed()  # nội dung tệp đổi → khoá lưu đệm lớp chữ đổi
         self.viewer.refresh_pages(range(self.reader.page_count))
         self._annot_list_dirty = True
         self._refresh_annotation_list_if_visible()
@@ -1119,6 +1164,8 @@ class PDFDocumentTab(QWidget):
         self._inspector_page = None
         self._refresh_inspector()
         self._sync_rail_status()
+        if getattr(self, "_layer_armed", False):
+            self._request_ocr_layer()
 
     def _on_viewer_zoom_changed(self, _zoom_pct: int) -> None:
         self._sync_rail_status()
@@ -1898,6 +1945,7 @@ class MainWindow(QMainWindow):
         tab.tools_panel.setVisible(self.settings.show_tools_panel)
         tab.toolsPanelHideRequested.connect(lambda: self.set_tools_panel_visible(False))
         tab.pointerModeRequested.connect(self.set_pointer_mode)
+        tab.saveSearchableRequested.connect(self.action_save_searchable)
         tab.viewer.pageChanged.connect(lambda _p: self._sync_toolbar_with_active_tab())
         tab.viewer.zoomChanged.connect(lambda _z: self._sync_toolbar_with_active_tab())
         tab.extract_page_text_btn.clicked.connect(self.action_extract_current_page_text)
@@ -2364,7 +2412,17 @@ class MainWindow(QMainWindow):
             return
         LayoutVerifyDialog(pdf, docx, self).exec()
 
-    def action_ocr(self) -> None:
+    def action_save_searchable(self) -> None:
+        """Tài liệu ảnh quét → «Lưu thành PDF tìm kiếm được»: hộp thoại OCR (kết quả PDF), trang đã nhận dạng ngầm
+        khi xem (`PDFDocumentTab.ocr_layer`) được dùng lại thay vì nhận dạng lại."""
+        tab = self.active_tab()
+        factory = None
+        if tab is not None and tab.ocr_layer.pages and self.ocr_models.is_installed():
+            pages = dict(tab.ocr_layer.pages)
+            factory = lambda: CachedOcrEngine(pages, shared_ocr_engine)  # noqa: E731
+        self.action_ocr(engine_factory=factory)
+
+    def action_ocr(self, engine_factory: Optional[Callable[[], object]] = None) -> None:
         """Ctrl+Shift+R: OCR tiếng Việt — lần đầu tự tải ngầm bộ mô hình (~88 MB); nhận dạng tệp của tab đang đọc."""
         self.ocr_models.ensure_started()
         picked = self._tool_source()
@@ -2372,7 +2430,7 @@ class MainWindow(QMainWindow):
             return
         source, password = picked
         dlg = OcrDialog(self, source=source, password=password, models=self.ocr_models,
-                        is_locked=lambda p: self._tab_for_path(p) is not None)
+                        is_locked=lambda p: self._tab_for_path(p) is not None, engine_factory=engine_factory)
         if not dlg.exec() or dlg.ocr_result is None:
             return
         res = dlg.ocr_result

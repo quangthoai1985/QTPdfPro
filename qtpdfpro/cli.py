@@ -419,6 +419,8 @@ def _add_text_command(sub) -> None:
     p.add_argument("--rect", help="Vùng x0,y0,x1,y1 (pt, gốc trên-trái của trang chưa xoay); bỏ trống = cả trang")
     p.add_argument("--join", action="store_true", help="Nối các dòng bị ngắt thành đoạn liền")
     p.add_argument("--ocr", action="store_true", help="Luôn nhận dạng ảnh vùng (kể cả trang đã có chữ)")
+    p.add_argument("--layer", action="store_true",
+                   help="Trang ảnh quét: nhận dạng cả trang thành lớp chữ (dùng / ghi lưu đệm như công cụ Chọn)")
     p.add_argument("--dpi", type=int, default=0, help="Độ phân giải kết xuất khi OCR (mặc định: theo ảnh quét)")
     p.add_argument("--password", help="Mật khẩu mở tệp (nếu có)")
     p.add_argument("--json", action="store_true", help="In kết quả dạng JSON")
@@ -447,7 +449,15 @@ def _run_text(args: argparse.Namespace) -> int:
             words = ts.select_area(ts.page_words(page), rect)
             use_ocr = args.ocr or ts.is_scanned_page(page) or not words
             lines: list = []
-            if use_ocr:
+            if args.layer:
+                from qtpdfpro.core import ocr_layer
+
+                layer = ocr_layer.page_layer(args.input_pdf, page)
+                words = ts.select_area(layer.words, rect)
+                text = ts.selection_text(words, args.join)
+                lines = [{"text": ln.text, "bbox": [round(v, 2) for v in ln.rect]} for ln in ts.word_lines(words)]
+                use_ocr = True
+            elif use_ocr:
                 region = ts.render_region(page, rect, dpi=args.dpi)
                 res = ts.recognize_region(ocr_mod.OcrEngine.load(), region)
                 text = res.text(args.join)

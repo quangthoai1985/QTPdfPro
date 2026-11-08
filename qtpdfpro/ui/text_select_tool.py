@@ -15,14 +15,13 @@ công cụ để chuột trái kéo cuộn trang. Lõi chọn chữ / ghép đo�
 from __future__ import annotations
 
 import math
-import threading
 import time
 from dataclasses import dataclass
 from typing import Callable, Dict, List, Optional
 
 import fitz  # PyMuPDF
 
-from PySide6.QtCore import QObject, QPoint, QPointF, QRect, Qt, QThread, Signal
+from PySide6.QtCore import QObject, QPoint, QPointF, QRect, QRectF, Qt, QThread, Signal
 from PySide6.QtGui import QBrush, QColor, QGuiApplication, QImage, QKeyEvent, QKeySequence, QMouseEvent, QPainter, QPen
 from PySide6.QtWidgets import (
     QApplication,
@@ -40,6 +39,7 @@ from PySide6.QtWidgets import (
 
 from qtpdfpro.core import text_select as ts
 from qtpdfpro.core.reader import PDFDocumentReader
+from qtpdfpro.ui.ocr_layer_service import OcrLayerService, shared_ocr_engine
 
 SELECTION_COLOR = QColor(37, 99, 235, 72)
 OCR_COLOR = QColor(22, 163, 74, 64)
@@ -47,19 +47,7 @@ POPUP_WIDTH = 400
 
 # ─── Bộ nhận dạng dùng chung (nạp mô hình một lần cho cả ứng dụng) ──────────
 
-_ENGINE = None
-_ENGINE_LOCK = threading.Lock()
-
-
-def shared_ocr_engine():
-    """`OcrEngine` dùng chung, nạp lần đầu khi cần (gọi được từ luồng nền; ONNX Runtime an toàn đa luồng)."""
-    global _ENGINE
-    with _ENGINE_LOCK:
-        if _ENGINE is None:
-            from qtpdfpro.core.ocr import OcrEngine
-
-            _ENGINE = OcrEngine.load()
-        return _ENGINE
+# `shared_ocr_engine` (OcrEngine dùng chung, nạp một lần) ở ui/ocr_layer_service.py, nhập ở đầu tệp
 
 
 class _RegionOcrWorker(QThread):
@@ -188,16 +176,19 @@ class TextSelectTool(QObject):
     highlightRequested = Signal(int, list)  # trang, khung dòng (toạ độ trang chưa xoay)
     searchRequested = Signal(str)
     pointerModeRequested = Signal(str)  # "hand" từ menu chuột phải
+    saveSearchableRequested = Signal()  # menu chuột phải trên trang ảnh quét → «Lưu thành PDF tìm kiếm được»
 
     def __init__(
         self,
         reader: PDFDocumentReader,
         models_provider: Optional[Callable[[], object]] = None,
         parent: QObject | None = None,
+        layer: Optional[OcrLayerService] = None,
     ) -> None:
         super().__init__(parent)
         self.reader = reader
         self.models_provider = models_provider  # → OcrModelController (MainWindow.ocr_models) hoặc None
+        self.layer = layer  # lớp chữ nhận dạng ngầm của trang ảnh quét (Đợt 2)
         self.engine_factory: Callable[[], object] = shared_ocr_engine  # test thay bằng engine giả
         self.join_lines = False
         self.viewer = None
@@ -222,6 +213,11 @@ class TextSelectTool(QObject):
     # ─── Dữ liệu trang ────────────────────────────────────────────────────
 
     def words(self, page_index: int) -> List[ts.Word]:
+        """Từ của trang: chữ thật của PDF; trang ảnh quét đã nhận dạng ngầm thì là từ của lớp chữ nhận dạng."""
+        if self.layer is not None and self.is_scanned(page_index):
+            layer_words = self.layer.words(page_index)
+            if layer_words is not None:
+                return layer_words
         if page_index not in self._words:
             try:
                 self._words[page_index] = ts.page_words(self.reader.doc[page_index])
@@ -236,6 +232,21 @@ class TextSelectTool(QObject):
             except Exception:
                 self._scanned[page_index] = False
         return self._scanned[page_index]
+
+    def needs_ocr(self, page_index: int) -> bool:
+        """Trang ảnh quét CHƯA có lớp chữ nhận dạng → kéo chuột = khung nhận dạng vùng (Đợt 1)."""
+        return self.is_scanned(page_index) and not (self.layer is not None and self.layer.has_layer(page_index))
+
+    def request_layer(self, page_index: int) -> bool:
+        """Xin nhận dạng ngầm trang (khi máy đã có bộ mô hình)."""
+        return self.layer.request(page_index) if self.layer is not None else False
+
+    def on_layer_ready(self, page_index: int) -> None:
+        """Lớp chữ của trang vừa xong: từ đó chọn chữ như PDF thường."""
+        self._words.pop(page_index, None)
+        if self._sel_page == page_index and self._ocr is None and not self.ocr_busy:
+            self._set_selection(None, [])
+        self._repaint()
 
     def reset(self) -> None:
         """Tài liệu vừa mở lại / đổi trang → bỏ bộ nhớ đệm từ và vùng chọn."""
@@ -303,8 +314,10 @@ class TextSelectTool(QObject):
     def select_all(self, page_index: int) -> None:
         if not 0 <= page_index < self.reader.page_count:
             return
-        if self.is_scanned(page_index):
-            self.message.emit("Trang ảnh quét — kéo khung quanh chữ (hoặc chuột phải › Nhận dạng chữ cả trang).")
+        if self.needs_ocr(page_index):
+            self.request_layer(page_index)
+            self.message.emit("Trang ảnh quét chưa nhận dạng xong — kéo khung quanh chữ (hoặc chuột phải › "
+                              "Nhận dạng chữ cả trang).")
             return
         words = self.words(page_index)
         self._set_selection(page_index, words)
@@ -395,6 +408,7 @@ class TextSelectTool(QObject):
             if self._popup is not None:
                 self._popup.show_busy("⏳ Đang nhận dạng chữ trong vùng chọn…")
             self._start_worker()
+            self.request_layer(self._ocr_target[0])  # có mô hình rồi → nhận dạng ngầm cả trang luôn
         elif self._popup is not None:
             self._popup.show_message(f"⚠️ Chưa tải được bộ mô hình OCR: {message}" if message
                                      else "Đã huỷ tải bộ mô hình OCR.")
@@ -541,7 +555,7 @@ class TextSelectTool(QObject):
     def _cursor_for(self, page_index: Optional[int], pt: Optional[fitz.Point]) -> Qt.CursorShape:
         if page_index is None or pt is None:
             return Qt.CursorShape.ArrowCursor
-        if self.is_scanned(page_index) or not ts.near_text(self.words(page_index), pt):
+        if self.needs_ocr(page_index) or not ts.near_text(self.words(page_index), pt):
             return Qt.CursorShape.CrossCursor
         return Qt.CursorShape.IBeamCursor
 
@@ -551,14 +565,14 @@ class TextSelectTool(QObject):
         now = time.monotonic()
         last = self._last_double
         if (last is not None and last[1] == page_index and now - last[0] <= QApplication.doubleClickInterval() / 1000
-                and math.hypot(pt.x - last[2].x, pt.y - last[2].y) < 4 and not self.is_scanned(page_index)):
+                and math.hypot(pt.x - last[2].x, pt.y - last[2].y) < 4 and not self.needs_ocr(page_index)):
             self._last_double = None
             line = ts.select_line(self.words(page_index), pt)  # nhấp ba lần → cả dòng
             if line:
                 self._set_selection(page_index, line)
                 self._announce()
             return
-        scanned = self.is_scanned(page_index)
+        scanned = self.needs_ocr(page_index)  # trang ảnh quét chưa có lớp chữ nhận dạng
         words = self.words(page_index)
         if (mods & Qt.KeyboardModifier.ShiftModifier and self._sel_page == page_index and self._anchor is not None
                 and not scanned and self._ocr is None):
@@ -570,7 +584,11 @@ class TextSelectTool(QObject):
         area = bool(mods & Qt.KeyboardModifier.AltModifier) or scanned or not ts.near_text(words, pt)
         self._drag = _Drag(page_index, fitz.Point(pt), fitz.Point(pt), "area" if area else "text")
         if scanned:
-            self.message.emit("Trang ảnh quét — kéo khung quanh chữ cần chép, chữ sẽ được nhận dạng (OCR).")
+            self.request_layer(page_index)
+            busy = self.layer is not None and self.layer.busy_page == page_index
+            self.message.emit("Trang ảnh quét đang được nhận dạng ngầm — trong lúc chờ, kéo khung quanh chữ để nhận "
+                              "dạng ngay vùng đó." if busy else
+                              "Trang ảnh quét — kéo khung quanh chữ cần chép, chữ sẽ được nhận dạng (OCR).")
 
     def move(self, viewer, page_index: Optional[int], pt: Optional[fitz.Point], event: QMouseEvent,
              dragging: bool) -> None:
@@ -586,7 +604,7 @@ class TextSelectTool(QObject):
         words = self.words(d.page)
         if d.mode == "text":
             self._sel_page, self._sel_words, self._sel_area, self._ocr = d.page, ts.select_range(words, d.start, pt), None, None
-        elif not self.is_scanned(d.page):
+        elif not self.needs_ocr(d.page):
             area = fitz.Rect(d.start, pt).normalize()
             self._sel_page, self._sel_words, self._sel_area, self._ocr = d.page, ts.select_area(words, area), None, None
 
@@ -607,7 +625,7 @@ class TextSelectTool(QObject):
             self._announce()
             return
         rect = fitz.Rect(d.start, pt).normalize()
-        picked = [] if self.is_scanned(d.page) else ts.select_area(words, rect)
+        picked = [] if self.needs_ocr(d.page) else ts.select_area(words, rect)
         if picked:
             self._set_selection(d.page, picked, rect)
             self._announce()
@@ -619,7 +637,7 @@ class TextSelectTool(QObject):
     def double_click(self, viewer, page_index: int, pt: fitz.Point, event: QMouseEvent) -> None:
         self._hook_viewer(viewer)
         self._last_double = (time.monotonic(), page_index, fitz.Point(pt))
-        if self.is_scanned(page_index):
+        if self.needs_ocr(page_index):
             return
         word = ts.select_word(self.words(page_index), pt)
         if word:
@@ -660,6 +678,23 @@ class TextSelectTool(QObject):
             painter.setPen(QPen(QColor("#2563EB"), 1.0, Qt.PenStyle.DashLine))
             painter.setBrush(QBrush(QColor(37, 99, 235, 24)))
             painter.drawRect(viewer.page_rect_to_widget(page_index, fitz.Rect(d.start, d.current).normalize(), t))
+        if self.layer is not None and self.layer.busy_page == page_index:
+            self._paint_busy_chip(viewer, painter, page_index)
+
+    def _paint_busy_chip(self, viewer, painter: QPainter, page_index: int) -> None:
+        """Nhãn nhỏ góc trên-phải trang: đang nhận dạng ngầm."""
+        prect = viewer._page_rects_px[page_index]
+        text = "⏳ Đang nhận dạng chữ…"
+        fm = painter.fontMetrics()
+        w, h = fm.horizontalAdvance(text) + 18, fm.height() + 10
+        chip = QRectF(prect.right() - w - 10, prect.top() + 10, w, h)
+        painter.save()
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QBrush(QColor(15, 23, 42, 200)))
+        painter.drawRoundedRect(chip, h / 2, h / 2)
+        painter.setPen(QColor("#FFFFFF"))
+        painter.drawText(chip, Qt.AlignmentFlag.AlignCenter, text)
+        painter.restore()
 
     def context_menu(self, viewer, page_index: Optional[int], pt: Optional[fitz.Point], global_pos: QPoint) -> None:
         self._hook_viewer(viewer)
@@ -697,6 +732,7 @@ class TextSelectTool(QObject):
             full = page.rect * page.derotation_matrix
             a = menu.addAction("🔤 Nhận dạng chữ cả trang này (OCR)", lambda: self.recognize(page_index, full))
             a.setEnabled(not self.ocr_busy)
+            menu.addAction("💾 Lưu thành PDF tìm kiếm được…", self.saveSearchableRequested.emit)
         menu.addSeparator()
         if page_index is not None:
             menu.addAction("Chọn tất cả chữ trên trang\tCtrl+A", lambda: self.select_all(page_index))
