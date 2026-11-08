@@ -140,7 +140,7 @@ class ToolCatalogPanel(QFrame):
         btn_close = QPushButton("✕")
         btn_close.setObjectName("ghostIconBtn")
         btn_close.setFixedSize(26, 26)
-        btn_close.setToolTip("Thu gọn bảng công cụ (F3)")
+        btn_close.setToolTip("Thu gọn bảng công cụ")
         btn_close.clicked.connect(self.closeRequested.emit)
         head.addWidget(self.title_lbl, 1)
         head.addWidget(btn_close)

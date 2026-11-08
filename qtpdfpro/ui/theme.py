@@ -53,6 +53,11 @@ def get_stylesheet(theme: str = "dark") -> str:
     return _DARK_QSS + _shell_qss(_DARK_TOKENS)
 
 
+def theme_tokens(theme: str = "dark") -> dict[str, str]:
+    """Bảng màu `@token` của chủ đề (`'light'` / `'dark'`) — vd `theme_tokens(t)["text"]` = màu biểu tượng."""
+    return dict(_LIGHT_TOKENS if theme == "light" else _DARK_TOKENS)
+
+
 # Bảng màu cho khung PdfCraft (dải tiêu đề, thanh chế độ, Trang chủ, danh mục công cụ)
 _LIGHT_TOKENS = {
     "strip": "#E9EBEF", "bar": "#FFFFFF", "page": "#F3F4F6", "card": "#FFFFFF", "card_hover": "#F8FAFF",

@@ -26,6 +26,12 @@ ICON_NAMES: tuple[str, ...] = (
     "layers", "combine", "scissors", "file-output", "file-archive", "droplet", "list-ordered",
     "save", "pen-tool", "signature", "square-check", "calendar", "shield-check", "lock",
     "lock-open", "layout-panel-top", "list", "panel-right", "x", "ellipsis", "code-xml",
+    # Bổ sung cho nguồn lệnh `ui/commands.py` (mỗi `Command.icon` phải có SVG)
+    "landmark", "ruler", "wrap-text", "underline", "strikethrough", "waves", "brush", "square",
+    "circle", "minus", "arrow-up-right", "save-all", "file-down", "text-cursor-input", "check",
+    "circle-dot", "library", "log-out", "zoom-in", "zoom-out", "move-horizontal", "maximize",
+    "sun-moon", "command", "clipboard-list", "pencil", "file-pen-line", "refresh-cw", "download",
+    "settings",
 )
 
 _DEFAULT_COLOR = "#E6E8EC"  # màu chữ giao diện Tối (`_DARK_TOKENS["text"]`)

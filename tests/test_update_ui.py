@@ -123,7 +123,7 @@ def test_menu_action_and_manual_check(monkeypatch: pytest.MonkeyPatch) -> None:
     win.show()
     app.processEvents()
     ctl = win.updater
-    assert ctl.act_check in win.actions() and ctl.act_check.text() == "Kiểm tra cập nhật..."
+    assert ctl.act_check in win.actions() and ctl.act_check.text() == "Kiểm tra cập nhật…"  # nhãn lệnh check_update
     assert ctl.act_auto.isCheckable() and ctl.act_auto.isChecked()
     ctl.act_auto.setChecked(False)
     assert AppSettings.load().auto_check_updates is False

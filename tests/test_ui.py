@@ -231,11 +231,11 @@ def test_home_page_pdfcraft_layout_and_coming_soon(sample_vietnamese_pdf: Path) 
     app.processEvents()
     assert win.stack.currentWidget() is win.doc_tabs
 
-    # Bảng lệnh Ctrl+K: tìm "word" ra công cụ chuyển đổi + mục tìm trong tài liệu
+    # Bảng lệnh Ctrl+K (nguồn `ui/commands.py`): tìm "word" ra lệnh xuất Word + mục tìm trong tài liệu
     pal = CommandPaletteDialog(win, query="word", has_document=True)
     labels = [pal.list.item(i).text() for i in range(pal.list.count())]
     assert "trong tài liệu đang mở" in labels[0]
-    assert any("PDF sang Word chuẩn NĐ30" in s for s in labels)
+    assert any("Xuất Word chuẩn NĐ30" in s for s in labels)
     pal.close()
 
     # Đóng tab cuối → quay về Trang chủ

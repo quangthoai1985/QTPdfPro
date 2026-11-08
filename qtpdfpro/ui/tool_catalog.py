@@ -7,9 +7,10 @@ Công cụ chưa phát triển vẫn hiển thị với nhãn `COMING_SOON_LABEL
 
 from __future__ import annotations
 
-import unicodedata
 from dataclasses import dataclass
 from typing import List, Optional
+
+from qtpdfpro.ui.commands import fold as _fold  # một cài đặt bỏ dấu duy nhất (tới Task 8 xoá tệp này)
 
 COMING_SOON_LABEL = "Coming Soon"
 
@@ -170,12 +171,6 @@ _BY_KEY = {t.key: t for t in TOOLS}
 
 def get_tool(key: str) -> Optional[ToolSpec]:
     return _BY_KEY.get(key)
-
-
-def _fold(text: str) -> str:
-    """Bỏ dấu tiếng Việt + chữ thường để tìm kiếm không phân biệt dấu."""
-    nfkd = unicodedata.normalize("NFD", text.replace("đ", "d").replace("Đ", "D"))
-    return "".join(c for c in nfkd if unicodedata.category(c) != "Mn").lower()
 
 
 def matches(tool: ToolSpec, query: str) -> bool:
