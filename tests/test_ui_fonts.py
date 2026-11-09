@@ -12,9 +12,7 @@ from PySide6.QtWidgets import QApplication, QLabel
 
 from qtpdfpro.core.settings import AppSettings
 from qtpdfpro.ui import theme
-from qtpdfpro.ui.home_page import CatalogRow
 from qtpdfpro.ui.main_window import MainWindow
-from qtpdfpro.ui.tool_catalog import TOOLS
 
 
 def _vietnamese_letters() -> set[str]:
@@ -92,20 +90,3 @@ def test_main_window_renders_with_inter(ui_fonts, sample_vietnamese_pdf) -> None
     assert win.minimumSizeHint().width() <= 1400
     win.close()
     win.deleteLater()
-
-
-def test_catalog_row_elides_long_name_keeps_soon_badge(ui_fonts) -> None:
-    app, _ = ui_fonts
-    tool = max((t for t in TOOLS if not t.ready), key=lambda t: len(t.name))
-    row = CatalogRow(tool)
-    row.resize(200, row.sizeHint().height())
-    row.show()
-    app.processEvents()
-
-    badge = row.findChild(QLabel, "soonBadgeSmall")
-    name = row.findChild(QLabel, "catalogRowNameSoon")
-    assert badge.isVisible() and badge.geometry().right() < row.width()
-    assert name.text() == tool.name  # chỉ rút gọn khi vẽ
-    assert row.minimumSizeHint().width() < 200
-    row.close()
-    row.deleteLater()

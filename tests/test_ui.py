@@ -141,9 +141,8 @@ def test_splice_overlapping_stamped_text_preserves_document_number() -> None:
 
 
 def test_home_page_pdfcraft_layout_and_coming_soon(sample_vietnamese_pdf: Path) -> None:
-    """Trang chủ kiểu PdfCraft: danh mục công cụ, công cụ đề xuất, Coming Soon, tab tài liệu ở dải tiêu đề."""
+    """Trang chủ kiểu PdfCraft: Coming Soon, tab tài liệu ở dải tiêu đề."""
     from qtpdfpro.ui.command_palette import CommandPaletteDialog
-    from qtpdfpro.ui.home_page import CatalogRow, ToolCard
     from qtpdfpro.ui.tool_catalog import COMING_SOON_LABEL, TOOLS, get_tool, tools_for
 
     app = QApplication.instance() or QApplication([])
@@ -168,16 +167,9 @@ def test_home_page_pdfcraft_layout_and_coming_soon(sample_vietnamese_pdf: Path) 
     # Tìm không dấu
     assert [t.key for t in tools_for("all", "kiem tra the thuc")] == ["nd30_check"]
 
-    cards = win.home_page.findChildren(ToolCard)
-    assert {c.tool.key for c in cards} >= {"pdf_to_word_nd30", "nd30_check", "organize"}
-    rows = win.home_page.catalog.findChildren(CatalogRow)
-    assert len(rows) == len(TOOLS)
-
-    # Lọc danh mục Trang chủ theo nhóm "Chuyển đổi" (danh mục bỏ hẳn ở Task 6)
-    win.home_page.catalog.set_category("convert")
-    app.processEvents()
-    assert set(win.home_page.catalog.tool_keys()) == {t.key for t in TOOLS if t.category == "convert"}
-    win.home_page.catalog.set_category("all")
+    # Trang chủ mới (Task 6): 8 ô công cụ nhanh, không còn danh mục / công cụ đề xuất
+    assert not hasattr(win.home_page, "catalog")
+    assert len(win.home_page.quick_tiles) == 8
 
     # Công cụ Coming Soon → chỉ hiện thông báo, không mở hộp thoại
     win.run_tool("pdf_to_excel")

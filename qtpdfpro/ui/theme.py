@@ -164,61 +164,38 @@ QLineEdit#commandSearch {
     background-color: @card; border: 1px solid @border_strong; border-radius: 16px; padding: 6px 14px; color: @text;
 }
 QLineEdit#commandSearch:focus { border-color: @accent; }
-QFrame#catalogPanel { background-color: @bar; border-right: 1px solid @border; }
-QWidget#catalogBody { background-color: @bar; }
 QLabel#panelTitle { font-size: 16px; font-weight: 600; color: @text; }
-QLabel#catalogSection { font-size: 11px; font-weight: 600; color: @faint; padding: 10px 6px 4px 6px; }
-QFrame#catalogRow, QFrame#catalogRowSoon { background-color: transparent; border: none; border-radius: 7px; }
-QFrame#catalogRow:hover, QFrame#catalogRowSoon:hover { background-color: @hover; }
-QLabel#catalogRowName { color: @text; font-size: 13px; font-weight: 500; }
-QLabel#catalogRowNameSoon { color: @faint; font-size: 13px; }
-QLabel#soonBadgeSmall {
-    font-size: 10px; font-weight: 600; color: @soon_text; background-color: @soon_bg;
-    border-radius: 7px; padding: 1px 6px;
-}
-QPushButton#catalogItemBtn, QPushButton#catalogItemSoonBtn {
-    background-color: transparent; border: none; border-radius: 7px; text-align: left; padding: 8px 8px;
-    font-size: 13px; font-weight: 500;
-}
-QPushButton#catalogItemBtn { color: @text; }
-QPushButton#catalogItemSoonBtn { color: @faint; }
-QPushButton#catalogItemBtn:hover, QPushButton#catalogItemSoonBtn:hover { background-color: @hover; }
 QLabel#homeTitle { font-size: 28px; font-weight: 600; color: @text; }
 QLabel#homeSubtitle { font-size: 14px; color: @muted; }
 QFrame#homeHero {
     background-color: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 @hero1, stop:1 @hero2);
     border: 1px solid @border; border-radius: 14px;
 }
-QLabel#heroIcon { font-size: 28px; padding-right: 6px; }
 QLabel#heroTitle { font-size: 16px; font-weight: 600; color: @text; }
 QLabel#heroDesc { font-size: 13px; color: @muted; }
 QFrame#sectionCard { background-color: @card; border: 1px solid @border; border-radius: 14px; }
 QFrame#ocrPopup { background-color: @card; border: 1px solid @border_strong; border-radius: 10px; }
 QFrame#ocrPopup QLabel { color: @text; background: transparent; }
 QLabel#sectionTitle { font-size: 17px; font-weight: 600; color: @text; }
-QFrame#toolCard, QFrame#toolCardSoon { background-color: @card; border: 1px solid @border; border-radius: 12px; }
-QFrame#toolCard:hover { border-color: @accent; background-color: @card_hover; }
-QFrame#toolCardSoon:hover { border-color: @border_strong; }
-QLabel#toolCardIcon { font-size: 20px; }
-QLabel#toolCardName { font-size: 14px; font-weight: 600; color: @text; }
-QLabel#toolCardSummary { font-size: 12px; color: @muted; }
-QLabel#toolCardAction { font-size: 12px; font-weight: 600; color: @accent; }
-QLabel#soonBadge {
-    font-size: 11px; font-weight: 600; color: @soon_text; background-color: @soon_bg;
-    border-radius: 9px; padding: 2px 9px;
+QWidget#homeColumn { background: transparent; }
+QLabel#homeHint { font-size: 12px; color: @muted; }
+QPushButton#quickTile {
+    background-color: @card; border: 1px solid @border; border-radius: 10px; color: @text;
+    font-size: 13px; font-weight: 600; text-align: left; padding: 10px 14px;
 }
+QPushButton#quickTile:hover { border-color: @accent; background-color: @card_hover; }
+QToolButton#homeIcon { background: transparent; border: none; }
 QFrame#openFileCard { background-color: @page; border: 1px dashed @border_strong; border-radius: 12px; }
 QFrame#openFileCard:hover { border-color: @accent; background-color: @accent_soft; }
-QLabel#openFileIcon { font-size: 30px; }
 QLabel#openFileTitle { font-size: 16px; font-weight: 600; color: @text; }
-QLabel#versionChip {
+QPushButton#versionChip {
     font-size: 12px; font-weight: 600; color: @accent_text; background-color: @accent_soft;
-    border-radius: 9px; padding: 2px 10px; margin-bottom: 4px;
+    border: 1px solid transparent; border-radius: 9px; padding: 2px 10px; margin-bottom: 4px;
 }
+QPushButton#versionChip:hover { border-color: @accent; }
 QFrame#recentBox { background-color: transparent; border: none; }
 QFrame#recentRow { background-color: transparent; border: 1px solid transparent; border-radius: 10px; }
 QFrame#recentRow:hover { background-color: @card; border-color: @border; }
-QLabel#recentIcon { font-size: 20px; }
 QLabel#recentName { font-size: 14px; font-weight: 600; color: @text; }
 QLabel#recentPath { font-size: 11px; color: @faint; }
 QLabel#recentMeta { font-size: 12px; color: @muted; }

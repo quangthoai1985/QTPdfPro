@@ -1187,11 +1187,10 @@ class MainWindow(QMainWindow):
     def _build_central_area(self) -> None:
         self.stack = QStackedWidget(self)
         self.home_page = HomePage()
-        self.home_page.toolActivated.connect(self.run_command)
+        self.home_page.commandRequested.connect(lambda key: self.run_command(key))
         self.home_page.openRequested.connect(self.action_open_pdf)
         self.home_page.recentActivated.connect(lambda p: self.open_pdf_path(p))
         self.home_page.resumeRequested.connect(self._show_documents)
-        self.home_page.linkRequested.connect(self._open_link)
         self.home_page.filesDropped.connect(lambda files: [self.open_pdf_path(f) for f in files])
         self.stack.addWidget(self.home_page)
         # Giữ tên cũ: danh sách gần đây của trang chủ
