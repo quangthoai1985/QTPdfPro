@@ -77,6 +77,8 @@ def _release_qt_widgets(*, scan_all_threads: bool = False) -> None:
 def _release_qt_widgets_after_test() -> Iterator[None]:
     yield
     _release_qt_widgets()
+    if "qtpdfpro.ui.main_window" in sys.modules:  # trạng thái cấp lớp không được rò sang bài test sau
+        sys.modules["qtpdfpro.ui.main_window"].PDFDocumentTab._dismissed_notice_paths.clear()
 
 
 def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:

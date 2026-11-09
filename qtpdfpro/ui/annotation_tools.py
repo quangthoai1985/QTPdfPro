@@ -1161,7 +1161,6 @@ class AnnotationListPanel(QWidget):
         row.addWidget(self.btn_delete)
         lay.addLayout(row)
         self.btn_start = QPushButton("Bật chế độ chỉnh sửa (Ctrl+E)")
-        self.btn_start.setObjectName("primaryConvertBtn")
         self.btn_start.clicked.connect(self.startEditingRequested)
         icons.bind(self.btn_start, "pencil", 16)
         lay.addWidget(self.btn_start)

@@ -6,6 +6,7 @@ from PySide6.QtCore import QPoint, QRect, Qt
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QAbstractButton
 
+from qtpdfpro.core import annotations as an
 from qtpdfpro.ui import commands
 from ui_helpers import open_window
 
@@ -105,4 +106,38 @@ def test_undo_redo_follow_active_tab_history(qapp, sample_pdf, tmp_path):
     for i in range(win.doc_tabs.count() - 1, -1, -1):
         win.close_tab_at(i, force=True)
     assert not undo.isEnabled() and not redo.isEnabled()  # không có tài liệu → tắt
+    win.close()
+
+
+def _visible_primaries(win):
+    return [w.text() for w in win.findChildren(QAbstractButton) if w.isVisible() and w.objectName() == "primaryConvertBtn"]
+
+
+def test_single_primary_across_tabs_and_rail_panels(qapp, sample_pdf):  # Review cuối: tối đa một nút màu nhấn
+    win, tab = open_window(sample_pdf)
+    tab.wait_for_document_analysis()
+    for modified in (False, True):
+        for tab_key, _label in commands.TABS:
+            win.set_function_tab(tab_key)
+            if modified:
+                if not tab.reader.edit_session().modified:  # chú thích thật → tab «chưa lưu»
+                    tab.reader.edit_session().add_note(0, (80, 80), "ghi chú", an.AnnotStyle())
+                    tab._on_annotations_changed(0)
+                assert tab.reader.edit_session().modified
+            for btn in tab.rail_panel_buttons:
+                btn.click()
+                qapp.processEvents()
+                got = _visible_primaries(win)
+                assert len(got) <= 1, (modified, tab_key, btn.property("command_key"), got)
+    win.close_tab_at(0, force=True)
+    win.close()
+
+
+def test_focus_mode_hides_function_bar(qapp, sample_pdf):
+    win, tab = open_window(sample_pdf)
+    assert win.function_bar.isVisibleTo(win)
+    win.action_read_mode()
+    assert win.isFullScreen() and not win.function_bar.isVisibleTo(win)
+    win.action_read_mode()
+    assert not win.isFullScreen() and win.function_bar.isVisibleTo(win)
     win.close()

@@ -614,7 +614,7 @@ class PDFDocumentTab(QWidget):
         if not was or switched:
             self.toolsetChanged.emit(toolset)
             self.statusMessage.emit(
-                "Điền & Ký — nhấp vào dòng chấm để gõ chữ, vào ô để đánh dấu; chữ ký: chọn ✍ rồi nhấp chỗ ký."
+                "Điền & Ký — nhấp vào dòng chấm để gõ chữ, vào ô để đánh dấu; chữ ký: bấm nút «Chữ ký» rồi nhấp chỗ ký."
                 if toolset == "fill" else
                 "Chế độ chỉnh sửa — chọn công cụ trên thanh phía trên trang (Ctrl+E để thoát)."
             )
@@ -1525,7 +1525,7 @@ class MainWindow(QMainWindow):
     def action_fill_sign(self) -> None:
         """Ctrl+Shift+F: luôn sang thẻ «Điền & Ký» (chỉ Ctrl+E bấm lại mới về thẻ «Đọc»)."""
         if self.active_tab() is None:
-            self.run_command("fill_sign")
+            self.run_command("fill_mode")
             return
         self.set_function_tab("fill")
 
@@ -1988,6 +1988,10 @@ class MainWindow(QMainWindow):
         """Chế độ đọc tập trung: ẩn bảng phụ và bật/tắt toàn màn hình."""
         tab = self.active_tab()
         entering = not self.isFullScreen()
+        if entering:
+            self.function_bar.setVisible(False)
+        elif self.stack.currentWidget() is self.doc_tabs:  # chỉ hiện lại khi đang xem tài liệu (Trang chủ ẩn sẵn)
+            self.function_bar.setVisible(True)
         if tab is not None:
             tab.sidebar_tabs.setVisible(not entering)
             tab._sync_rail_buttons()

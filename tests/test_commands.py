@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from PySide6.QtGui import QKeySequence
+from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import QFileDialog
 
 from qtpdfpro.core.settings import AppSettings
 from qtpdfpro.ui import commands, icons
 from qtpdfpro.ui.main_window import MainWindow
+from ui_helpers import open_window
 
 
 def test_command_keys_and_shortcuts_unique():
@@ -57,6 +58,27 @@ def test_every_registered_shortcut_has_window_action(qapp):
     assert win.act_save is win.command_actions["save"]
     assert win.pointer_actions["hand"] is win.command_actions["pointer_hand"]
     assert win.command_actions["check_update"] is win.updater.act_check
+    win.close()
+
+
+# Spec §5.2 «Giữ nguyên» (V / H do QShortcut của từng tab) + «Thêm» Alt+1…5; F3 đã bỏ.
+SPEC_SHORTCUTS = (
+    "Ctrl+O", "Ctrl+S", "Ctrl+Shift+S", "Ctrl+P", "Ctrl+I", "Ctrl+F4", "Ctrl+F", "Ctrl+T", "Ctrl+K", "Ctrl+Z",
+    "Ctrl+Y", "Ctrl++", "Ctrl+-", "Ctrl+1", "Ctrl+0", "F4", "F8", "F11", "Ctrl+Shift+W", "Ctrl+Shift+B",
+    "Ctrl+Shift+R", "Ctrl+Shift+N", "Ctrl+Shift+O", "Ctrl+Shift+M", "Ctrl+Shift+T", "Alt+Home", "Ctrl+E",
+    "Ctrl+Shift+F", "Alt+1", "Alt+2", "Alt+3", "Alt+4", "Alt+5",
+)
+
+
+def test_spec_shortcut_list_is_bound(qapp, sample_pdf):
+    win, tab = open_window(sample_pdf)
+    bound = {QKeySequence(k).toString() for act in win.actions() for k in act.shortcuts()}
+    bound |= {sc.key().toString() for sc in win.findChildren(QShortcut)}  # Alt+1…5 là QShortcut của cửa sổ
+    missing = [k for k in SPEC_SHORTCUTS if QKeySequence(k).toString() not in bound]
+    assert not missing, missing
+    assert QKeySequence("F3").toString() not in bound
+    tab_keys = {sc.key().toString() for sc in tab._pointer_shortcuts}  # V / H: QShortcut theo từng tab
+    assert tab_keys == {"V", "H"}
     win.close()
 
 
