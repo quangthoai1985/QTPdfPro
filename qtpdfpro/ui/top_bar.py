@@ -133,6 +133,7 @@ class TopBar(QFrame):
             settings.addAction(a[key])
         m.addSeparator()
         m.addAction(a["check_update"])
+        m.addAction(a["whats_new"])
         m.addAction(a["github"])
         m.addAction(a["about"])
         m.addSeparator()

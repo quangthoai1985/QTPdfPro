@@ -219,6 +219,8 @@ COMMANDS: tuple[Command, ...] = (
        summary="Gõ chữ vào dòng chấm · ✓ ✕ ● · Ngày · Chữ ký",
        keywords="fill sign dien ky go chu dong cham danh dau tich ngay thang chu ky bieu mau"),
     _C("check_update", "Kiểm tra cập nhật…", "refresh-cw", "system", keywords="kiem tra cap nhat update ban moi"),
+    _C("whats_new", "Có gì mới trong bản này", "sparkles", "system",
+       keywords="co gi moi ban moi ghi chu phat hanh whats new release notes"),
     _C("github", "Mã nguồn && báo lỗi (GitHub)", "code-xml", "system",
        keywords="ma nguon bao loi gop y github"),
     _C("about", "Giới thiệu QT PDF Pro", "info", "system", keywords="gioi thieu about phien ban"),

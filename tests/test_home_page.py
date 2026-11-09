@@ -41,6 +41,8 @@ def test_nd30_buttons_and_signals(qapp, monkeypatch):
     home.btn_nd30_check.click()
     assert got == ["convert_word_nd30", "nd30_check"]
     home.openRequested.disconnect()  # không mở hộp thoại chọn tệp thật
+    shown = []  # chip phiên bản mở «Có gì mới»: không mở hộp thoại thật
+    win.whats_new.dialog_factory = lambda notes, parent: type("D", (), {"exec": lambda self: shown.append(1)})()
     opened, chip = [], []
     home.openRequested.connect(lambda: opened.append(1))
     home.versionClicked.connect(lambda: chip.append(1))

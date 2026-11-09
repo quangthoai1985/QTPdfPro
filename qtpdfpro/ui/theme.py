@@ -178,6 +178,18 @@ QFrame#ocrPopup { background-color: @card; border: 1px solid @border_strong; bor
 QFrame#ocrPopup QLabel { color: @text; background: transparent; }
 QLabel#sectionTitle { font-size: 17px; font-weight: 600; color: @text; }
 QWidget#homeColumn { background: transparent; }
+QDialog#whatsNewDialog QLabel { background: transparent; }
+QLabel#whatsNewTitle { font-size: 20px; font-weight: 600; color: @text; }
+QLabel#whatsNewSub { font-size: 13px; color: @muted; }
+QScrollArea#whatsNewScroll, QWidget#whatsNewBody { background: transparent; }
+QFrame#whatsNewItem { background-color: @card; border: 1px solid @border; border-radius: 10px; }
+QLabel#whatsNewIcon { background-color: @accent_soft; border-radius: 8px; }
+QLabel#whatsNewItemTitle { font-size: 14px; font-weight: 600; color: @text; }
+QLabel#whatsNewItemText { font-size: 13px; color: @muted; }
+QLabel#whatsNewKey { font-size: 11px; font-weight: 600; color: @muted; background-color: @page; border: 1px solid @border_strong; border-radius: 5px; padding: 1px 6px; }
+QToolButton#whatsNewToggle { border: none; background: transparent; color: @muted; font-size: 13px; font-weight: 600; padding: 4px 2px; }
+QToolButton#whatsNewToggle:hover { color: @text; }
+QLabel#whatsNewOlderHead { font-size: 13px; font-weight: 600; color: @muted; padding-top: 4px; }
 QLabel#homeHint { font-size: 12px; color: @muted; }
 QPushButton#quickTile {
     background-color: @card; border: 1px solid @border; border-radius: 10px; color: @text;

@@ -11,7 +11,7 @@ def test_hamburger_menu_contents_in_spec_order(qapp):
     win = MainWindow(settings=AppSettings.load())
     texts = [a.text().replace("&&", "&").split("\t")[0] for a in win.top_bar.menu.actions() if not a.isSeparator()]
     assert texts == ["Mở tệp…", "Tệp mở gần đây", "Đóng tài liệu", "Lưu", "Lưu thành tệp mới…",
-                     "Ẩn/hiện ngăn bên phải", "Cài đặt", "Kiểm tra cập nhật…",
+                     "Ẩn/hiện ngăn bên phải", "Cài đặt", "Kiểm tra cập nhật…", "Có gì mới trong bản này",
                      "Mã nguồn & báo lỗi (GitHub)", "Giới thiệu QT PDF Pro", "Thoát"]
     assert not win.command_actions["close_tab"].isEnabled()  # chưa có tài liệu
     win.close()

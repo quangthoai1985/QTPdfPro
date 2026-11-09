@@ -1,0 +1,23 @@
+{
+  "versions": [
+    {
+      "version": "1.3.0",
+      "date": "2026-11-10",
+      "headline": "Giao diện gọn hơn, chọn chữ tiện hơn",
+      "items": [
+        {"icon": "layout-panel-top", "title": "Giao diện gọn hơn",
+         "text": "Mỗi thẻ chỉ còn những công cụ chính nên trang PDF rộng hơn. Muốn tìm lệnh nào, gõ tên vào ô tìm.",
+         "shortcut": "Ctrl+K"},
+        {"icon": "text-cursor", "title": "Chọn chữ liền nhiều trang",
+         "text": "Kéo chuột từ trang này sang trang khác để chép cả đoạn dài một lần.",
+         "shortcut": "V"},
+        {"icon": "scan-text", "title": "Chọn chữ trên bản scan",
+         "text": "Tệp PDF chụp từ giấy cũng chọn và chép được chữ như tệp thường."},
+        {"icon": "save", "title": "Lưu thành PDF tìm kiếm được",
+         "text": "Một nút để biến bản scan thành tệp có thể tìm chữ và chép chữ về sau."},
+        {"icon": "files", "title": "Mở tệp nhanh hơn",
+         "text": "Tệp nhiều trang mở gần như ngay, và nhấp ảnh thu nhỏ là chuyển đến trang đó liền."}
+      ]
+    }
+  ]
+}

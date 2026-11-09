@@ -52,6 +52,11 @@ class AppSettings:
     skipped_update_version: str = ""  # Bản người dùng chọn «Bỏ qua bản này» (không tự báo nữa)
     default_app_prompted: bool = False  # Đã hỏi «Đặt làm trình xem PDF mặc định» lần đầu chạy bản cài (ui/default_app.py)
     print_settings: Dict[str, Any] = field(default_factory=dict)  # Thiết lập in lần trước (PrintOptions.to_settings)
+    last_seen_version: str = ""  # Phiên bản đã hiện «Có gì mới» (core/whats_new.py); trống = chưa ghi
+
+    # Thuộc tính thường (không chú thích kiểu → không phải trường dataclass, không ghi ra tệp):
+    # `load()` đặt True khi settings.json đã tồn tại trước lần đọc này (phân biệt cài mới / cập nhật).
+    existed = False
 
     @classmethod
     def settings_file(cls) -> Path:
@@ -67,12 +72,15 @@ class AppSettings:
             raw = file_path.read_text(encoding="utf-8-sig")
             data = json.loads(raw)
             if not isinstance(data, dict):
-                return cls()
-            valid_keys = {f.name for f in cls.__dataclass_fields__.values()}
-            filtered = {k: v for k, v in data.items() if k in valid_keys}
-            return cls(**filtered)
+                inst = cls()
+            else:
+                valid_keys = {f.name for f in cls.__dataclass_fields__.values()}
+                filtered = {k: v for k, v in data.items() if k in valid_keys}
+                inst = cls(**filtered)
         except Exception:
-            return cls()
+            inst = cls()
+        inst.existed = True
+        return inst
 
     def save(self) -> None:
         """Lưu cấu hình xuống đĩa bằng UTF-8."""

@@ -82,6 +82,7 @@ from qtpdfpro.ui.theme import get_stylesheet, theme_tokens
 from qtpdfpro.ui.tool_catalog import COMING_SOON_LABEL, get_tool
 from qtpdfpro.ui.default_app import DefaultAppController
 from qtpdfpro.ui.update_dialog import UpdateController
+from qtpdfpro.ui.whats_new_dialog import WhatsNewController
 
 # Ô ảnh thu nhỏ ở ngăn «Trang» (px logic); số ảnh kết xuất mỗi lượt trước khi trả quyền cho vòng lặp sự kiện
 THUMB_BOX_W, THUMB_BOX_H = 96, 132
@@ -961,6 +962,7 @@ class MainWindow(QMainWindow):
         self._toast: Optional[QLabel] = None
         self.updater = UpdateController(self, self.settings)
         self.default_app = DefaultAppController(self, self.settings)
+        self.whats_new = WhatsNewController(self, self.settings)
         self.ocr_models = OcrModelController(self, notify=lambda text: self._show_toast(text, 6000))
 
         self.recent_menu = QMenu("Tệp mở gần đây", self)
@@ -1189,6 +1191,7 @@ class MainWindow(QMainWindow):
         self.home_page = HomePage()
         self.home_page.commandRequested.connect(lambda key: self.run_command(key))
         self.home_page.openRequested.connect(self.action_open_pdf)
+        self.home_page.versionClicked.connect(lambda: self.whats_new.show_current())
         self.home_page.recentActivated.connect(lambda p: self.open_pdf_path(p))
         self.home_page.resumeRequested.connect(self._show_documents)
         self.home_page.filesDropped.connect(lambda files: [self.open_pdf_path(f) for f in files])
@@ -1473,6 +1476,7 @@ class MainWindow(QMainWindow):
             "convert_word_exact": lambda: self.action_convert_to_docx_mode("exact"),
             "convert_word_flow": lambda: self.action_convert_to_docx_mode("hybrid"),
             "ocr": self.action_ocr,
+            "whats_new": lambda: self.whats_new.show_current(),
             "nd30_check": self.action_nd30_check,
             "verify_docx": self.action_verify_docx,
             "batch_convert": self.action_batch_convert,

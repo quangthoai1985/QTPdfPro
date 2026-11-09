@@ -34,6 +34,8 @@ ICON_NAMES: tuple[str, ...] = (
     "settings",
     # Thanh dọc phải (Task 4): ngăn Trang, Mục lục
     "gallery-vertical-end", "list-tree",
+    # Hộp thoại «Có gì mới» (Task 7)
+    "sparkles",
 )
 
 _DEFAULT_COLOR = "#E6E8EC"  # màu chữ giao diện Tối (`_DARK_TOKENS["text"]`)

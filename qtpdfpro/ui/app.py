@@ -134,5 +134,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     # Trình cập nhật (core/updater.py): tự kiểm tra tối đa 1 lần/ngày, tải ngầm QTPdfPro_Update.zip, cài khi thoát
     # (bản đóng gói); dọn bản cũ «.old» sau lần cập nhật trước
     win.updater.on_startup()
-    win.default_app.on_startup()  # bản cài lần đầu chạy: hỏi một lần «Đặt làm trình xem PDF mặc định»
+    # «Có gì mới» sau khi cập nhật (hiện một lần); hiện rồi thì hộp thoại trình xem mặc định để lần mở sau
+    shown = win.whats_new.on_startup()
+    if not shown:
+        win.default_app.on_startup()  # bản cài lần đầu chạy: hỏi một lần «Đặt làm trình xem PDF mặc định»
     return app.exec()

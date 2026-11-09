@@ -6,6 +6,8 @@ import re
 from pathlib import Path
 
 from qtpdfpro import __version__
+from qtpdfpro.core import whats_new as wn
+from qtpdfpro.core.update_check import parse_version
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 
@@ -50,3 +52,9 @@ def test_bat_files_are_pure_ascii_and_crlf() -> None:
             raise AssertionError(f"Tệp {bat_name} phải thuần ASCII để cmd.exe không lỗi: {exc}") from exc
         assert b"\r\n" in raw, f"Tệp {bat_name} phải dùng dòng kết thúc CRLF"
         assert b"\n" not in raw.replace(b"\r\n", b""), f"Tệp {bat_name} không được chứa LF đơn lẻ"
+
+
+def test_whats_new_ready_for_current_or_next_version() -> None:
+    notes = wn.load_notes()
+    newest = parse_version(notes[0].version)
+    assert wn.notes_for(__version__, notes) is not None or newest > parse_version(__version__)

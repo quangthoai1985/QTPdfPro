@@ -17,6 +17,7 @@ python -m PyInstaller ^
     --add-data "qtpdfpro\ui\assets\app_icon.ico;qtpdfpro\ui\assets" ^
     --add-data "qtpdfpro\ui\assets\fonts;qtpdfpro\ui\assets\fonts" ^
     --add-data "qtpdfpro\ui\assets\icons;qtpdfpro\ui\assets\icons" ^
+    --add-data "qtpdfpro\ui\assets\whats_new.json;qtpdfpro\ui\assets" ^
     --exclude-module tkinter ^
     --exclude-module matplotlib ^
     --exclude-module scipy ^
