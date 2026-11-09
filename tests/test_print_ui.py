@@ -209,7 +209,7 @@ def test_main_window_ctrl_p_opens_print_dialog(sample_vietnamese_pdf: Path, monk
     assert dlg.doc is tab.reader.doc and dlg.current_page == 1 and dlg.page_count == 2
     assert win._toast is not None and "Máy in thử" in win._toast.text()
 
-    tab.tool_btn_print.click()
+    win.function_bar.tool_buttons["print"].click()  # nút «In» ở thẻ Đọc của tầng 2
     win.run_tool("print")
     assert len(opened) == 3
     win.close()

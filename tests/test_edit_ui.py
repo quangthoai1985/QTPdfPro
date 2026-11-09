@@ -146,19 +146,22 @@ def test_close_tab_asks_when_unsaved(sample_vietnamese_pdf: Path) -> None:
     win.close()
 
 
-def test_mode_bar_edit_category_toggles_edit_mode(sample_vietnamese_pdf: Path) -> None:
+def test_function_tab_edit_toggles_edit_mode(sample_vietnamese_pdf: Path) -> None:
     app = _app()
     win = MainWindow(settings=AppSettings.load())
     win.show()
     tab = win.open_pdf_path(sample_vietnamese_pdf)
-    win.set_mode_category("edit")
+    win.set_function_tab("edit")
     app.processEvents()
-    assert tab.edit_mode and not tab.tool_btn_organize.isHidden() and tab.tool_btn_rot_left.isHidden()
-    assert "organize" in win.strip_buttons and "print" not in win.strip_buttons
-    win.set_mode_category("read")
+    assert tab.edit_mode and "group:pages" in win.function_bar.tool_buttons
+    assert "print" not in win.function_bar.visible_command_keys()
+    win.act_edit_mode.trigger()  # Ctrl+E lần nữa → về thẻ Đọc
     app.processEvents()
-    assert not tab.edit_mode
-    win.set_mode_category("all")
+    assert not tab.edit_mode and win.function_bar.current_tab() == "read"
+    win.act_edit_mode.trigger()
+    assert tab.edit_mode and win.function_bar.current_tab() == "edit"
+    tab.exit_edit_mode()  # thoát bằng đường khác (✕ của thanh chỉnh sửa) → tầng 2 về Đọc
+    assert win.function_bar.current_tab() == "read"
     win.close_tab_at(0, force=True)
     win.close()
 

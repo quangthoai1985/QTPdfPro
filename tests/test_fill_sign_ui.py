@@ -77,9 +77,9 @@ def test_fill_mode_with_mouse(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
     viewer = tab.viewer
     ctl = tab.annot_controller
 
-    # Nút chế độ «Điền & Ký» → thanh Điền & Ký hiện, thanh Chỉnh sửa ẩn
-    assert "fill" in win.mode_buttons and "fill" in mw.STRIP_TOOLS
-    win.mode_buttons["fill"].click()
+    # Thẻ «Điền & Ký» ở tầng 2 → thanh Điền & Ký hiện, thanh Chỉnh sửa ẩn
+    assert "fill" in win.function_bar.tab_buttons
+    win.function_bar.tab_buttons["fill"].click()
     app.processEvents()
     assert tab.edit_mode and tab.toolset == "fill"
     assert tab.fill_toolbar.isVisible() and not tab.edit_toolbar.isVisible()
@@ -158,14 +158,14 @@ def test_fill_mode_with_mouse(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
     assert ses.list_annotations()[0].content == "Phạm Minh Châu Anh"
 
     # Chuyển sang «Chỉnh sửa» → thanh Chỉnh sửa, công cụ của bộ đó; Ctrl+Shift+F quay lại Điền & Ký rồi tắt
-    win.set_mode_category("edit")
+    win.set_function_tab("edit")
     app.processEvents()
     assert tab.toolset == "edit" and tab.edit_toolbar.isVisible() and not tab.fill_toolbar.isVisible()
     assert ctl.tool == "highlight"
     win.act_fill_sign.trigger()
-    assert tab.toolset == "fill" and tab.fill_toolbar.isVisible() and win.mode_buttons["fill"].isChecked()
+    assert tab.toolset == "fill" and tab.fill_toolbar.isVisible() and win.function_bar.tab_buttons["fill"].isChecked()
     win.act_fill_sign.trigger()
-    assert not tab.edit_mode
+    assert not tab.edit_mode and win.function_bar.current_tab() == "read"
 
     # Lưu (ghi bổ sung) giữ chú thích
     monkeypatch.setattr(QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.StandardButton.Yes))

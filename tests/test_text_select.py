@@ -300,7 +300,7 @@ def test_select_mode_drag_copy_double_click_and_context_menu(tmp_path: Path) -> 
     win, tab = _open(app, _text_pdf(tmp_path / "ui.pdf"))
     viewer, tool = tab.viewer, tab.text_select
     assert tab.pointer_mode == "select" and viewer.interaction is tool
-    assert tab.pointer_btns["select"].isChecked()
+    assert win.function_bar.btn_pointer_select.isChecked()
 
     # Kéo từ chữ «Cộng» tới giữa dòng 2 → chọn theo thứ tự đọc
     _drag(viewer, 0, (73, 96), (110, 126))
@@ -349,14 +349,15 @@ def test_switch_hand_mode_persists_and_space_pans(tmp_path: Path) -> None:
     pdf = _text_pdf(tmp_path / "hand.pdf")
     win, tab = _open(app, pdf)
     viewer = tab.viewer
-    tab.pointer_btns["hand"].click()
+    win.function_bar.btn_pointer_hand.click()  # nút «Bàn tay» ở cụm điều khiển xem của tầng 2
     assert win.settings.pointer_mode == "hand" and AppSettings.load().pointer_mode == "hand"
-    assert viewer.interaction is None and tab.pointer_btns["hand"].isChecked()
+    assert viewer.interaction is None and win.function_bar.btn_pointer_hand.isChecked()
+    assert not win.function_bar.btn_pointer_select.isChecked()
     assert win.pointer_actions["hand"].isChecked()
 
     # Chế độ chỉnh sửa dùng V/H cho công cụ khác → phím chọn chế độ con trỏ tắt; thoát thì về Bàn tay
     tab.enter_edit_mode()
-    assert tab.edit_mode and not tab.pointer_btns["select"].isEnabled()
+    assert tab.edit_mode
     assert not any(sc.isEnabled() for sc in tab._pointer_shortcuts)
     tab.exit_edit_mode()
     assert viewer.interaction is None and all(sc.isEnabled() for sc in tab._pointer_shortcuts)
@@ -579,15 +580,14 @@ def test_ocr_popup_drag_keeps_user_position(tmp_path: Path) -> None:
 
 
 def test_select_text_and_hand_tools_in_catalog(tmp_path: Path) -> None:
-    from qtpdfpro.ui.main_window import STRIP_TOOLS
     from qtpdfpro.ui.tool_catalog import get_tool, tools_for
 
     assert get_tool("select_text").ready and get_tool("hand_tool").ready
     assert "select_text" in [t.key for t in tools_for("all", "chon chu")]
     assert "hand_tool" in [t.key for t in tools_for("all", "ban tay")]
-    assert ("Aa Chọn chữ", "select_text") in STRIP_TOOLS["read"]
     app = _app()
     win, tab = _open(app, _text_pdf(tmp_path / "cat.pdf"))
+    assert {"pointer_select", "pointer_hand"} <= set(win.function_bar.visible_command_keys())
     win.run_tool("hand_tool")
     assert tab.pointer_mode == "hand" and tab.viewer.interaction is None
     tab.enter_edit_mode()

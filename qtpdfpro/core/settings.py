@@ -36,7 +36,7 @@ class AppSettings:
     default_zoom_percent: int = 100
     continuous_scroll: bool = True
     show_layout_overlay: bool = False
-    show_tools_panel: bool = False  # Cột «Tất cả công cụ» bên trái khi xem tài liệu (F3); mặc định dùng thanh công cụ nhanh
+    show_tools_panel: bool = False  # Không còn dùng từ v1.3.0 (cột «Tất cả công cụ» đã bỏ) — giữ để đọc tệp cũ
     pointer_mode: str = "select"  # Chuột trái trên khung đọc: "select" (chọn chữ, phím V) | "hand" (bàn tay cuộn, phím H)
     normalize_vietnamese: bool = True
     fix_table_padding: bool = True

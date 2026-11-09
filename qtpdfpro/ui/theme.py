@@ -77,7 +77,6 @@ _DARK_TOKENS = {
 _SHELL_TEMPLATE = """
 QWidget#appRoot, QWidget#homeContent, QScrollArea#homeScroll { background-color: @page; }
 QFrame#topBar { background-color: @strip; border: none; }
-QFrame#modeBar { background-color: @bar; border-bottom: 1px solid @border; }
 QPushButton#topBtn {
     background-color: transparent; color: @text; border: 1px solid transparent; border-radius: 6px;
     padding: 5px 12px; font-weight: 600;
@@ -112,27 +111,54 @@ QPushButton#ghostBtn, QPushButton#ghostIconBtn {
 QPushButton#ghostIconBtn { padding: 4px 8px; min-width: 18px; }
 QPushButton#ghostBtn:hover, QPushButton#ghostIconBtn:hover { background-color: @hover; border-color: @border; }
 QPushButton#ghostBtn::menu-indicator { image: none; width: 0px; }
-QPushButton#modeTabBtn {
-    background-color: transparent; color: @muted; border: none; border-bottom: 2px solid transparent;
-    border-radius: 0px; padding: 6px 12px; font-weight: 600;
-}
-QPushButton#modeTabBtn:hover { color: @text; }
-QPushButton#modeTabBtn:checked { color: @text; border-bottom: 2px solid @text; }
-QPushButton#pillToggleBtn, QPushButton#pillBtn {
+QPushButton#pillBtn {
     background-color: @card; color: @text; border: 1px solid @border_strong; border-radius: 15px;
     padding: 5px 14px; font-weight: 500;
 }
-QPushButton#pillToggleBtn:hover, QPushButton#pillBtn:hover { border-color: @accent; background-color: @card_hover; }
-QPushButton#pillToggleBtn:checked { background-color: @accent_soft; color: @accent_text; border-color: @accent; }
-QFrame#toolStrip { background-color: @bar; border-bottom: 1px solid @border; }
-QPushButton#stripToolBtn, QPushButton#stripToolSoonBtn {
-    background-color: transparent; color: @text; border: 1px solid transparent; border-radius: 6px;
-    padding: 4px 9px; font-weight: 500;
+QPushButton#pillBtn:hover { border-color: @accent; background-color: @card_hover; }
+QFrame#functionBar { background-color: @bar; border-bottom: 1px solid @border; }
+QPushButton#fnTabBtn {
+    background-color: transparent; color: @muted; border: none; border-bottom: 2px solid transparent;
+    border-radius: 0px; padding: 7px 9px 5px 9px; font-weight: 600;
 }
-QPushButton#stripToolSoonBtn { color: @faint; }
-QPushButton#stripToolBtn:hover, QPushButton#stripToolSoonBtn:hover { background-color: @hover; border-color: @border; }
-QPushButton#stripToolBtn:checked { background-color: @accent_soft; color: @accent_text; border-color: @accent; }
-QFrame#toolStripSep { color: @border_strong; margin: 4px 2px; }
+QPushButton#fnTabBtn:hover { color: @text; background-color: transparent; }
+QPushButton#fnTabBtn:checked { color: @text; border-bottom: 2px solid @accent; }
+QToolButton#fnToolBtn, QToolButton#fnIconBtn {
+    background-color: transparent; color: @text; border: 1px solid transparent; border-radius: 6px;
+    padding: 4px 7px; font-weight: 500;
+}
+QToolButton#fnIconBtn { padding: 4px; }
+QToolButton#fnToolBtn:hover, QToolButton#fnIconBtn:hover, QToolButton#fnToolBtn:open {
+    background-color: @hover; border-color: @border;
+}
+QToolButton#fnToolBtn:checked, QToolButton#fnIconBtn:checked {
+    background-color: @accent_soft; color: @accent_text; border-color: @accent;
+}
+QToolButton#fnToolBtn:disabled, QToolButton#fnIconBtn:disabled { color: @faint; }
+QToolButton#fnToolBtn[popupMode="1"], QToolButton#primaryConvertBtn[popupMode="1"] { padding-right: 18px; }
+QToolButton#fnToolBtn::menu-button { border: none; border-left: 1px solid @border; width: 15px; }
+QToolButton#primaryConvertBtn::menu-button { border: none; border-left: 1px solid @on_accent; width: 15px; }
+QToolButton#fnToolBtn::menu-indicator { image: none; width: 0px; }
+QFrame#fnSep { color: @border_strong; margin: 6px 4px; }
+QSpinBox#pageSpin { padding: 3px 2px; }
+QSpinBox#pageSpin::up-button, QSpinBox#pageSpin::down-button { width: 0px; border: none; }  /* nút ▲▼ ẩn qua QSS: NoButtons + QSS làm ô nhập rộng 1 px */
+QSpinBox#pageSpin::up-arrow, QSpinBox#pageSpin::down-arrow { image: none; width: 0px; }
+QLabel#pageTotalLbl { color: @muted; padding: 0px 2px; }
+QFrame#noticeBar { background-color: @accent_soft; border: none; border-bottom: 1px solid @border; }
+QFrame#noticeBar QLabel { color: @text; background: transparent; }
+QPushButton#linkBtn {
+    background-color: transparent; color: @accent_text; border: none; padding: 2px 6px; font-weight: 600;
+    text-decoration: underline;
+}
+QPushButton#linkBtn:hover { color: @accent; background-color: transparent; }
+QToolButton#noticeClose { background-color: transparent; border: none; border-radius: 4px; padding: 3px; }
+QToolButton#noticeClose:hover { background-color: @hover; }
+QFrame#rightRail { background-color: @bar; border: none; border-left: 1px solid @border; }
+QPushButton#railPanelBtn {
+    background-color: transparent; border: 1px solid transparent; border-radius: 8px; padding: 0px;
+}
+QPushButton#railPanelBtn:hover { background-color: @hover; border-color: @border; }
+QPushButton#railPanelBtn:checked { background-color: @accent_soft; border-color: @accent; }
 QLineEdit#commandSearch {
     background-color: @card; border: 1px solid @border_strong; border-radius: 16px; padding: 6px 14px; color: @text;
 }
@@ -393,71 +419,6 @@ QPushButton#themeToggleBtn:hover {
     background-color: #32394A;
     border-color: #60A5FA;
 }
-QFrame#leftToolsPanel {
-    background-color: #1C1F26;
-    border-right: 1px solid #2A2E39;
-}
-QPushButton#toolCardBtn {
-    background-color: #232731;
-    color: #E5E7EB;
-    border: 1px solid #313745;
-    border-radius: 7px;
-    padding: 8px 10px;
-    text-align: left;
-    font-weight: 500;
-}
-QPushButton#toolCardBtn:hover {
-    background-color: #2B313E;
-    border-color: #3B82F6;
-}
-QPushButton#toolCardPrimaryBtn {
-    background-color: #1E3A8A;
-    color: #FFFFFF;
-    border: 1px solid #3B82F6;
-    border-radius: 7px;
-    padding: 9px 10px;
-    text-align: left;
-    font-weight: 600;
-}
-QPushButton#toolCardPrimaryBtn:hover {
-    background-color: #1D4ED8;
-}
-QFrame#signatureBanner {
-    background-color: #1E293B;
-    border-bottom: 1px solid #334155;
-    padding: 4px 10px;
-}
-QFrame#signatureBanner QLabel {
-    color: #E2E8F0;
-}
-QFrame#leftToolsPanel QLabel {
-    color: #F3F4F6;
-}
-QFrame#rightRail QLabel {
-    color: #E5E7EB;
-}
-QFrame#rightRail {
-    background-color: #1C1F26;
-    border-left: 1px solid #2A2E39;
-}
-QPushButton#railIconBtn {
-    background-color: #242832;
-    color: #D1D5DB;
-    border: 1px solid #323846;
-    border-radius: 6px;
-    padding: 6px 4px;
-    font-size: 11px;
-    font-weight: 600;
-}
-QPushButton#railIconBtn:hover {
-    background-color: #2E3442;
-    border-color: #4B5568;
-}
-QPushButton#railIconBtn:checked {
-    background-color: #2563EB;
-    color: #FFFFFF;
-    border-color: #3B82F6;
-}
 QFrame#welcomeCard {
     background-color: #1E222B;
     border: 1px solid #2E3442;
@@ -633,63 +594,6 @@ QPushButton#themeToggleBtn {
 QPushButton#themeToggleBtn:hover {
     background-color: #E2E8F0;
     border-color: #2563EB;
-}
-QFrame#leftToolsPanel {
-    background-color: #FFFFFF;
-    border-right: 1px solid #E2E8F0;
-}
-QPushButton#toolCardBtn {
-    background-color: #F8FAFC;
-    color: #1E293B;
-    border: 1px solid #E2E8F0;
-    border-radius: 7px;
-    padding: 8px 10px;
-    text-align: left;
-    font-weight: 500;
-}
-QPushButton#toolCardBtn:hover {
-    background-color: #EFF6FF;
-    border-color: #3B82F6;
-}
-QPushButton#toolCardPrimaryBtn {
-    background-color: #EFF6FF;
-    color: #1D4ED8;
-    border: 1px solid #93C5FD;
-    border-radius: 7px;
-    padding: 9px 10px;
-    text-align: left;
-    font-weight: 600;
-}
-QPushButton#toolCardPrimaryBtn:hover {
-    background-color: #DBEAFE;
-    border-color: #2563EB;
-}
-QFrame#signatureBanner {
-    background-color: #EFF6FF;
-    border-bottom: 1px solid #BFDBFE;
-    padding: 4px 10px;
-}
-QFrame#rightRail {
-    background-color: #FFFFFF;
-    border-left: 1px solid #E2E8F0;
-}
-QPushButton#railIconBtn {
-    background-color: #F8FAFC;
-    color: #334155;
-    border: 1px solid #E2E8F0;
-    border-radius: 6px;
-    padding: 6px 4px;
-    font-size: 11px;
-    font-weight: 600;
-}
-QPushButton#railIconBtn:hover {
-    background-color: #F1F5F9;
-    border-color: #94A3B8;
-}
-QPushButton#railIconBtn:checked {
-    background-color: #2563EB;
-    color: #FFFFFF;
-    border-color: #1D4ED8;
 }
 QFrame#welcomeCard {
     background-color: #FFFFFF;

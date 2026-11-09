@@ -29,10 +29,15 @@ class Command:
     # True: phím tắt / bấm `QAction` khi chưa có tài liệu thì bỏ qua (Ctrl+S ở Trang chủ không bật hộp thoại);
     # chọn từ Ctrl+K vẫn hỏi mở tệp rồi chạy (spec §5.3)
     quiet_without_document: bool = False
+    button_label: str = ""          # nhãn ngắn trên nút tầng 2 (rỗng = `label`); chú giải vẫn mang tên đầy đủ
 
     def label_text(self) -> str:
         """Nhãn để hiển thị (bỏ cách viết `&&` của Qt)."""
         return self.label.replace("&&", "&")
+
+    def button_text(self) -> str:
+        """Nhãn trên nút tầng 2 (dạng Qt, `&` viết `&&`)."""
+        return self.button_label or self.label
 
     def shortcuts(self) -> tuple[str, ...]:
         return tuple(s.strip() for s in self.shortcut.split(",") if s.strip())
@@ -119,14 +124,15 @@ COMMANDS: tuple[Command, ...] = (
        keywords="ocr scan quet anh nhan dang chu vietocr pdf tim kiem duoc"),
     _C("nd30_check", "Kiểm tra thể thức NĐ30", "badge-check", "convert", "Ctrl+Shift+N",
        summary="Đo lề, cỡ chữ, giãn dòng · Đối chiếu từng thành phần",
-       keywords="nghi dinh 30 the thuc kiem tra le can le"),
+       keywords="nghi dinh 30 the thuc kiem tra le can le", button_label="Kiểm tra NĐ30"),
     _C("verify_docx", "Kiểm chứng DOCX", "microscope", "convert",
        summary="Dựng bằng MS Word · So vị trí từng dòng với PDF", keywords="so sanh lech kiem chung word docx"),
     _C("layout_overlay", "Soi bố cục", "scan-eye", "convert", "F8", needs_document=True, checkable=True,
        summary="Lớp phủ khung bố cục, bảng, con dấu, chữ ký số trên trang",
        keywords="soi bo cuc layout inspector overlay con dau chu ky"),
     _C("batch_convert", "Chuyển đổi hàng loạt", "files", "convert", "Ctrl+Shift+B",
-       summary="Nhiều PDF → DOCX · Bảng điểm từng tệp", keywords="batch nhieu tep hang loat thu muc keo tha"),
+       summary="Nhiều PDF → DOCX · Bảng điểm từng tệp", keywords="batch nhieu tep hang loat thu muc keo tha",
+       button_label="Hàng loạt"),
     # ── Chỉnh sửa ──
     *_annot_commands(_EDIT_TOOLS, "edit"),
     _C("undo", "Hoàn tác", "undo-2", "edit", "Ctrl+Z", **_QUIET,
@@ -163,7 +169,8 @@ COMMANDS: tuple[Command, ...] = (
        keywords="thu vien chu ky nhay signature initials anh chup tach nen con dau"),
     # ── Bảo mật ──
     _C("sig_inspect", "Soi chữ ký số && con dấu", "shield-check", "security", needs_document=True,
-       summary="Phát hiện widget ký số VGCA, con dấu", keywords="chu ky so vgca con dau soi"),
+       summary="Phát hiện widget ký số VGCA, con dấu", keywords="chu ky so vgca con dau soi",
+       button_label="Soi chữ ký số"),
     _C("protect", "Đặt mật khẩu", "lock", "security",
        summary="AES-256 · Mật khẩu mở · Quyền in / sao chép / sửa",
        keywords="password mat khau bao ve ma hoa aes quyen protect encrypt"),

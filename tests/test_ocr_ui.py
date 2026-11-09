@@ -17,7 +17,8 @@ from PySide6.QtWidgets import QApplication, QDialog, QMessageBox
 from qtpdfpro.core import ocr, ocr_models
 from qtpdfpro.core.settings import AppSettings
 from qtpdfpro.ui import ocr_dialog as od
-from qtpdfpro.ui.main_window import STRIP_TOOLS, MainWindow
+from qtpdfpro.ui import commands
+from qtpdfpro.ui.main_window import MainWindow
 from qtpdfpro.ui.tool_catalog import get_tool
 from tests.test_ocr import _scanned_pdf, fake_engine, needs_font
 
@@ -58,10 +59,10 @@ def fake_install(monkeypatch: pytest.MonkeyPatch):
     return calls
 
 
-def test_tool_is_ready_and_on_convert_strip():
+def test_tool_is_ready_and_on_convert_tab():
     tool = get_tool("ocr")
     assert tool is not None and tool.ready and tool.category == "convert"
-    assert ("🔤 OCR tiếng Việt", "ocr") in STRIP_TOOLS["convert"]
+    assert "ocr" in commands.TAB_LAYOUT["convert"]
 
 
 def test_controller_installs_models_in_background_once(fake_install):

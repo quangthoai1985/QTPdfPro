@@ -77,7 +77,7 @@ def test_thumbnail_click_scrolls_viewer_immediately(app, tmp_path: Path) -> None
     # Lỗi cũ: blockSignals làm thanh cuộn nhảy nhưng bề mặt vẽ đứng yên → nội dung không đổi
     assert viewer.widget().y() == -bar.value()
     assert 0 <= _page_top_in_viewport(tab, 11) <= viewer.viewport().height() * 0.2
-    assert win.windowTitle() is not None and tab.lbl_rail_page.text().startswith("12/")
+    assert win.windowTitle() is not None and win.page_spin.value() == 12
 
     # Cuộn lệch xuống giữa trang 12 rồi nhấp lại đúng ảnh trang 12 → về lại đầu trang
     bar.setValue(bar.value() + 300)
@@ -130,13 +130,13 @@ def test_open_does_not_analyze_every_page(app, tmp_path: Path) -> None:
     assert tab is not None
     # Mở tệp: chưa phân tích bố cục trang nào (trước đây find_tables cho MỌI trang ngay lúc mở)
     assert tab.reader._layout_cache == {}
-    assert tab.signature_banner.isHidden()
+    assert tab.notice_bar.isHidden()
 
     # Phân tích nền: dò bảng dần từng trang rồi hiện thanh thông báo
     tab.wait_for_document_analysis()
     assert tab._banner_tables == 1
-    assert not tab.signature_banner.isHidden()
-    assert "bảng biểu" in tab.banner_info_lbl.text()
+    assert not tab.notice_bar.isHidden()
+    assert "bảng biểu" in tab.notice_lbl.text() and tab.notice_link.objectName() == "linkBtn"
 
     # «Soi bố cục» chỉ phân tích khi ngăn đang hiện
     tab.sidebar_tabs.setVisible(True)
@@ -157,7 +157,7 @@ def test_banner_counts_widgets_without_table_scan(app, tmp_path: Path) -> None:
     win, tab = _open(app, _make_pdf(tmp_path / "bieu_mau.pdf", 3, widget_page=1))
     tab.wait_for_document_analysis()
     assert tab._banner_sigs == 1
-    assert "1 chữ ký số" in tab.banner_info_lbl.text()
+    assert "1 chữ ký số" in tab.notice_lbl.text()
     assert tab._table_scan_timer.isActive() is False
     win.close()
     app.processEvents()

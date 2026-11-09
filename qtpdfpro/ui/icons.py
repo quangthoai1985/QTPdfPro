@@ -32,6 +32,8 @@ ICON_NAMES: tuple[str, ...] = (
     "circle-dot", "library", "log-out", "zoom-in", "zoom-out", "move-horizontal", "maximize",
     "sun-moon", "command", "clipboard-list", "pencil", "file-pen-line", "refresh-cw", "download",
     "settings",
+    # Thanh dọc phải (Task 4): ngăn Trang, Mục lục
+    "gallery-vertical-end", "list-tree",
 )
 
 _DEFAULT_COLOR = "#E6E8EC"  # màu chữ giao diện Tối (`_DARK_TOKENS["text"]`)

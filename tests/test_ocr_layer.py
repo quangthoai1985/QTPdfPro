@@ -205,8 +205,9 @@ def test_scanned_page_background_layer_makes_text_selectable(tmp_path: Path) -> 
     win, tab = _open(app, pdf, engine)
     tool, layer = tab.text_select, tab.ocr_layer
 
-    # Tài liệu ảnh quét: thanh thông báo có nút «Lưu thành PDF tìm kiếm được»
-    assert tab.is_scanned_document and not tab.banner_ocr_btn.isHidden() and tab.banner_convert_btn.isHidden()
+    # Tài liệu ảnh quét: dòng thông báo có liên kết «Lưu thành PDF tìm kiếm được»
+    assert tab.is_scanned_document and not tab.notice_bar.isHidden()
+    assert tab.notice_link.text() == "Lưu thành PDF tìm kiếm được"
     assert not layer.idle  # đã xin nhận dạng ngầm (đang băm tệp tra lưu đệm / đang nhận dạng)
     for _ in range(200):  # chờ tới lúc đang nhận dạng trang 0 → vẽ nhãn «Đang nhận dạng chữ…» không lỗi
         if layer.busy_page == 0 or layer.has_layer(0):
@@ -236,7 +237,7 @@ def test_scanned_page_background_layer_makes_text_selectable(tmp_path: Path) -> 
     captured = {}
     win.action_ocr = lambda engine_factory=None: captured.setdefault("factory", engine_factory)
     win.ocr_models.is_installed = lambda: True
-    tab.banner_ocr_btn.click()
+    tab.notice_link.click()
     cached = captured["factory"]()
     assert isinstance(cached, ocr_layer.CachedOcrEngine) and sorted(cached.pages) == [0, 1, 2]
     menu = tool.build_context_menu(0)
