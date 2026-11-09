@@ -2,7 +2,8 @@
 
 Công cụ dựng từ `commands.TAB_LAYOUT`; mọi nút dùng chung `QAction` của `MainWindow.command_actions` nên trạng thái
 bật / tắt / đã chọn đồng bộ với phím tắt, ☰ và Ctrl+K. Nút công cụ hiện nhãn ngắn (`QAction.iconText()` =
-`Command.button_text()`), chú giải mang tên đầy đủ + phím tắt.
+`Command.button_text()`), chú giải mang tên đầy đủ + phím tắt. Công cụ chú thích (thẻ Chỉnh sửa / Điền & Ký) chỉ có
+biểu tượng; nhóm ▾ của chúng (Đánh dấu chữ, Vẽ, Dấu tích) mang thân nút = công cụ vừa dùng (`set_checked_tool`).
 """
 
 from __future__ import annotations
@@ -10,7 +11,7 @@ from __future__ import annotations
 from typing import Optional
 
 from PySide6.QtCore import QSize, Qt, Signal
-from PySide6.QtGui import QAction
+from PySide6.QtGui import QAction, QActionGroup
 from PySide6.QtWidgets import (
     QButtonGroup,
     QComboBox,
@@ -26,6 +27,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from qtpdfpro.core import fill_sign as fs
+
 from . import commands, icons
 
 # Nhãn nút nhóm ▾ (thân nút mang biểu tượng của lệnh vừa dùng trong nhóm)
@@ -36,6 +39,7 @@ GROUP_LABELS = {
 # Thẻ có chế độ chỉnh sửa: nút «Lưu ▾» luôn hiện (thẻ khác: chỉ khi có thay đổi chưa lưu)
 EDIT_TABS = ("edit", "fill")
 SAVE_ITEM = "split:save:save"
+DATE_ITEM = "date_formats"
 ZOOM_CHOICES: tuple[tuple[str, str, int], ...] = (
     ("Vừa ngang", "fit_width", 100), ("Vừa trang", "fit_page", 100),
     *((f"{p}%", "percent", p) for p in (50, 75, 100, 125, 150, 200, 300)),
@@ -70,6 +74,7 @@ class FunctionBar(QFrame):
     """Tầng 2: thẻ | vùng công cụ (`⋯` khi hẹp) | Chọn chữ / Bàn tay · ◀ trang / N ▶ · thu phóng."""
 
     tabRequested = Signal(str)
+    dateFormatChosen = Signal(str)  # nút «Ngày ▾»: khoá mẫu ngày (`fill_sign.DATE_FORMATS`)
 
     def __init__(self, actions: dict[str, QAction], parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -79,10 +84,26 @@ class FunctionBar(QFrame):
         self._dirty = False
         self._items: list[str] = []
         self._sequence: list[tuple[str, QWidget]] = []  # (phần tử bố cục, nút / vạch ngăn) theo thứ tự
+        self._pinned: Optional[QToolButton] = None  # «Lưu ▾»: không bao giờ vào ⋯, đứng sau nút ⋯
         self._hidden: list[str] = []
         self._group_last: dict[str, str] = {}  # nhóm → lệnh vừa dùng
         self._group_refreshers: list = []
+        self._checked_tool: Optional[str] = None
         self.tool_buttons: dict[str, QToolButton] = {}
+        # Mẫu ngày của nút «Ngày ▾» (dùng chung cho nút và mục trong `⋯`)
+        self._date_format = fs.DATE_FORMATS[0][0]
+        self._date_group = QActionGroup(self)
+        self._date_group.setExclusive(True)
+        self.date_format_actions: dict[str, QAction] = {}
+        for key, _pattern in fs.DATE_FORMATS:
+            act = QAction(fs.format_date(key).replace("&", "&&"), self)
+            act.setCheckable(True)
+            act.setChecked(key == self._date_format)
+            act.triggered.connect(lambda _c=False, k=key: self.dateFormatChosen.emit(k))
+            self._date_group.addAction(act)
+            self.date_format_actions[key] = act
+        self._date_submenu = QMenu("Mẫu ngày", self)  # dùng khi nút «Ngày ▾» nằm trong ⋯
+        self._date_submenu.addActions(list(self.date_format_actions.values()))
 
         lay = QHBoxLayout(self)
         lay.setContentsMargins(8, 3, 8, 3)
@@ -186,6 +207,8 @@ class FunctionBar(QFrame):
         icon_only = _is_annotation_item(item) or (len(keys) == 1 and keys[0] in _ICON_ONLY_KEYS)
         if item.startswith("group:"):
             self._setup_group_button(btn, item.split(":", 1)[1], icon_only)
+        elif item == DATE_ITEM:
+            self._setup_date_button(btn)
         else:
             body = keys[0]
             btn.setDefaultAction(self._actions[body])
@@ -202,20 +225,34 @@ class FunctionBar(QFrame):
         return btn
 
     def _setup_group_button(self, btn: QToolButton, group: str, icon_only: bool) -> None:
-        """Nút nhóm ▾: thân = lệnh vừa dùng trong nhóm (nhớ giữa các lần dựng lại), mũi tên = cả nhóm."""
+        """Nút nhóm ▾: thân = lệnh vừa dùng trong nhóm (nhớ giữa các lần dựng lại), mũi tên = cả nhóm.
+
+        Nhóm công cụ chú thích (chỉ biểu tượng): thân nút `setDefaultAction` = `QAction` của công cụ vừa dùng — nút
+        mang trạng thái bật / tắt / đang chọn của công cụ đó; «vừa dùng» cập nhật cả khi chọn công cụ bằng `⋯`,
+        Ctrl+K hay phím chữ cái (`set_checked_tool`). Nhóm khác (Trang, Xử lý): nhãn nhóm + biểu tượng lệnh vừa dùng."""
         keys = commands.GROUPS[group]
         menu = QMenu(btn)
         for key in keys:
             menu.addAction(self._actions[key])
-        btn.setMenu(menu)
-        btn.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
-        btn.setText(GROUP_LABELS.get(group, group))
+        label = GROUP_LABELS.get(group, group)
 
-        def show_last() -> None:
-            key = self._group_last.get(group, keys[0])
-            act = self._actions[key]
-            btn.setIcon(act.icon())
-            btn.setToolTip(f"{GROUP_LABELS.get(group, group)} — bấm: {act.toolTip()}")
+        if icon_only:
+            def show_last() -> None:
+                act = self._actions[self._group_last.get(group, keys[0])]
+                old = btn.defaultAction()
+                if old is not act:
+                    btn.setDefaultAction(act)
+                    if old is not None:
+                        btn.removeAction(old)
+                btn.setToolTip(f"{label}: {act.toolTip()} — mũi tên: chọn kiểu khác")
+        else:
+            def show_last() -> None:
+                act = self._actions[self._group_last.get(group, keys[0])]
+                btn.setIcon(act.icon())
+                btn.setToolTip(f"{label} — bấm: {act.toolTip()}")
+
+            btn.setText(label)
+            btn.clicked.connect(lambda _c=False: self._actions[self._group_last.get(group, keys[0])].trigger())
 
         def remember(act: QAction) -> None:
             for key in keys:
@@ -223,23 +260,65 @@ class FunctionBar(QFrame):
                     self._group_last[group] = key
             show_last()
 
-        btn.clicked.connect(lambda _c=False: self._actions[self._group_last.get(group, keys[0])].trigger())
+        show_last()
+        btn.setMenu(menu)
+        btn.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
         menu.triggered.connect(remember)
         self._group_refreshers.append(show_last)
-        show_last()
+
+    def _setup_date_button(self, btn: QToolButton) -> None:
+        """Nút «Ngày ▾»: thân = công cụ «Ngày tháng» với mẫu đang chọn, mũi tên = các mẫu ngày (chọn → đặt ngày)."""
+        act = self._actions["annot.fill_date"]
+        btn.setDefaultAction(act)
+        menu = QMenu(btn)
+        menu.addActions(list(self.date_format_actions.values()))
+        btn.setMenu(menu)
+        btn.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
+
+        def show_format() -> None:
+            sample = self.date_format_actions[self._date_format].text().replace("&&", "&")
+            btn.setToolTip(f"{act.toolTip()} — mẫu: «{sample}» — mũi tên: chọn mẫu ngày")
+
+        show_format()
+        self._group_refreshers.append(show_format)
 
     def refresh_icons(self) -> None:
         """Sau khi đổi giao diện: nút dùng `setDefaultAction` tự theo `QAction`; nút nhóm tô lại thân nút."""
         for refresh in self._group_refreshers:
             refresh()
 
+    def set_checked_tool(self, key: Optional[str]) -> None:
+        """Công cụ chú thích đang dùng (`AnnotationController.tool`, None = không ở chế độ chỉnh sửa): đánh dấu nút
+        của nó; công cụ thuộc nhóm ▾ thì thân nút nhóm đổi sang công cụ đó (nhớ kiểu vừa dùng)."""
+        self._checked_tool = key
+        target = f"annot.{key}" if key else ""
+        for k, act in self._actions.items():
+            if k.startswith("annot.") and act.isCheckable() and act.isChecked() != (k == target):
+                act.setChecked(k == target)
+        if target in self._actions:
+            for group, keys in commands.GROUPS.items():
+                if target in keys:
+                    self._group_last[group] = target
+        self.refresh_icons()
+
+    def checked_tool(self) -> Optional[str]:
+        return self._checked_tool
+
+    def set_date_format(self, key: str) -> None:
+        """Mẫu ngày đang dùng của bộ điều khiển chú thích (đánh dấu trong menu «Ngày ▾», chú giải thân nút)."""
+        act = self.date_format_actions.get(key)
+        if act is None:
+            return
+        self._date_format = key
+        if not act.isChecked():
+            act.setChecked(True)
+        self.refresh_icons()
+
     def _layout_items(self) -> list[str]:
-        """Phần tử của thẻ đang chọn: thẻ chỉnh sửa bỏ công cụ chú thích (còn ở `EditToolbar` tới Task 5);
-        thẻ khác thêm «Lưu ▾» khi có thay đổi chưa lưu. Bỏ vạch ngăn thừa ở đầu / cuối / liền nhau."""
+        """Phần tử của thẻ đang chọn; thẻ không phải Chỉnh sửa / Điền & Ký thêm «Lưu ▾» khi có thay đổi chưa lưu.
+        Bỏ vạch ngăn thừa ở đầu / cuối / liền nhau."""
         layout = list(commands.TAB_LAYOUT.get(self._tab, ()))
-        if self._tab in EDIT_TABS:
-            layout = [it for it in layout if not _is_annotation_item(it)]
-        elif self._dirty:
+        if self._tab not in EDIT_TABS and self._dirty:
             layout += ["|", SAVE_ITEM]
         items: list[str] = []
         for it in layout:
@@ -251,22 +330,31 @@ class FunctionBar(QFrame):
         return items
 
     def _rebuild(self) -> None:
-        for _item, widget in self._sequence:
+        old = [w for _i, w in self._sequence] + ([self._pinned] if self._pinned is not None else [])
+        for widget in old:
             self._tools_lay.removeWidget(widget)
             widget.hide()  # deleteLater chỉ xoá khi về vòng lặp sự kiện — ẩn ngay để không đè nút mới
             widget.deleteLater()
         self._sequence = []
+        self._pinned = None
         self._group_refreshers = []
         self.tool_buttons = {}
         self._items = self._layout_items()
+        items = list(self._items)
+        if items and items[-1] == SAVE_ITEM:  # «Lưu ▾» luôn hiện (spec §3): ghim sau ⋯, công cụ khác tràn trước
+            items.pop()
+            self._pinned = self._tool_button(SAVE_ITEM)
+            self._tools_lay.insertWidget(self._tools_lay.indexOf(self.overflow_button) + 1, self._pinned)
         pos = 0
-        for item in self._items:
+        for item in items:
             widget: QWidget = self._separator() if item == "|" else self._tool_button(item)
             if item != "|":
                 self.tool_buttons[item] = widget  # type: ignore[assignment]
             self._tools_lay.insertWidget(pos, widget)
             pos += 1
             self._sequence.append((item, widget))
+        if self._pinned is not None:
+            self.tool_buttons[SAVE_ITEM] = self._pinned
         self.relayout_overflow()
 
     # ─── Thẻ & trạng thái ──────────────────────────────────────────────────
@@ -296,11 +384,10 @@ class FunctionBar(QFrame):
         return list(self._hidden)
 
     def visible_command_keys(self) -> list[str]:
-        """Khoá lệnh của các nút đang hiện ở tầng 2 (kể cả mục đang nằm trong `⋯`)."""
-        keys: list[str] = []
-        for item in self.tool_buttons:
-            keys.extend(commands.expand_layout_item(item))
-        return keys + ["pointer_select", "pointer_hand"]
+        """Phần tử bố cục của các nút đang hiện ở tầng 2 (kể cả mục đang nằm trong `⋯`) + nút Chọn chữ / Bàn tay.
+
+        Phần tử là khoá lệnh hoặc `group:…` / `split:…` / `date_formats` — `commands.expand_layout_item` ra khoá lệnh."""
+        return list(self.tool_buttons) + ["pointer_select", "pointer_hand"]
 
     # ─── Tràn vào ⋯ ────────────────────────────────────────────────────────
 
@@ -312,6 +399,8 @@ class FunctionBar(QFrame):
         """Hiện nút theo thứ tự tới khi hết chỗ; phần còn lại ẩn và vào menu `⋯` (giữ thứ tự)."""
         avail = self._tools_area.width()
         spacing = self._tools_lay.spacing()
+        if self._pinned is not None:
+            avail -= self._pinned.sizeHint().width() + spacing
         widths = [w.sizeHint().width() for _i, w in self._sequence]
         total = sum(widths) + spacing * max(0, len(widths) - 1)
         hidden_from = len(self._sequence)
@@ -324,8 +413,9 @@ class FunctionBar(QFrame):
                     hidden_from = idx
                     break
         shown = self._sequence[:hidden_from]
-        while shown and shown[-1][0] == "|":  # không để vạch ngăn lẻ ngay trước ⋯
-            shown = shown[:-1]
+        overflowing = hidden_from < len(self._sequence)
+        while shown and shown[-1][0] == "|" and (overflowing or self._pinned is None):
+            shown = shown[:-1]  # không để vạch ngăn lẻ ngay trước ⋯ (vạch trước «Lưu ▾» ghim thì giữ)
         visible_ids = {id(w) for _i, w in shown}
         for _item, widget in self._sequence:
             widget.setVisible(id(widget) in visible_ids)
@@ -342,11 +432,13 @@ class FunctionBar(QFrame):
                 if menu.actions() and not menu.actions()[-1].isSeparator():
                     menu.addSeparator()
                 continue
-            grouped = len(keys) > 1
+            grouped = len(keys) > 1 or item == DATE_ITEM
             if grouped and menu.actions() and not menu.actions()[-1].isSeparator():
                 menu.addSeparator()
             for key in keys:
                 menu.addAction(self._actions[key])
+            if item == DATE_ITEM:  # mẫu ngày cũng chọn được khi nút «Ngày ▾» nằm trong ⋯
+                menu.addMenu(self._date_submenu)
             if grouped:
                 menu.addSeparator()
         while menu.actions() and menu.actions()[-1].isSeparator():

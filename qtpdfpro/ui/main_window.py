@@ -97,23 +97,23 @@ _LEGACY_TOOL_KEYS = {
     "pdf_to_word_nd30": "convert_word_nd30", "pdf_to_word_exact": "convert_word_exact",
     "pdf_to_word_flow": "convert_word_flow", "select_text": "pointer_select", "hand_tool": "pointer_hand",
     "search": "find", "rotate_view": "rotate_right", "edit_pdf": "edit_mode", "highlight_text": "annot.highlight",
-    "draw_shapes": "annot.pen", "stamp": "annot.stamp",
+    "draw_shapes": "annot.pen", "stamp": "annot.stamp", "bookmarks": "panel_toc",
 }
 
 # Thanh dọc phải: (chú giải, biểu tượng, chỉ số ngăn trong `sidebar_tabs`) — ngăn 3 «Soi bố cục» mở bằng công cụ
 # «Soi bố cục» / F8 (không có nút riêng)
-RAIL_PANELS: tuple[tuple[str, str, int], ...] = (
-    ("Trang (ảnh thu nhỏ các trang)", "gallery-vertical-end", 0),
-    ("Mục lục (Bookmarks)", "list-tree", 1),
-    ("Tìm kiếm (Ctrl+F)", "search", 2),
-    ("Chú thích (tô sáng, ghi chú, dấu đóng…)", "message-square", 4),
+RAIL_PANELS: tuple[tuple[str, str, int, str], ...] = (  # (…, khoá lệnh — `commands`)
+    ("Trang (ảnh thu nhỏ các trang)", "gallery-vertical-end", 0, "panel_pages"),
+    ("Mục lục (Bookmarks)", "list-tree", 1, "panel_toc"),
+    ("Tìm kiếm (Ctrl+F)", "search", 2, "find"),
+    ("Chú thích (tô sáng, ghi chú, dấu đóng…)", "message-square", 4, "panel_annotations"),
 )
 
 
 class PDFDocumentTab(QWidget):
     """Một tab tài liệu PDF:
     - Giữa: dòng thông báo mảnh tắt được (`notice_bar`) + khung vẽ PDF tốc độ cao (`PDFScrollViewer`); khi chỉnh
-      sửa thì thêm thanh chú thích (`edit_toolbar` / `fill_toolbar`) phía trên khung đọc.
+      sửa thì thêm hàng kiểu dáng của công cụ đang chọn (`edit_toolbar` / `fill_toolbar`) phía trên khung đọc.
     - Phải: ngăn 5 trang (Trang, Mục lục, Tìm kiếm, Soi bố cục, Chú thích — không có hàng tab chữ) + thanh biểu
       tượng dọc `rail_panel_buttons` là chỗ chuyển ngăn duy nhất.
     Công cụ, đổi trang, thu phóng nằm ở tầng 2 của `MainWindow` (`ui/function_bar.py`).
@@ -162,24 +162,19 @@ class PDFDocumentTab(QWidget):
             self.settings.default_zoom_mode, self.settings.default_zoom_percent
         )
 
-        # Chế độ chỉnh sửa: bộ điều khiển chú thích + thanh công cụ 2 tầng (ẩn cho tới khi bật)
+        # Chế độ chỉnh sửa: bộ điều khiển chú thích + hàng kiểu dáng (nút công cụ ở tầng 2 của MainWindow)
         self.annot_controller = AnnotationController(self.reader, self.settings.annot_author or None, self)
         self.edit_toolbar = EditToolbar(self.annot_controller, self.viewer, self)
         self.edit_toolbar.setVisible(False)
-        self.edit_toolbar.exitRequested.connect(self.exit_edit_mode)
         self.annot_controller.documentChanged.connect(self._on_annotations_changed)
         self.annot_controller.message.connect(self.statusMessage)
-        self.annot_controller.toolChanged.connect(lambda _k: self.viewer.refresh_cursor())
+        self.annot_controller.toolChanged.connect(self._on_annot_tool_changed)
         self.annot_controller.selectionChanged.connect(self._on_annotation_selection)
-        # Chế độ «Điền & Ký»: cùng bộ điều khiển, thanh công cụ riêng (gõ chữ, ✓ ✕ ● ─, ngày, chữ ký)
+        # Chế độ «Điền & Ký»: cùng bộ điều khiển, hàng kiểu dáng riêng (bắt dòng chấm, chữ ký đang dùng)
         self.fill_toolbar = EditToolbar(self.annot_controller, self.viewer, self, toolset="fill")
         self.fill_toolbar.setVisible(False)
-        self.fill_toolbar.exitRequested.connect(self.exit_edit_mode)
         self.fill_toolbar.manageSignaturesRequested.connect(self.open_signature_library)
         self.annot_controller.signatureNeeded.connect(self._create_signature_for_placement)
-        for bar in (self.edit_toolbar, self.fill_toolbar):  # một lệnh một nút: đã có ở tầng 2
-            for btn in (bar.btn_undo, bar.btn_redo, bar.btn_organize, bar.btn_save):
-                btn.setVisible(False)
         self._toolset = "edit"
         # Công cụ «Chọn chữ» (V) / «Bàn tay» (H) khi không ở chế độ chỉnh sửa — như Acrobat.
         # Trang ảnh quét: `ocr_layer` nhận dạng ngầm trang đang xem thành lớp chữ tạm (khi máy đã có bộ mô hình).
@@ -409,9 +404,10 @@ class PDFDocumentTab(QWidget):
         rlayout.setSpacing(6)
         self.rail_panel_buttons: List[QPushButton] = []
         self._rail_panel_indices: List[int] = []
-        for tip, icon_name, tab_idx in RAIL_PANELS:
+        for tip, icon_name, tab_idx, command_key in RAIL_PANELS:
             btn = QPushButton()
             btn.setObjectName("railPanelBtn")
+            btn.setProperty("command_key", command_key)  # test «mỗi lệnh một nút» (tests/test_no_duplicates.py)
             btn.setCheckable(True)
             btn.setToolTip(tip)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -605,17 +601,16 @@ class PDFDocumentTab(QWidget):
         was = self.edit_mode
         switched = toolset != self._toolset
         self._toolset = toolset
-        for bar in (self.edit_toolbar, self.fill_toolbar):
-            on = bar is self.active_toolbar
-            bar.set_shortcuts_enabled(on)
-            bar.setVisible(on)
         current = self.annot_controller.tool
         group = TOOL_BY_KEY[current].group if current in TOOL_BY_KEY else "edit"
         if tool:
             self.annot_controller.set_tool(tool)
         elif group not in (toolset, "both"):  # công cụ của bộ kia → chọn công cụ đầu tiên của bộ này
             self.annot_controller.set_tool("fill_text" if toolset == "fill" else "highlight")
-        self.active_toolbar.sync_from_controller()
+        for bar in (self.edit_toolbar, self.fill_toolbar):
+            on = bar is self.active_toolbar
+            bar.set_shortcuts_enabled(on)
+            bar.set_active(on)  # hàng kiểu dáng chỉ hiện khi công cụ có kiểu dáng
         self.text_select.clear_selection()
         self.viewer.set_interaction(self.annot_controller)
         self._apply_pointer_mode()
@@ -641,7 +636,7 @@ class PDFDocumentTab(QWidget):
         self.viewer.set_interaction(None)
         for bar in (self.edit_toolbar, self.fill_toolbar):
             bar.set_shortcuts_enabled(False)
-            bar.setVisible(False)
+            bar.set_active(False)
         self._apply_pointer_mode()  # về lại Chọn chữ / Bàn tay
         self.editModeChanged.emit(False)
         self.toolsetChanged.emit("")
@@ -682,8 +677,13 @@ class PDFDocumentTab(QWidget):
         return ses.can_undo, ses.can_redo, ses.undo_label, ses.redo_label
 
     def _sync_history(self) -> None:
-        self.edit_toolbar.update_history(*self.history_state())
         self.historyChanged.emit()
+
+    def _on_annot_tool_changed(self, tool: str) -> None:
+        self.viewer.refresh_cursor()
+        td = TOOL_BY_KEY.get(tool)
+        if td is not None and self.edit_mode:  # gợi ý cách dùng (hàng kiểu dáng ẩn với Chọn / Tẩy)
+            self.statusMessage.emit(f"{td.tip} — {td.hint}")
 
     def _on_annotations_changed(self, page_index: int) -> None:
         self.viewer.refresh_pages([page_index])
@@ -964,6 +964,7 @@ class MainWindow(QMainWindow):
         self.ocr_models = OcrModelController(self, notify=lambda text: self._show_toast(text, 6000))
 
         self.recent_menu = QMenu("Tệp mở gần đây", self)
+        self._connected_controller: Optional[AnnotationController] = None  # bộ điều khiển chú thích của tab đang xem
         self._build_command_actions()
         central = QWidget()
         central.setObjectName("appRoot")
@@ -1000,6 +1001,8 @@ class MainWindow(QMainWindow):
             act.setIcon(icons.icon(cmd.icon))
             act.setCheckable(cmd.checkable)
             tip = cmd.label_text() + (f" — {cmd.summary}" if cmd.summary else "")
+            if cmd.key.startswith("annot."):  # nút chỉ biểu tượng ở tầng 2: tên + phím chữ cái
+                tip = cmd.label_text()
             act.setToolTip(f"{tip} ({cmd.shortcuts()[0]})" if cmd.shortcut else tip)
             if cmd.register_shortcut and cmd.shortcut:
                 act.setShortcuts([QKeySequence(s) for s in cmd.shortcuts()])
@@ -1061,6 +1064,7 @@ class MainWindow(QMainWindow):
         """Tầng 2 (`FunctionBar`) + bí danh cũ cho cụm điều khiển xem; Alt+1…5 chuyển thẻ khi có tài liệu."""
         fb = self.function_bar = FunctionBar(self.command_actions, self)
         fb.tabRequested.connect(self.set_function_tab)
+        fb.dateFormatChosen.connect(self._on_date_format_chosen)
         self.page_spin, self.total_page_lbl, self.zoom_combo = fb.page_spin, fb.total_page_lbl, fb.zoom_combo
         self.btn_prev_page, self.btn_next_page = fb.btn_prev_page, fb.btn_next_page
         fb.page_spin.valueChanged.connect(self._on_spin_page_changed)
@@ -1098,9 +1102,10 @@ class MainWindow(QMainWindow):
             tab.exit_edit_mode()
         if key in ("edit", "fill") and not tab.edit_mode:  # không chỉnh sửa được (tệp không phải PDF)
             self.function_bar.set_tab("read")
+        self._sync_tool_states()
 
     def _sync_function_tab_with_tab(self, tab: Optional[PDFDocumentTab] = None) -> None:
-        """Tầng 2 theo trạng thái của tab đang xem (vào / thoát chỉnh sửa bằng đường khác, đổi tab tài liệu)."""
+        """Tầng 2 theo trạng thái của tab đang xem (vào / thoát chỉnh sửa bằng đường khác)."""
         tab = tab or self.active_tab()
         if tab is None or tab is not self.active_tab():
             return
@@ -1111,6 +1116,45 @@ class MainWindow(QMainWindow):
             want = "read" if cur in ("edit", "fill") else cur
         if want != cur:
             self.function_bar.set_tab(want)
+        self._sync_tool_states()
+
+    def _connect_active_controller(self, tab: Optional[PDFDocumentTab]) -> None:
+        """Nút công cụ chú thích ở tầng 2 theo bộ điều khiển của tab đang xem: ngắt tab cũ, nối tab mới."""
+        old = self._connected_controller
+        new = tab.annot_controller if tab is not None else None
+        if old is not new:
+            if old is not None:
+                try:
+                    old.toolChanged.disconnect(self._on_active_tool_changed)
+                except (RuntimeError, TypeError):  # tab đã đóng (đối tượng C++ đã huỷ)
+                    pass
+            if new is not None:
+                new.toolChanged.connect(self._on_active_tool_changed)
+            self._connected_controller = new
+        self._sync_tool_states()
+
+    def _on_active_tool_changed(self, _tool: str) -> None:
+        self._sync_tool_states()
+
+    def _sync_tool_states(self) -> None:
+        """Trạng thái «đang chọn» ở tầng 2: công cụ chú thích (thân nút nhóm ▾ theo công cụ vừa dùng), mẫu ngày;
+        nút Chọn chữ / Bàn tay không sáng khi công cụ chú thích đang nhận chuột (thẻ Chỉnh sửa / Điền & Ký)."""
+        tab = self.active_tab()
+        editing = tab is not None and tab.edit_mode
+        self.function_bar.set_checked_tool(tab.annot_controller.tool if editing else None)
+        if tab is not None:
+            self.function_bar.set_date_format(tab.annot_controller.date_format)
+        for mode, act in self.pointer_actions.items():
+            act.setChecked(not editing and mode == self.settings.pointer_mode)
+
+    def _on_date_format_chosen(self, key: str) -> None:
+        """Nút «Ngày ▾»: chọn mẫu ngày rồi đặt ngày (công cụ «Ngày tháng» của Điền & Ký)."""
+        tab = self.active_tab()
+        if tab is None:
+            return
+        tab.annot_controller.date_format = key
+        tab.enter_edit_mode("fill_date", "fill")
+        self._sync_tool_states()
 
     def activate_pointer_tool(self, mode: str) -> None:
         """Công cụ «Chọn & sao chép chữ» / «Bàn tay» từ danh mục, Ctrl+K hay thanh công cụ nhanh: thoát chế độ chỉnh sửa
@@ -1129,12 +1173,11 @@ class MainWindow(QMainWindow):
         if self.settings.pointer_mode != mode:
             self.settings.pointer_mode = mode
             self.settings.save()
-        for m, act in self.pointer_actions.items():
-            act.setChecked(m == mode)
         for i in range(self.doc_tabs.count()):
             w = self.doc_tabs.widget(i)
             if isinstance(w, PDFDocumentTab):
                 w.set_pointer_mode(mode)
+        self._sync_tool_states()
         self.statusBar().showMessage(
             "Chọn chữ — kéo qua chữ để chọn, Ctrl+C để chép; trang ảnh quét: kéo khung để nhận dạng. Giữ Space để kéo cuộn."
             if mode == "select" else "Bàn tay — kéo để cuộn trang (V để quay lại chọn chữ).", 6000)
@@ -1282,8 +1325,6 @@ class MainWindow(QMainWindow):
         tab.noticeCommandRequested.connect(self.run_command)
         tab.historyChanged.connect(lambda t=tab: self._sync_history_actions() if t is self.active_tab() else None)
         tab.toolsetChanged.connect(lambda _ts, t=tab: self._sync_function_tab_with_tab(t))
-        tab.edit_toolbar.saveRequested.connect(self.action_save)
-        tab.edit_toolbar.organizeRequested.connect(lambda: self.run_command("organize"))
         tab.modifiedChanged.connect(lambda _m, t=tab: self._update_tab_title(t))
         tab.modifiedChanged.connect(lambda _m: self._sync_toolbar_with_active_tab())
         tab.statusMessage.connect(lambda text: self.statusBar().showMessage(text, 6000))
@@ -1333,7 +1374,13 @@ class MainWindow(QMainWindow):
             self.doc_tab_bar.blockSignals(True)
             self.doc_tab_bar.setCurrentIndex(index)
             self.doc_tab_bar.blockSignals(False)
-        self._sync_function_tab_with_tab()
+        tab = self.active_tab()
+        self._connect_active_controller(tab)
+        mode = self.function_bar.current_tab()
+        if tab is not None and mode in ("edit", "fill"):  # đang ở thẻ Chỉnh sửa / Điền & Ký → tab mới cũng vậy
+            self.set_function_tab(mode)
+        else:
+            self._sync_function_tab_with_tab()
         self._sync_toolbar_with_active_tab()
 
     def _sync_toolbar_with_active_tab(self) -> None:
@@ -1343,18 +1390,24 @@ class MainWindow(QMainWindow):
         self._sync_history_actions()
         if tab is None:
             self.function_bar.set_page(0, 0)
-            self.function_bar.set_save_visible(False)
+            self._sync_save_button()
             self.status_zoom_lbl.setText("Thu phóng: --")
             return
         total = tab.reader.page_count
         cur = tab.viewer.current_page
         self.function_bar.set_page(cur + 1, total)
         self.function_bar.set_zoom(tab.viewer.zoom_mode, tab.viewer.zoom_percent)
-        self.function_bar.set_save_visible(tab.reader.has_unsaved_changes)
+        self._sync_save_button()
         if self.stack.currentWidget() is self.doc_tabs:
             pw, ph = tab.reader.get_page_size(cur)
             self.status_doc_lbl.setText(f"{tab.reader.path.name} — Trang {cur + 1}/{total} ({pw:.0f}×{ph:.0f} pt)")
         self.status_zoom_lbl.setText(f"Thu phóng: {tab.viewer.zoom_percent}%")
+
+    def _sync_save_button(self) -> None:
+        """«Lưu ▾»: thẻ Đọc / Chuyển đổi / Bảo mật chỉ hiện khi tài liệu có thay đổi chưa lưu; thẻ Chỉnh sửa /
+        Điền & Ký luôn hiện, là nút chính (màu nhấn) chỉ khi có thay đổi chưa lưu."""
+        tab = self.active_tab()
+        self.function_bar.set_save_visible(tab is not None and tab.reader.has_unsaved_changes)
 
     def _sync_history_actions(self) -> None:
         """Hoàn tác / Làm lại (nút tầng 2, Ctrl+Z / Ctrl+Y) theo phiên chỉnh sửa của tab đang xem; không có
@@ -1452,6 +1505,9 @@ class MainWindow(QMainWindow):
             "toggle_theme": self.action_toggle_theme,
             "palette": lambda: self.action_command_palette(""),
             "find": lambda: on_tab(lambda t: t.focus_search()),
+            "panel_pages": lambda: on_tab(lambda t: t._on_rail_tab_clicked(0)),
+            "panel_toc": lambda: on_tab(lambda t: t._on_rail_tab_clicked(1)),
+            "panel_annotations": lambda: on_tab(lambda t: t._on_rail_tab_clicked(4)),
             "extract_text": self.action_extract_current_page_text,
             "edit_mode": self.action_edit_mode,
             "fill_mode": self.action_fill_sign,
@@ -1468,10 +1524,9 @@ class MainWindow(QMainWindow):
         return handlers
 
     def _legacy_tool_handlers(self) -> dict[str, Callable[[], None]]:
-        """Khoá `tool_catalog` chưa có lệnh tương ứng (ngăn bên phải có lệnh riêng ở Task 5)."""
+        """Khoá `tool_catalog` chưa có lệnh tương ứng (xoá cùng `tool_catalog` ở Task 8)."""
         return {
             "layout_inspect": lambda: self._open_inspector(True),
-            "bookmarks": lambda: self._with_active_tab(lambda t: t._on_rail_tab_clicked(1)),
             "comments": self._open_annotation_panel,
             "fill_sign": lambda: self.set_function_tab("fill"),
         }

@@ -55,11 +55,14 @@ def test_edit_mode_annotate_with_mouse_undo_save(sample_vietnamese_pdf: Path, mo
 
     win.run_tool("edit_pdf")
     app.processEvents()
-    assert tab.edit_mode is True and tab.edit_toolbar.isVisible()
+    assert tab.edit_mode is True and tab.edit_toolbar.isVisible()  # tô sáng có hàng kiểu dáng (màu, độ đậm)
     assert tab.annot_controller.tool == "highlight"
-    # Thanh công cụ tự xuống dòng — không được ép cửa sổ rộng hơn màn hình laptop
+    # Nút công cụ ở tầng 2: thân «Đánh dấu chữ ▾» = tô sáng, đang chọn
+    mark = win.function_bar.tool_buttons["group:mark"]
+    assert mark.defaultAction() is win.command_actions["annot.highlight"] and mark.isChecked()
+    # Hàng kiểu dáng tự xuống dòng — không được ép cửa sổ rộng hơn màn hình laptop
     assert tab.edit_toolbar.minimumSizeHint().width() < 500
-    assert win.minimumSizeHint().width() <= 1400
+    assert win.minimumSizeHint().width() <= 1280
 
     # Tô sáng: kéo qua cụm "Độc lập - Tự do" ở dòng tiêu ngữ
     page = tab.reader.doc[0]
@@ -78,8 +81,10 @@ def test_edit_mode_annotate_with_mouse_undo_save(sample_vietnamese_pdf: Path, mo
     win.act_redo.trigger()
     assert len(ses.list_annotations()) == 1
 
-    # Bút vẽ tay
-    tab.annot_controller.set_tool("pen")
+    # Bút vẽ tay (chọn qua menu của nút «Vẽ ▾» = QAction dùng chung)
+    win.command_actions["annot.pen"].trigger()
+    assert tab.annot_controller.tool == "pen"
+    assert win.function_bar.tool_buttons["group:draw"].defaultAction() is win.command_actions["annot.pen"]
     _drag(viewer, 0, (300, 500), (420, 560), steps=6)
     # Dấu đóng rồi kéo đi bằng công cụ Chọn
     tab.annot_controller.set_tool("stamp")
@@ -160,7 +165,7 @@ def test_function_tab_edit_toggles_edit_mode(sample_vietnamese_pdf: Path) -> Non
     assert not tab.edit_mode and win.function_bar.current_tab() == "read"
     win.act_edit_mode.trigger()
     assert tab.edit_mode and win.function_bar.current_tab() == "edit"
-    tab.exit_edit_mode()  # thoát bằng đường khác (✕ của thanh chỉnh sửa) → tầng 2 về Đọc
+    tab.exit_edit_mode()  # thoát bằng đường khác (vd «Chọn chữ» ở tầng 2) → tầng 2 về Đọc
     assert win.function_bar.current_tab() == "read"
     win.close_tab_at(0, force=True)
     win.close()

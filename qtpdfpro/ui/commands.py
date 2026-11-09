@@ -90,7 +90,7 @@ def _annot_commands(tools, tab: str) -> list[Command]:
     return [
         _C(f"annot.{key}", label, icon, tab, shortcut=letter, group=group, needs_document=True,
            summary=f"{label} — phím {letter} khi đang ở thẻ {TAB_LABELS[tab].replace('&&', '&')}",
-           keywords=keywords, register_shortcut=False)
+           keywords=keywords, checkable=True, register_shortcut=False)
         for key, label, icon, letter, group, keywords in tools
     ]
 
@@ -204,6 +204,13 @@ COMMANDS: tuple[Command, ...] = (
     _C("palette", "Tìm lệnh…", "command", "system", "Ctrl+K", keywords="tim lenh cong cu", palette=False),
     _C("find", "Tìm trong tài liệu", "search", "system", "Ctrl+F", needs_document=True,
        summary="Tô sáng mọi vị trí khớp", keywords="tim kiem toan van search find"),
+    # Ngăn bên phải (nút thanh dọc; bấm lại ngăn đang mở → ẩn ngăn)
+    _C("panel_pages", "Ngăn Trang (ảnh thu nhỏ)", "gallery-vertical-end", "system", needs_document=True,
+       summary="Ảnh thu nhỏ các trang", keywords="ngan trang anh thu nho thumbnail"),
+    _C("panel_toc", "Ngăn Mục lục", "list-tree", "system", needs_document=True,
+       summary="Mục lục (Bookmarks) của tài liệu", keywords="ngan muc luc bookmarks toc"),
+    _C("panel_annotations", "Ngăn Chú thích", "message-square", "system", needs_document=True,
+       summary="Danh sách tô sáng, ghi chú, dấu đóng…", keywords="ngan chu thich danh sach ghi chu comments"),
     _C("extract_text", "Trích xuất văn bản", "clipboard-list", "system", "Ctrl+T", needs_document=True,
        summary="Xem & sao chép chữ trang hiện tại", keywords="trich xuat van ban copy text sao chep"),
     _C("edit_mode", "Chế độ chỉnh sửa", "pencil", "system", "Ctrl+E", needs_document=True,

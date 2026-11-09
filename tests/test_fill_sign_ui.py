@@ -15,6 +15,7 @@ from PySide6.QtWidgets import QApplication, QDialog, QInputDialog, QMessageBox
 
 from qtpdfpro.core import fill_sign as fs
 from qtpdfpro.core.settings import AppSettings
+from qtpdfpro.ui import commands
 from qtpdfpro.ui import main_window as mw
 from qtpdfpro.ui.main_window import MainWindow
 from qtpdfpro.ui.signature_dialog import SignatureCreateDialog, SignatureManagerDialog
@@ -77,16 +78,18 @@ def test_fill_mode_with_mouse(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
     viewer = tab.viewer
     ctl = tab.annot_controller
 
-    # Thẻ «Điền & Ký» ở tầng 2 → thanh Điền & Ký hiện, thanh Chỉnh sửa ẩn
+    # Thẻ «Điền & Ký» ở tầng 2 → công cụ Điền & Ký lên tầng 2, hàng kiểu dáng Điền & Ký hiện
     assert "fill" in win.function_bar.tab_buttons
     win.function_bar.tab_buttons["fill"].click()
     app.processEvents()
     assert tab.edit_mode and tab.toolset == "fill"
     assert tab.fill_toolbar.isVisible() and not tab.edit_toolbar.isVisible()
     assert ctl.tool == "fill_text"
-    assert set(tab.fill_toolbar.tool_buttons) >= {"fill_text", "fill_check", "fill_date", "fill_sign", "select"}
-    assert "highlight" not in tab.fill_toolbar.tool_buttons
-    assert tab.fill_toolbar.minimumSizeHint().width() < 500 and win.minimumSizeHint().width() <= 1400
+    fb = win.function_bar
+    shown = {k for item in fb.visible_command_keys() for k in commands.expand_layout_item(item)}
+    assert {"annot.fill_text", "annot.fill_check", "annot.fill_date", "annot.fill_sign", "annot.eraser"} <= shown
+    assert "annot.highlight" not in shown and fb.tool_buttons["annot.fill_text"].isChecked()
+    assert tab.fill_toolbar.minimumSizeHint().width() < 500 and win.minimumSizeHint().width() <= 1280
 
     # Rê chuột lên dòng chấm → khung xem trước nằm trên dòng chấm
     t = viewer.page_transform(0)
@@ -106,12 +109,12 @@ def test_fill_mode_with_mouse(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
     assert tab.reader.has_unsaved_changes
 
     # ✓ vào ô vuông
-    tab.fill_toolbar.tool_buttons["fill_check"].click()
+    fb.tool_buttons["group:fill_mark"].click()  # thân nút «Dấu tích ▾» = ✓
+    assert ctl.tool == "fill_check"
     _click(viewer, 0, (137, 137))
-    # Ngày theo mẫu NĐ30
-    ctl.set_tool("fill_date")
-    tab.fill_toolbar.date_combo.setCurrentIndex(tab.fill_toolbar.date_combo.findData("nd30"))
-    assert ctl.date_format == "nd30"
+    # Ngày theo mẫu NĐ30 (menu của nút «Ngày ▾»)
+    fb.date_format_actions["nd30"].trigger()
+    assert ctl.date_format == "nd30" and ctl.tool == "fill_date"
     _click(viewer, 0, (350, 300))
     app.processEvents()
     infos = ses.list_annotations()
@@ -161,7 +164,7 @@ def test_fill_mode_with_mouse(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
     win.set_function_tab("edit")
     app.processEvents()
     assert tab.toolset == "edit" and tab.edit_toolbar.isVisible() and not tab.fill_toolbar.isVisible()
-    assert ctl.tool == "highlight"
+    assert ctl.tool == "highlight" and "annot.fill_text" not in fb.tool_buttons
     win.act_fill_sign.trigger()
     assert tab.toolset == "fill" and tab.fill_toolbar.isVisible() and win.function_bar.tab_buttons["fill"].isChecked()
     win.act_fill_sign.trigger()  # bấm lại vẫn ở Điền & Ký (chỉ Ctrl+E bật / tắt)
