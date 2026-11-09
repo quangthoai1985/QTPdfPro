@@ -16,19 +16,48 @@ def _visible_keys(win, tab):
     return [k for k in keys if k]
 
 
+def _duplicate_commands(win, tab) -> list[str]:
+    """Khoá lệnh có hơn một nút trên màn hình hiện tại (rỗng = đạt)."""
+    flat = [x for k in _visible_keys(win, tab) for x in commands.expand_layout_item(k)]
+    return sorted({x for x in flat if flat.count(x) > 1})
+
+
+def _modify(tab):
+    tab.annot_controller.session.add_markup(0, "highlight", [fitz.Rect(72, 90, 200, 105)],
+                                            tab.annot_controller.style("highlight").copy())
+    tab._on_annotations_changed(0)
+
+
 @pytest.mark.parametrize("modified", [False, True])
 def test_each_command_appears_once_per_screen(qapp, sample_pdf, modified):
     win, tab = open_window(sample_pdf)
     if modified:
-        tab.annot_controller.session.add_markup(0, "highlight", [fitz.Rect(72, 90, 200, 105)],
-                                                tab.annot_controller.style("highlight").copy())
-        tab._on_annotations_changed(0)
+        _modify(tab)
     for key, _label in commands.TABS:
         win.set_function_tab(key)
         qapp.processEvents()
-        flat = [commands.expand_layout_item(k) for k in _visible_keys(win, tab)]
-        flat = [x for group in flat for x in group]
-        assert len(flat) == len(set(flat)), (key, sorted(flat))
+        assert _duplicate_commands(win, tab) == [], (key, sorted(_visible_keys(win, tab)))
+    win.close_tab_at(0, force=True)
+    win.close()
+
+
+@pytest.mark.parametrize("tab_key, extra, modified, expected", [
+    ("edit", "undo", False, "undo"),                         # cùng phần tử đặt hai lần
+    ("fill", "annot.eraser", False, "annot.eraser"),
+    ("edit", "annot.highlight", False, "annot.highlight"),   # trùng với một mục của nhóm «Đánh dấu chữ ▾»
+    ("read", "split:save:save", True, "save"),               # trùng «Lưu ▾» tự thêm khi có thay đổi chưa lưu
+    ("read", "fit_width", False, "fit_width"),               # trùng mục của ô thu phóng
+    ("read", "find", False, "find"),                         # trùng nút thanh dọc
+])
+def test_duplicate_detector_is_not_vacuous(qapp, sample_pdf, monkeypatch, tab_key, extra, modified, expected):
+    win, tab = open_window(sample_pdf)
+    if modified:
+        _modify(tab)
+    monkeypatch.setitem(commands.TAB_LAYOUT, tab_key, commands.TAB_LAYOUT[tab_key] + (extra,))
+    win.set_function_tab("security")
+    win.set_function_tab(tab_key)  # dựng lại tầng 2 với bố cục bị đặt trùng
+    qapp.processEvents()
+    assert expected in _duplicate_commands(win, tab)
     win.close_tab_at(0, force=True)
     win.close()
 
@@ -149,6 +178,9 @@ def test_date_formats_button_sets_format_and_tool(qapp, sample_pdf):
     btn = fb.tool_buttons["date_formats"]
     labels = [a.text() for a in btn.menu().actions()]
     assert labels == [fs.format_date(k).replace("&", "&&") for k, _p in fs.DATE_FORMATS]
+    fb.date_format_actions["dmy"].setText("cũ")  # như nhãn dựng từ hôm qua: mở menu → nhãn theo hôm nay
+    btn.menu().aboutToShow.emit()
+    assert fb.date_format_actions["dmy"].text() == fs.format_date("dmy")
     fb.date_format_actions["nd30"].trigger()
     ctl = tab.annot_controller
     assert ctl.date_format == "nd30" and ctl.tool == "fill_date" and tab.toolset == "fill"

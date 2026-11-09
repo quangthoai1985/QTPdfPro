@@ -40,6 +40,8 @@ GROUP_LABELS = {
 EDIT_TABS = ("edit", "fill")
 SAVE_ITEM = "split:save:save"
 DATE_ITEM = "date_formats"
+# Lệnh có sẵn ở cụm điều khiển xem (nút Chọn chữ / Bàn tay, mục «Vừa ngang» / «Vừa trang» của ô thu phóng)
+VIEW_CONTROL_KEYS = ("pointer_select", "pointer_hand", "fit_width", "fit_page")
 ZOOM_CHOICES: tuple[tuple[str, str, int], ...] = (
     ("Vừa ngang", "fit_width", 100), ("Vừa trang", "fit_page", 100),
     *((f"{p}%", "percent", p) for p in (50, 75, 100, 125, 150, 200, 300)),
@@ -96,14 +98,16 @@ class FunctionBar(QFrame):
         self._date_group.setExclusive(True)
         self.date_format_actions: dict[str, QAction] = {}
         for key, _pattern in fs.DATE_FORMATS:
-            act = QAction(fs.format_date(key).replace("&", "&&"), self)
+            act = QAction(self)  # nhãn = ngày hôm nay theo mẫu, đặt lại mỗi khi mở menu (`_refresh_date_labels`)
             act.setCheckable(True)
             act.setChecked(key == self._date_format)
             act.triggered.connect(lambda _c=False, k=key: self.dateFormatChosen.emit(k))
             self._date_group.addAction(act)
             self.date_format_actions[key] = act
+        self._refresh_date_labels()
         self._date_submenu = QMenu("Mẫu ngày", self)  # dùng khi nút «Ngày ▾» nằm trong ⋯
         self._date_submenu.addActions(list(self.date_format_actions.values()))
+        self._date_submenu.aboutToShow.connect(self._refresh_date_labels)
 
         lay = QHBoxLayout(self)
         lay.setContentsMargins(8, 3, 8, 3)
@@ -272,15 +276,20 @@ class FunctionBar(QFrame):
         btn.setDefaultAction(act)
         menu = QMenu(btn)
         menu.addActions(list(self.date_format_actions.values()))
+        menu.aboutToShow.connect(self._refresh_date_labels)  # qua nửa đêm vẫn hiện đúng ngày hôm nay
         btn.setMenu(menu)
         btn.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
 
         def show_format() -> None:
-            sample = self.date_format_actions[self._date_format].text().replace("&&", "&")
+            sample = fs.format_date(self._date_format)
             btn.setToolTip(f"{act.toolTip()} — mẫu: «{sample}» — mũi tên: chọn mẫu ngày")
 
         show_format()
         self._group_refreshers.append(show_format)
+
+    def _refresh_date_labels(self) -> None:
+        for key, act in self.date_format_actions.items():
+            act.setText(fs.format_date(key).replace("&", "&&"))
 
     def refresh_icons(self) -> None:
         """Sau khi đổi giao diện: nút dùng `setDefaultAction` tự theo `QAction`; nút nhóm tô lại thân nút."""
@@ -384,10 +393,15 @@ class FunctionBar(QFrame):
         return list(self._hidden)
 
     def visible_command_keys(self) -> list[str]:
-        """Phần tử bố cục của các nút đang hiện ở tầng 2 (kể cả mục đang nằm trong `⋯`) + nút Chọn chữ / Bàn tay.
+        """Phần tử bố cục của từng nút thật ở tầng 2 — một mục cho mỗi nút (kể cả mục đang nằm trong `⋯` và «Lưu ▾»
+        ghim), phần tử đặt hai lần thì có hai mục — cộng cụm điều khiển xem: Chọn chữ / Bàn tay và hai mức «Vừa
+        ngang» / «Vừa trang» của ô thu phóng.
 
         Phần tử là khoá lệnh hoặc `group:…` / `split:…` / `date_formats` — `commands.expand_layout_item` ra khoá lệnh."""
-        return list(self.tool_buttons) + ["pointer_select", "pointer_hand"]
+        items = [item for item, _w in self._sequence if item != "|"]
+        if self._pinned is not None:
+            items.append(SAVE_ITEM)
+        return items + list(VIEW_CONTROL_KEYS)
 
     # ─── Tràn vào ⋯ ────────────────────────────────────────────────────────
 
