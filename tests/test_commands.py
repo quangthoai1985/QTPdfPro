@@ -103,19 +103,11 @@ def test_source_picking_tools_do_not_force_opening_a_tab(qapp, monkeypatch):
     assert asked == [] and win.active_tab() is None
 
 
-def test_needs_document_matches_old_tool_catalog():
-    """Lệnh ứng với khoá cũ của `tool_catalog` giữ đúng `needs_document` cũ (giữ hành vi run_tool, spec §4)."""
-    from qtpdfpro.ui.main_window import _LEGACY_TOOL_KEYS
-    from qtpdfpro.ui.tool_catalog import TOOLS
-
-    checked = 0
-    for tool in TOOLS:
-        key = _LEGACY_TOOL_KEYS.get(tool.key, tool.key)
-        if tool.ready and key in commands.BY_KEY:
-            assert commands.get(key).needs_document == tool.needs_document, (tool.key, key)
-            checked += 1
-    assert checked >= 25
-    win_free = ("convert_word", "verify_docx", "split", "extract_pages", "watermark", "page_numbers", "protect",
+def test_needs_document_flags():
+    """Lệnh dùng được khi chưa mở tài liệu / bắt buộc có tài liệu (spec §4)."""
+    for k in ("print", "edit_mode", "pointer_select", "rotate_left", "find"):
+        assert commands.get(k).needs_document, k
+    win_free = ("ocr", "organize", "convert_word", "verify_docx", "split", "extract_pages", "watermark", "page_numbers", "protect",
                 "unlock")
     assert not any(commands.get(k).needs_document for k in win_free)
 

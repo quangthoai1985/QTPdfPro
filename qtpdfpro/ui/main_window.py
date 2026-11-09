@@ -79,7 +79,6 @@ from qtpdfpro.ui.text_select_tool import TextSelectTool
 from qtpdfpro.ui.pdf_tools_dialog import PDF_TOOL_DIALOGS
 from qtpdfpro.ui import commands, icons
 from qtpdfpro.ui.theme import get_stylesheet, theme_tokens
-from qtpdfpro.ui.tool_catalog import COMING_SOON_LABEL, get_tool
 from qtpdfpro.ui.default_app import DefaultAppController
 from qtpdfpro.ui.update_dialog import UpdateController
 from qtpdfpro.ui.whats_new_dialog import WhatsNewController
@@ -93,13 +92,6 @@ POINTER_MODES = ("select", "hand")  # chuột trái trên khung đọc: chọn c
 # không đi qua `run_command`; `run_command(khoá)` (Ctrl+K…) gọi `QAction.trigger()`.
 _ACTION_DRIVEN_COMMANDS = frozenset(
     {"layout_overlay", "check_update", "auto_check_updates", "auto_download_updates", "default_app"})
-# Khoá cũ của `tool_catalog` (Trang chủ, cột trái, thanh công cụ nhanh — còn tới Task 4/8) → khoá lệnh mới
-_LEGACY_TOOL_KEYS = {
-    "pdf_to_word_nd30": "convert_word_nd30", "pdf_to_word_exact": "convert_word_exact",
-    "pdf_to_word_flow": "convert_word_flow", "select_text": "pointer_select", "hand_tool": "pointer_hand",
-    "search": "find", "rotate_view": "rotate_right", "edit_pdf": "edit_mode", "highlight_text": "annot.highlight",
-    "draw_shapes": "annot.pen", "stamp": "annot.stamp", "bookmarks": "panel_toc",
-}
 
 # Thanh dọc phải: (chú giải, biểu tượng, chỉ số ngăn trong `sidebar_tabs`) — ngăn 3 «Soi bố cục» mở bằng công cụ
 # «Soi bố cục» / F8 (không có nút riêng)
@@ -1425,27 +1417,17 @@ class MainWindow(QMainWindow):
     # ─── Công cụ ───────────────────────────────────────────────────────────
 
     def run_command(self, key: str, from_action: bool = False) -> None:
-        """Chạy một lệnh của `ui/commands.py` (nhận cả khoá cũ của `tool_catalog` tới khi bỏ hẳn — Task 8).
+        """Chạy một lệnh của `ui/commands.py` (khoá không có trong danh mục thì bỏ qua).
 
         Lệnh cần tài liệu mà chưa có tab → hỏi mở tệp rồi chạy nếu đã mở được (spec §5.3). Riêng lệnh
         `quiet_without_document` gọi từ phím tắt / `QAction` (`from_action=True`) thì bỏ qua khi chưa có tài liệu
-        và không rời Trang chủ khi đã có. Công cụ «Coming Soon» cũ chỉ hiện thông báo."""
-        key = _LEGACY_TOOL_KEYS.get(key, key)
+        và không rời Trang chủ khi đã có."""
         cmd = commands.BY_KEY.get(key)
-        if cmd is not None:
-            fn = self._command_handlers().get(key)
-            name, needs_document = cmd.label_text(), cmd.needs_document
-            quiet = from_action and cmd.quiet_without_document
-        else:
-            tool = get_tool(key)
-            if tool is None:
-                return
-            if not tool.ready:
-                self._show_toast(
-                    f"⏳ {tool.name} — {COMING_SOON_LABEL} (dự kiến {tool.milestone}). Theo dõi tiến độ trên GitHub.")
-                return
-            fn = self._legacy_tool_handlers().get(key)
-            name, needs_document, quiet = tool.name, tool.needs_document, False
+        if cmd is None:
+            return
+        fn = self._command_handlers().get(key)
+        name, needs_document = cmd.label_text(), cmd.needs_document
+        quiet = from_action and cmd.quiet_without_document
         if needs_document and self.active_tab() is None:
             if quiet:
                 return
@@ -1457,8 +1439,6 @@ class MainWindow(QMainWindow):
             self._show_documents()
         if fn is not None:
             fn()
-
-    run_tool = run_command  # bí danh tạm cho code / test cũ (xoá ở Task 8)
 
     def _command_handlers(self) -> dict[str, Callable[[], None]]:
         """Khoá lệnh → hàm xử lý (lệnh `_ACTION_DRIVEN_COMMANDS` gọi `QAction.trigger()`)."""
@@ -1526,14 +1506,6 @@ class MainWindow(QMainWindow):
             handlers[key] = lambda k=key: self.command_actions[k].trigger()
         return handlers
 
-    def _legacy_tool_handlers(self) -> dict[str, Callable[[], None]]:
-        """Khoá `tool_catalog` chưa có lệnh tương ứng (xoá cùng `tool_catalog` ở Task 8)."""
-        return {
-            "layout_inspect": lambda: self._open_inspector(True),
-            "comments": self._open_annotation_panel,
-            "fill_sign": lambda: self.set_function_tab("fill"),
-        }
-
     def _enter_annot_tool(self, tool: str, toolset: str) -> None:
         """Chọn công cụ chú thích (bật chế độ chỉnh sửa / Điền & Ký); «Tẩy» giữ bộ công cụ đang dùng."""
         tab = self.active_tab()
@@ -1565,13 +1537,6 @@ class MainWindow(QMainWindow):
             return
         dlg = SignatureManagerDialog(fill_sign.SignatureLibrary(), None, self)
         dlg.exec()
-
-    def _open_annotation_panel(self) -> None:
-        tab = self.active_tab()
-        if tab is None:
-            return
-        tab.enter_edit_mode("note")
-        tab.show_annotation_panel()
 
     # ─── Chỉnh sửa PDF: lưu, sắp xếp & cắt ghép trang ─────────────────────
 

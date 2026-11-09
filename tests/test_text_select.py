@@ -580,18 +580,17 @@ def test_ocr_popup_drag_keeps_user_position(tmp_path: Path) -> None:
 
 
 def test_select_text_and_hand_tools_in_catalog(tmp_path: Path) -> None:
-    from qtpdfpro.ui.tool_catalog import get_tool, tools_for
+    from qtpdfpro.ui import commands
 
-    assert get_tool("select_text").ready and get_tool("hand_tool").ready
-    assert "select_text" in [t.key for t in tools_for("all", "chon chu")]
-    assert "hand_tool" in [t.key for t in tools_for("all", "ban tay")]
+    assert "pointer_select" in [c.key for c in commands.search("chon chu")]
+    assert "pointer_hand" in [c.key for c in commands.search("ban tay")]
     app = _app()
     win, tab = _open(app, _text_pdf(tmp_path / "cat.pdf"))
     assert {"pointer_select", "pointer_hand"} <= set(win.function_bar.visible_command_keys())
-    win.run_tool("hand_tool")
+    win.run_command("pointer_hand")
     assert tab.pointer_mode == "hand" and tab.viewer.interaction is None
     tab.enter_edit_mode()
-    win.run_tool("select_text")  # thoát chế độ chỉnh sửa, về Chọn chữ
+    win.run_command("pointer_select")  # thoát chế độ chỉnh sửa, về Chọn chữ
     assert not tab.edit_mode and tab.pointer_mode == "select" and tab.viewer.interaction is tab.text_select
     win.close()
     app.processEvents()

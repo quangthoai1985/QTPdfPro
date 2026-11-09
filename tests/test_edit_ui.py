@@ -53,7 +53,7 @@ def test_edit_mode_annotate_with_mouse_undo_save(sample_vietnamese_pdf: Path, mo
     app.processEvents()
     viewer = tab.viewer
 
-    win.run_tool("edit_pdf")
+    win.run_command("edit_mode")
     app.processEvents()
     assert tab.edit_mode is True and tab.edit_toolbar.isVisible()  # tô sáng có hàng kiểu dáng (màu, độ đậm)
     assert tab.annot_controller.tool == "highlight"

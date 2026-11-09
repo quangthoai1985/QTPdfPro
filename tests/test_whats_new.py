@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from PySide6.QtCore import QCoreApplication, QEvent
+from PySide6.QtTest import QTest
+
 from qtpdfpro import __version__
 from qtpdfpro.core import whats_new as wn
 from qtpdfpro.core.settings import AppSettings
@@ -110,3 +113,38 @@ def test_menu_and_home_chip_open_dialog(qapp):
     win.home_page.versionClicked.emit()
     assert len(shown) == 2
     win.close()
+
+
+def _due_window(monkeypatch):
+    s = AppSettings.load()
+    s.existed = True
+    s.last_seen_version = "1.0.0"
+    win = MainWindow(settings=s)
+    shown = []
+    win.whats_new.dialog_factory = lambda notes, parent: FakeDialog(shown, notes)
+    monkeypatch.setattr(wn, "load_notes", lambda path=None: [wn.VersionNotes(__version__, "", "", ())])
+    monkeypatch.setattr(wnd, "STARTUP_DELAY_MS", 0)
+    return win, shown
+
+
+def test_startup_timer_shows_when_window_visible(qapp, monkeypatch):
+    win, shown = _due_window(monkeypatch)
+    win.show()
+    assert win.whats_new.on_startup() is True
+    QTest.qWait(50)
+    assert len(shown) == 1
+    win.close()
+
+
+def test_startup_timer_skips_hidden_or_destroyed_window(qapp, monkeypatch):
+    win, shown = _due_window(monkeypatch)  # chưa show: cửa sổ ẩn
+    assert win.whats_new.on_startup() is True
+    QTest.qWait(50)
+    assert shown == [] and win.whats_new.settings.last_seen_version == "1.0.0"
+    win2, shown2 = _due_window(monkeypatch)
+    win2.show()
+    win2.whats_new.on_startup()
+    win2.deleteLater()  # huỷ ngay: bộ hẹn giờ là con của cửa sổ nên không còn chạy
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    QTest.qWait(50)
+    assert shown2 == []

@@ -14,8 +14,8 @@ from PySide6.QtWidgets import QApplication, QInputDialog, QMessageBox
 from qtpdfpro.core import pdf_security as sec
 from qtpdfpro.core.settings import AppSettings
 from qtpdfpro.ui import pdf_tools_dialog as ptd
+from qtpdfpro.ui import commands
 from qtpdfpro.ui.main_window import MainWindow
-from qtpdfpro.ui.tool_catalog import get_tool
 from test_pdf_tools import _make_image_pdf, _make_pdf  # cùng thư mục tests/ (pytest thêm vào sys.path)
 
 
@@ -48,8 +48,7 @@ def answers(monkeypatch):
 
 def test_catalog_marks_office_tools_ready() -> None:
     for key in ("compress", "watermark", "page_numbers", "protect", "unlock"):
-        tool = get_tool(key)
-        assert tool is not None and tool.ready and key in ptd.PDF_TOOL_DIALOGS
+        assert key in commands.BY_KEY and key in ptd.PDF_TOOL_DIALOGS
 
 
 def test_compress_dialog_and_open_result_tab(tmp_path: Path, answers, monkeypatch) -> None:
@@ -66,7 +65,7 @@ def test_compress_dialog_and_open_result_tab(tmp_path: Path, answers, monkeypatc
         return bool(res and res.written)
 
     monkeypatch.setattr(ptd.CompressDialog, "exec", fake_exec)
-    win.run_tool("compress")
+    win.run_command("compress")
     app.processEvents()
     out = tmp_path / "anh_nen.pdf"
     assert out.exists() and out.stat().st_size < src.stat().st_size / 2
@@ -203,7 +202,7 @@ def test_tool_on_restricted_tab_asks_owner_password(tmp_path: Path, answers, mon
 
     monkeypatch.setattr(ptd.WatermarkDialog, "exec", fake_exec)
     answers["state"]["question"] = QMessageBox.StandardButton.No  # không mở tab kết quả
-    win.run_tool("watermark")
+    win.run_command("watermark")
     res = seen["dlg"].tool_result
     assert res is not None and res.written and res.encrypted
     with fitz.open(res.output_path) as doc:

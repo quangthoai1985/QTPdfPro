@@ -240,15 +240,12 @@ def test_main_window_runs_batch_tool(monkeypatch: pytest.MonkeyPatch) -> None:
     from qtpdfpro.core.settings import AppSettings
     from qtpdfpro.ui import batch_dialog
     from qtpdfpro.ui.main_window import MainWindow
-    from qtpdfpro.ui.tool_catalog import get_tool
-
-    assert get_tool("batch_convert").ready is True
     opened: list[object] = []
     monkeypatch.setattr(batch_dialog.BatchConvertDialog, "exec", lambda self: opened.append(self) or 0)
 
     app = QApplication.instance() or QApplication([])
     win = MainWindow(settings=AppSettings.load())
-    win.run_tool("batch_convert")
+    win.run_command("batch_convert")
     app.processEvents()
     assert len(opened) == 1 and isinstance(opened[0], batch_dialog.BatchConvertDialog)
     assert win.act_batch_convert.shortcut().toString() == "Ctrl+Shift+B"

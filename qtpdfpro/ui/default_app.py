@@ -12,7 +12,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QObject, QTimer
 from PySide6.QtGui import QAction
-from PySide6.QtWidgets import QMainWindow, QMenu, QMessageBox
+from PySide6.QtWidgets import QMainWindow, QMessageBox
 
 from qtpdfpro import __app_name__
 from qtpdfpro.core import file_assoc as fa
@@ -31,9 +31,6 @@ class DefaultAppController(QObject):
         self.settings = settings
         self.act_set_default = QAction("Đặt QT PDF Pro làm trình xem PDF mặc định...", window)
         self.act_set_default.triggered.connect(lambda _checked=False: self.make_default())
-
-    def add_menu_actions(self, menu: QMenu) -> None:
-        menu.addAction(self.act_set_default)
 
     def is_default(self) -> bool:
         return sys.platform == "win32" and fa.is_default_pdf_app()

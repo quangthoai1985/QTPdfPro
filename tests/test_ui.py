@@ -140,10 +140,10 @@ def test_splice_overlapping_stamped_text_preserves_document_number() -> None:
     assert merged_text.endswith("/QĐ-UBND")
 
 
-def test_home_page_pdfcraft_layout_and_coming_soon(sample_vietnamese_pdf: Path) -> None:
-    """Trang chủ kiểu PdfCraft: Coming Soon, tab tài liệu ở dải tiêu đề."""
+def test_home_page_pdfcraft_layout(sample_vietnamese_pdf: Path) -> None:
+    """Trang chủ kiểu PdfCraft: tab tài liệu ở dải tiêu đề."""
     from qtpdfpro.ui.command_palette import CommandPaletteDialog
-    from qtpdfpro.ui.tool_catalog import COMING_SOON_LABEL, TOOLS, get_tool, tools_for
+    from qtpdfpro.ui import commands
 
     app = QApplication.instance() or QApplication([])
     win = MainWindow(settings=AppSettings.load())
@@ -158,28 +158,21 @@ def test_home_page_pdfcraft_layout_and_coming_soon(sample_vietnamese_pdf: Path) 
     assert win.btn_open.isVisible() and win.top_bar.btn_menu.isVisible()
     assert win.doc_tab_bar.isVisible() is False
 
-    # Danh mục: khoá duy nhất, công cụ chưa có đều có mốc phát hành và nhãn Coming Soon
-    keys = [t.key for t in TOOLS]
+    # Danh mục lệnh: khoá duy nhất; tìm không dấu
+    keys = [c.key for c in commands.COMMANDS]
     assert len(keys) == len(set(keys))
-    soon = [t for t in TOOLS if not t.ready]
-    assert soon and all(t.milestone for t in soon)
-    assert all(t.status_text == COMING_SOON_LABEL for t in soon)
-    # Tìm không dấu
-    assert [t.key for t in tools_for("all", "kiem tra the thuc")] == ["nd30_check"]
+    assert "nd30_check" in [c.key for c in commands.search("kiem tra the thuc", has_document=False)]
 
     # Trang chủ mới (Task 6): 8 ô công cụ nhanh, không còn danh mục / công cụ đề xuất
     assert not hasattr(win.home_page, "catalog")
     assert len(win.home_page.quick_tiles) == 8
 
-    # Công cụ Coming Soon → chỉ hiện thông báo, không mở hộp thoại
-    win.run_tool("pdf_to_excel")
+    # Công cụ chưa làm không còn hiện trong ứng dụng; khoá lạ bị bỏ qua
+    win.run_command("pdf_to_excel")
     app.processEvents()
-    assert win._toast is not None and COMING_SOON_LABEL in win._toast.text()
-    assert get_tool("pdf_to_excel").ready is False
-    assert get_tool("ocr").ready is True  # OCR tiếng Việt dùng được từ B3 (tests/test_ocr_ui.py)
-    # Nhóm «Chỉnh sửa PDF» đã dùng được
-    assert all(get_tool(k).ready for k in ("edit_pdf", "organize", "combine", "split", "extract_pages",
-                                            "comments", "stamp", "highlight_text"))
+    assert win._toast is None and "pdf_to_excel" not in commands.BY_KEY
+    assert all(k in commands.BY_KEY for k in ("ocr", "edit_mode", "organize", "combine", "split", "extract_pages",
+                                               "annot.stamp", "annot.highlight"))
 
     # Mở tài liệu → tab hiện ở dải tiêu đề, chuyển sang khung tài liệu
     tab = win.open_pdf_path(sample_vietnamese_pdf)

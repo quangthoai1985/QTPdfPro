@@ -19,7 +19,6 @@ from qtpdfpro.core.settings import AppSettings
 from qtpdfpro.ui import ocr_dialog as od
 from qtpdfpro.ui import commands
 from qtpdfpro.ui.main_window import MainWindow
-from qtpdfpro.ui.tool_catalog import get_tool
 from tests.test_ocr import _scanned_pdf, fake_engine, needs_font
 
 
@@ -60,9 +59,8 @@ def fake_install(monkeypatch: pytest.MonkeyPatch):
 
 
 def test_tool_is_ready_and_on_convert_tab():
-    tool = get_tool("ocr")
-    assert tool is not None and tool.ready and tool.category == "convert"
-    assert "ocr" in commands.TAB_LAYOUT["convert"]
+    cmd = commands.get("ocr")
+    assert cmd.tab == "convert" and "ocr" in commands.TAB_LAYOUT["convert"]
 
 
 def test_controller_installs_models_in_background_once(fake_install):
@@ -137,7 +135,7 @@ def test_main_window_starts_model_download_on_first_click(fake_install, monkeypa
     monkeypatch.setattr(od.OcrDialog, "exec", lambda self: opened.append(self) or 0)
     win = MainWindow(AppSettings())
     try:
-        win.run_tool("ocr")
+        win.run_command("ocr")
         assert opened and opened[0].models is win.ocr_models
         win.ocr_models.wait()
         assert fake_install == [1] and win.ocr_models.is_installed()

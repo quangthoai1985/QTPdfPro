@@ -19,16 +19,16 @@
   - **Bộ Kiểm định Độ chính xác (`Fidelity Inspector`)**: Chấm điểm độ chính xác sau khi chuyển đổi (tỷ lệ giữ chữ, số trang, bảng biểu, hình ảnh, phông chữ).
 
 - [x] **Chuẩn thể thức Nghị định 30/2020/NĐ-CP (`v0.3.0`)**: chế độ `nd30` tái dựng văn bản hành chính giữ đúng bố cục PDF, đối chiếu thể thức 26 hạng mục, kiểm chứng bố cục bằng Microsoft Word.
-- [x] **Trang chủ kiểu PdfCraft (`v0.3.0`)**: danh mục «Tất cả công cụ» + bảng lệnh `Ctrl+K`; mọi công cụ dưới đây đã hiển thị trên giao diện với nhãn **«Coming Soon»** (xem `qtpdfpro/ui/tool_catalog.py`, trường `milestone`).
+- [x] **Trang chủ kiểu PdfCraft (`v0.3.0`)** — đã thay bằng Trang chủ mới (Bắt đầu, Gần đây, 8 ô công cụ nhanh) khi đại tu giao diện: bảng lệnh `Ctrl+K` vẫn có. **Công cụ chưa làm không còn hiện trong ứng dụng** (không còn nhãn «Coming Soon», không còn `qtpdfpro/ui/tool_catalog.py`); lộ trình các công cụ dưới đây chỉ nằm ở tài liệu này. Khi làm xong công cụ nào, thêm vào `qtpdfpro/ui/commands.py` (`COMMANDS` + `TAB_LAYOUT`).
 
-| Công cụ «Coming Soon» | Mốc dự kiến |
+| Công cụ chưa làm (không hiện trong ứng dụng) | Mốc dự kiến |
 |---|---|
 | Xem 2 trang song song | v0.5 |
 | Scan & OCR tiếng Việt | v1.2 |
 | PDF sang Excel / ảnh / PowerPoint, Tạo PDF từ Word / ảnh, Điền biểu mẫu, Nén PDF | v1.2 |
 | Ký số PDF, Xác thực chữ ký số, Đặt mật khẩu, Xoá thông tin nhạy cảm, So sánh 2 tệp PDF | v2.0 |
 
-> Mốc mới của Nén PDF, Đặt mật khẩu, So sánh 2 tệp PDF… xem mục **«Lộ trình gần»** ngay dưới. Khi bắt tay làm công cụ nào thì sửa trường `milestone` (hoặc đặt `ready=True`) trong `qtpdfpro/ui/tool_catalog.py` cho khớp.
+> Mốc mới của Nén PDF, Đặt mật khẩu, So sánh 2 tệp PDF… xem mục **«Lộ trình gần»** ngay dưới. Khi bắt tay làm công cụ nào thì thêm lệnh vào `qtpdfpro/ui/commands.py` (`COMMANDS`, rồi `TAB_LAYOUT` cho thẻ chứa nó).
 
 ---
 

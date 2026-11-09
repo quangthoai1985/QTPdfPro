@@ -28,7 +28,6 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMainWindow,
-    QMenu,
     QMessageBox,
     QProgressBar,
     QPushButton,
@@ -595,11 +594,6 @@ class UpdateController(QObject):
         self.act_auto_download.setCheckable(True)
         self.act_auto_download.setChecked(settings.auto_download_updates)
         self.act_auto_download.toggled.connect(self._on_auto_download_toggled)
-
-    def add_menu_actions(self, menu: QMenu) -> None:
-        menu.addAction(self.act_check)
-        menu.addAction(self.act_auto)
-        menu.addAction(self.act_auto_download)
 
     # ─── Khởi động ────────────────────────────────────────────────────────
 

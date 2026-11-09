@@ -13,9 +13,9 @@ from PySide6.QtWidgets import QApplication
 from qtpdfpro.core.printing import PrintOptions
 from qtpdfpro.core.settings import AppSettings
 from qtpdfpro.ui import print_job
+from qtpdfpro.ui import commands
 from qtpdfpro.ui.main_window import MainWindow
 from qtpdfpro.ui.print_dialog import PDF_TARGET, PrintDialog
-from qtpdfpro.ui.tool_catalog import get_tool
 
 
 def _app() -> QApplication:
@@ -185,8 +185,7 @@ def test_print_dialog_preview_navigation(tmp_path: Path, no_real_printers: None)
 def test_main_window_ctrl_p_opens_print_dialog(sample_vietnamese_pdf: Path, monkeypatch: pytest.MonkeyPatch,
                                                no_real_printers: None) -> None:
     app = _app()
-    tool = get_tool("print")
-    assert tool is not None and tool.ready and tool.needs_document
+    assert commands.get("print").needs_document
 
     win = MainWindow(settings=AppSettings.load())
     assert win.act_print in win.actions() and win.act_print.shortcut().toString() == "Ctrl+P"
@@ -210,6 +209,6 @@ def test_main_window_ctrl_p_opens_print_dialog(sample_vietnamese_pdf: Path, monk
     assert win._toast is not None and "Máy in thử" in win._toast.text()
 
     win.function_bar.tool_buttons["print"].click()  # nút «In» ở thẻ Đọc của tầng 2
-    win.run_tool("print")
+    win.run_command("print")
     assert len(opened) == 3
     win.close()

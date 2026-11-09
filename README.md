@@ -77,7 +77,7 @@ Khắc phục triệt để hiện tượng *vỡ khung, nhảy dòng, tràn tra
    - Tự động đối chiếu PDF gốc và DOCX đầu ra sau mỗi lần chuyển đổi, chấm **Điểm chuẩn xác (%)**, thống kê tỷ lệ bảo toàn từ vựng, số bảng biểu, hình ảnh và danh sách phông chữ.
 
 ### 1.2. Trình đọc PDF chuyên nghiệp & Trang chủ kiểu PdfCraft
-- **Trang chủ theo [storytold/pdfcraft](https://github.com/storytold/pdfcraft)**: cột «Tất cả công cụ» (tìm không dấu, lọc theo chế độ Đọc · Chuyển đổi · Chỉnh sửa · Ký số & Bảo mật), «Công cụ đề xuất», thẻ «Mở tệp» (kéo thả), «Gần đây», bảng lệnh `Ctrl+K`. Công cụ đang phát triển hiển thị **«Coming Soon»**.
+- **Giao diện gọn 2 tầng**: thanh trên (Trang chủ · Mở · tab · «Tìm lệnh» `Ctrl+K` · Sáng/Tối · menu ☰) và thanh chức năng 5 thẻ (Đọc · Chuyển đổi · Chỉnh sửa · Điền & Ký · Bảo mật, `Alt+1…5`). Trang chủ: Bắt đầu, Gần đây, công cụ nhanh. Hộp thoại «Có gì mới» sau mỗi lần cập nhật.
 - **Đa tab tài liệu**, hỗ trợ kéo-thả tệp `.pdf` trực tiếp vào cửa sổ.
 - **Kết xuất sắc nét tốc độ cao** qua `PyMuPDF` (`fitz`), hỗ trợ màn hình High-DPI, bộ nhớ đệm trang thông minh (`LRU Cache`).
 - **Chế độ xem linh hoạt**: Cuộn liên tục (`Continuous Scroll`), Từng trang (`Single Page`), Vừa chiều ngang (`Fit Width`), Vừa trang (`Fit Page`), thu phóng `25% – 400%` (`Ctrl + Cuộn chuột`), xoay trang `90°`.

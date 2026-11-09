@@ -177,6 +177,7 @@ class WhatsNewController:
         self.dialog_factory: Callable[[list[wn.VersionNotes], QWidget | None], QDialog] = (
             lambda notes, parent: WhatsNewDialog(notes, parent))
         self._due: list[wn.VersionNotes] = []
+        self._timer: QTimer | None = None
 
     def on_startup(self) -> bool:
         """True nếu sắp hiện hộp thoại (để `app.py` bỏ qua hộp thoại khởi động khác lần này)."""
@@ -186,8 +187,16 @@ class WhatsNewController:
             self._record()  # cài mới / đã xem / không có ghi chú: ghi để lần sau không hỏi lại
             return False
         self._due = due
-        QTimer.singleShot(STARTUP_DELAY_MS, self._show_due)
+        # Bộ hẹn giờ là con của cửa sổ: cửa sổ bị huỷ thì không chạy; cửa sổ đã ẩn / đóng thì không bật hộp thoại
+        self._timer = QTimer(self.window)
+        self._timer.setSingleShot(True)
+        self._timer.timeout.connect(self._show_due_if_visible)
+        self._timer.start(STARTUP_DELAY_MS)
         return True
+
+    def _show_due_if_visible(self) -> None:
+        if self.window.isVisible():
+            self._show_due()
 
     def _record(self) -> None:
         if self.settings.last_seen_version != __version__:

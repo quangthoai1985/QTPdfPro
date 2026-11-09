@@ -63,14 +63,14 @@ _LIGHT_TOKENS = {
     "strip": "#E9EBEF", "bar": "#FFFFFF", "page": "#F3F4F6", "card": "#FFFFFF", "card_hover": "#F8FAFF",
     "border": "#E2E5EA", "border_strong": "#CBD2DC", "text": "#0F172A", "muted": "#64748B", "faint": "#94A3B8",
     "accent": "#2563EB", "accent_soft": "#E8F0FE", "accent_text": "#1D4ED8", "hover": "#EEF1F5",
-    "soon_bg": "#FEF3C7", "soon_text": "#92400E", "hero1": "#EEF4FF", "hero2": "#FFFFFF", "tab_sel": "#FFFFFF",
+    "hero1": "#EEF4FF", "hero2": "#FFFFFF", "tab_sel": "#FFFFFF",
     "toast_bg": "#0F172A", "toast_text": "#FFFFFF", "on_accent": "#FFFFFF", "indicator_bg": "#FFFFFF",
 }
 _DARK_TOKENS = {
     "strip": "#0E1015", "bar": "#16181D", "page": "#111318", "card": "#1A1D24", "card_hover": "#1F2430",
     "border": "#2A2F3A", "border_strong": "#3A4150", "text": "#E6E8EC", "muted": "#9CA3AF", "faint": "#6B7280",
     "accent": "#3B82F6", "accent_soft": "#1E2A44", "accent_text": "#93C5FD", "hover": "#232833",
-    "soon_bg": "#3A2E12", "soon_text": "#FCD34D", "hero1": "#16233D", "hero2": "#1A1D24", "tab_sel": "#16181D",
+    "hero1": "#16233D", "hero2": "#1A1D24", "tab_sel": "#16181D",
     "toast_bg": "#F8FAFC", "toast_text": "#0F172A", "on_accent": "#FFFFFF", "indicator_bg": "#121419",
 }
 
@@ -104,13 +104,12 @@ QTabBar#docTabBar::tab {
 }
 QTabBar#docTabBar::tab:hover { background-color: @hover; color: @text; }
 QTabBar#docTabBar::tab:selected { background-color: @tab_sel; color: @text; font-weight: 600; }
-QPushButton#ghostBtn, QPushButton#ghostIconBtn {
+QPushButton#ghostIconBtn {
     background-color: transparent; color: @text; border: 1px solid transparent; border-radius: 6px;
     padding: 5px 10px; font-weight: 500;
 }
 QPushButton#ghostIconBtn { padding: 4px 8px; min-width: 18px; }
-QPushButton#ghostBtn:hover, QPushButton#ghostIconBtn:hover { background-color: @hover; border-color: @border; }
-QPushButton#ghostBtn::menu-indicator { image: none; width: 0px; }
+QPushButton#ghostIconBtn:hover { background-color: @hover; border-color: @border; }
 QPushButton#pillBtn {
     background-color: @card; color: @text; border: 1px solid @border_strong; border-radius: 15px;
     padding: 5px 14px; font-weight: 500;
@@ -164,7 +163,6 @@ QLineEdit#commandSearch {
     background-color: @card; border: 1px solid @border_strong; border-radius: 16px; padding: 6px 14px; color: @text;
 }
 QLineEdit#commandSearch:focus { border-color: @accent; }
-QLabel#panelTitle { font-size: 16px; font-weight: 600; color: @text; }
 QLabel#homeTitle { font-size: 28px; font-weight: 600; color: @text; }
 QLabel#homeSubtitle { font-size: 14px; color: @muted; }
 QFrame#homeHero {
@@ -173,7 +171,6 @@ QFrame#homeHero {
 }
 QLabel#heroTitle { font-size: 16px; font-weight: 600; color: @text; }
 QLabel#heroDesc { font-size: 13px; color: @muted; }
-QFrame#sectionCard { background-color: @card; border: 1px solid @border; border-radius: 14px; }
 QFrame#ocrPopup { background-color: @card; border: 1px solid @border_strong; border-radius: 10px; }
 QFrame#ocrPopup QLabel { color: @text; background: transparent; }
 QLabel#sectionTitle { font-size: 17px; font-weight: 600; color: @text; }
@@ -211,7 +208,6 @@ QFrame#recentRow:hover { background-color: @card; border-color: @border; }
 QLabel#recentName { font-size: 14px; font-weight: 600; color: @text; }
 QLabel#recentPath { font-size: 11px; color: @faint; }
 QLabel#recentMeta { font-size: 12px; color: @muted; }
-QLabel#privacyTitle { font-size: 11px; font-weight: 600; color: @faint; }
 QLabel#privacyText { font-size: 12px; color: @muted; }
 QLabel#mutedLabel { color: @muted; }
 QLabel#dialogHeadline { font-size: 14px; color: @text; }
@@ -369,23 +365,6 @@ QPushButton:pressed, QToolButton:pressed {
     border-color: #3B82F6;
     color: #FFFFFF;
 }
-QPushButton#modePillBtn {
-    background-color: transparent;
-    color: #9CA3AF;
-    border: 1px solid transparent;
-    border-radius: 6px;
-    padding: 5px 12px;
-    font-weight: 600;
-}
-QPushButton#modePillBtn:hover {
-    background-color: #252934;
-    color: #F3F4F6;
-}
-QPushButton#modePillBtn:checked {
-    background-color: #2563EB;
-    color: #FFFFFF;
-    border-color: #3B82F6;
-}
 QPushButton#primaryConvertBtn, QToolButton#primaryConvertBtn {
     background-color: #16A34A;
     color: #FFFFFF;
@@ -395,24 +374,6 @@ QPushButton#primaryConvertBtn, QToolButton#primaryConvertBtn {
 }
 QPushButton#primaryConvertBtn:hover, QToolButton#primaryConvertBtn:hover {
     background-color: #15803D;
-}
-QPushButton#themeToggleBtn {
-    background-color: #262B38;
-    color: #FBBF24;
-    border: 1px solid #3B4254;
-    border-radius: 6px;
-    padding: 5px 12px;
-    font-weight: 600;
-}
-QPushButton#themeToggleBtn:hover {
-    background-color: #32394A;
-    border-color: #60A5FA;
-}
-QFrame#welcomeCard {
-    background-color: #1E222B;
-    border: 1px solid #2E3442;
-    border-radius: 12px;
-    padding: 18px;
 }
 QLineEdit, QComboBox, QSpinBox, QPlainTextEdit, QTextEdit {
     background-color: #121419;
@@ -545,23 +506,6 @@ QPushButton:pressed, QToolButton:pressed {
     background-color: #2563EB;
     color: #FFFFFF;
 }
-QPushButton#modePillBtn {
-    background-color: transparent;
-    color: #475569;
-    border: 1px solid transparent;
-    border-radius: 6px;
-    padding: 5px 12px;
-    font-weight: 600;
-}
-QPushButton#modePillBtn:hover {
-    background-color: #F1F5F9;
-    color: #0F172A;
-}
-QPushButton#modePillBtn:checked {
-    background-color: #2563EB;
-    color: #FFFFFF;
-    border-color: #1D4ED8;
-}
 QPushButton#primaryConvertBtn, QToolButton#primaryConvertBtn {
     background-color: #16A34A;
     color: #FFFFFF;
@@ -571,24 +515,6 @@ QPushButton#primaryConvertBtn, QToolButton#primaryConvertBtn {
 }
 QPushButton#primaryConvertBtn:hover, QToolButton#primaryConvertBtn:hover {
     background-color: #15803D;
-}
-QPushButton#themeToggleBtn {
-    background-color: #F8FAFC;
-    color: #0F172A;
-    border: 1px solid #CBD5E1;
-    border-radius: 6px;
-    padding: 5px 12px;
-    font-weight: 600;
-}
-QPushButton#themeToggleBtn:hover {
-    background-color: #E2E8F0;
-    border-color: #2563EB;
-}
-QFrame#welcomeCard {
-    background-color: #FFFFFF;
-    border: 1px solid #E2E8F0;
-    border-radius: 12px;
-    padding: 18px;
 }
 QLineEdit, QComboBox, QSpinBox, QPlainTextEdit, QTextEdit {
     background-color: #FFFFFF;

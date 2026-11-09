@@ -55,6 +55,7 @@ from qtpdfpro.core import annotations as an
 from qtpdfpro.core import fill_sign as fs
 from qtpdfpro.core.edit_session import EditSession
 from qtpdfpro.core.reader import PDFDocumentReader
+from qtpdfpro.ui import icons
 
 MARKUP_TOOLS = ("highlight", "underline", "strikeout", "squiggly")
 INK_TOOLS = ("pen", "marker")
@@ -1150,16 +1151,19 @@ class AnnotationListPanel(QWidget):
         self.list.itemDoubleClicked.connect(self._on_double)
         lay.addWidget(self.list, 1)
         row = QHBoxLayout()
-        self.btn_edit = QPushButton("✏ Sửa nội dung")
+        self.btn_edit = QPushButton("Sửa nội dung")
         self.btn_edit.clicked.connect(lambda: self._emit_current(self.editRequested))
-        self.btn_delete = QPushButton("🗑 Xoá")
+        self.btn_delete = QPushButton("Xoá")
         self.btn_delete.clicked.connect(lambda: self._emit_current(self.deleteRequested))
+        icons.bind(self.btn_edit, "pencil", 16)
+        icons.bind(self.btn_delete, "x", 16)
         row.addWidget(self.btn_edit)
         row.addWidget(self.btn_delete)
         lay.addLayout(row)
-        self.btn_start = QPushButton("✏️ Bật chế độ chỉnh sửa (Ctrl+E)")
+        self.btn_start = QPushButton("Bật chế độ chỉnh sửa (Ctrl+E)")
         self.btn_start.setObjectName("primaryConvertBtn")
         self.btn_start.clicked.connect(self.startEditingRequested)
+        icons.bind(self.btn_start, "pencil", 16)
         lay.addWidget(self.btn_start)
         self.set_items([])
 

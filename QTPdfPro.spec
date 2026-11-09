@@ -5,7 +5,7 @@ a = Analysis(
     ['run_qtpdfpro.py'],
     pathex=[],
     binaries=[],
-    datas=[('qtpdfpro/ui/assets/app_icon.ico', 'qtpdfpro/ui/assets'), ('qtpdfpro/ui/assets/fonts', 'qtpdfpro/ui/assets/fonts')],
+    datas=[('qtpdfpro/ui/assets/app_icon.ico', 'qtpdfpro/ui/assets'), ('qtpdfpro/ui/assets/fonts', 'qtpdfpro/ui/assets/fonts'), ('qtpdfpro/ui/assets/icons', 'qtpdfpro/ui/assets/icons'), ('qtpdfpro/ui/assets/whats_new.json', 'qtpdfpro/ui/assets')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
