@@ -25,7 +25,6 @@ from PySide6.QtWidgets import (
     QButtonGroup,
     QCheckBox,
     QComboBox,
-    QCompleter,
     QDialog,
     QFileDialog,
     QFrame,
@@ -44,7 +43,6 @@ from PySide6.QtWidgets import (
     QSplitter,
     QStackedWidget,
     QStatusBar,
-    QTabBar,
     QTabWidget,
     QTreeWidget,
     QTreeWidgetItem,
@@ -76,6 +74,7 @@ from qtpdfpro.ui.ocr_dialog import OcrDialog, OcrModelController
 from qtpdfpro.ui.organizer_dialog import PageOrganizerDialog
 from qtpdfpro.ui.pdf_canvas import PDFScrollViewer
 from qtpdfpro.ui.print_dialog import PrintDialog
+from qtpdfpro.ui.top_bar import TopBar
 from qtpdfpro.ui.signature_dialog import SignatureCreateDialog, SignatureManagerDialog
 from qtpdfpro.ui.ocr_layer_service import OcrLayerService, shared_ocr_engine
 from qtpdfpro.ui.text_select_tool import TextSelectTool
@@ -1258,9 +1257,8 @@ class PDFDocumentTab(QWidget):
 class MainWindow(QMainWindow):
     """Cửa sổ chính QT PDF Pro theo bố cục PdfCraft.
 
-    - Tầng 1 (thanh top `top_bar`): ⌂ Trang chủ, 📂 Mở, các menu nằm ngang (Tệp · Xem · Công cụ · Chỉnh sửa PDF ·
-      Trợ giúp), nhãn «🎉 Có bản mới», ô tìm công cụ (Ctrl+K), GitHub, nút Sáng/Tối.
-    - Tầng 2 (`tab_strip`, chỉ khi có tài liệu mở): các tab tài liệu.
+    - Tầng 1 (`top_bar`, `ui/top_bar.py`): Trang chủ · Mở · tab tài liệu (cùng hàng) · nhãn bản mới · ô «Tìm lệnh»
+      (Ctrl+K) · nút biểu tượng Sáng/Tối · menu ☰.
     - Tầng 3 (thanh chế độ): các chế độ Tất cả công cụ · Đọc · Chuyển đổi · Chỉnh sửa · Ký số & Bảo mật,
       điều hướng trang/thu phóng (khi mở tài liệu), xuất Word.
     - Tầng 4 (chỉ khi xem tài liệu): thanh công cụ nhanh `tool_strip` — nút của chế độ đang chọn
@@ -1280,15 +1278,15 @@ class MainWindow(QMainWindow):
         self.default_app = DefaultAppController(self, self.settings)
         self.ocr_models = OcrModelController(self, notify=lambda text: self._show_toast(text, 6000))
 
+        self.recent_menu = QMenu("Tệp mở gần đây", self)
         self._build_command_actions()
         central = QWidget()
         central.setObjectName("appRoot")
         root = QVBoxLayout(central)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
-        self.tab_strip = self._build_tab_strip()
-        root.addWidget(self._build_top_bar())
-        root.addWidget(self.tab_strip)
+        self._build_top_bar()
+        root.addWidget(self.top_bar)
         root.addWidget(self._build_mode_bar())
         root.addWidget(self._build_tool_strip())
         self._build_central_area()
@@ -1297,12 +1295,13 @@ class MainWindow(QMainWindow):
         self._build_statusbar()
         self._apply_theme(self.settings.theme)
         self._show_home()
+        self._sync_toolbar_with_active_tab()
 
     # ─── Lệnh: một `QAction` cho mỗi lệnh của `ui/commands.py` (dùng chung cho nút, menu, phím tắt) ───────
 
     def _build_command_actions(self) -> None:
         """Tạo `command_actions` từ `commands.COMMANDS`, gắn vào cửa sổ (phím tắt chạy không phụ thuộc menu) và
-        dựng tạm 5 menu ngang cũ (Tệp · Xem · Công cụ · Chỉnh sửa PDF · Trợ giúp) tới khi có nút ☰ (Task 3)."""
+        tên cũ cho code / test khác."""
         reused = {  # hành động sẵn có của bộ cập nhật / trình xem mặc định (giữ kết nối & trạng thái của chúng)
             "check_update": self.updater.act_check,
             "auto_check_updates": self.updater.act_auto,
@@ -1344,155 +1343,32 @@ class MainWindow(QMainWindow):
         self.act_organize, self.act_combine = ca["organize"], ca["combine"]
         self.act_save, self.act_save_as = ca["save"], ca["save_as"]
 
-        self._build_legacy_menus()
         self.menuBar().setVisible(False)
-
-    def _build_legacy_menus(self) -> None:
-        """5 menu ngang của thanh top hiện tại, dựng từ `command_actions` (xoá khi có nút ☰ — Task 3)."""
-        self.main_menu = QMenu(self)
-        self.recent_menu = QMenu("Tệp mở gần đây", self)
-        layout: tuple[tuple[str, tuple[str, ...]], ...] = (
-            ("Tệp", ("open", "convert_word", "batch_convert", "ocr", ":recent", "|", "print", "doc_info",
-                     "close_tab", "|", "quit")),
-            ("Xem", ("home", "zoom_in", "zoom_out", "fit_width", "fit_page", "|", "pointer_select", "pointer_hand",
-                     "|", "toggle_sidebar", "layout_overlay", "read_mode", "|", "toggle_theme")),
-            ("Công cụ", ("palette", "find", "extract_text", "|", "nd30_check", "convert_word_nd30", "verify_docx",
-                         "convert_word")),
-            ("Chỉnh sửa PDF", ("edit_mode", "undo", "redo", "fill_mode", "signatures", "|", "organize", "combine",
-                               "split", "extract_pages", "|", "compress", "watermark", "page_numbers", "protect",
-                               "unlock", "|", "save", "save_as", "export_flattened")),
-            ("Trợ giúp", ("about", "github", "|", "check_update", "auto_check_updates", "auto_download_updates",
-                          "|", "default_app")),
-        )
-        for title, keys in layout:
-            menu = self.main_menu.addMenu(title)
-            for key in keys:
-                if key == "|":
-                    menu.addSeparator()
-                elif key == ":recent":
-                    menu.addMenu(self.recent_menu)
-                else:
-                    menu.addAction(self.command_actions[key])
-        self._refresh_recent_menu()
 
     # ─── Tầng 1: Dải tiêu đề & tab tài liệu ────────────────────────────────
 
-    def _build_top_bar(self) -> QFrame:
-        """Hàng trên cùng: ⌂ Trang chủ · 📂 Mở · các menu nằm ngang · ô tìm lệnh · GitHub · Sáng/Tối."""
-        strip = QFrame()
-        strip.setObjectName("topBar")
-        lay = QHBoxLayout(strip)
-        lay.setContentsMargins(10, 6, 10, 6)
-        lay.setSpacing(2)
-
-        self.btn_home = QPushButton("⌂  Trang chủ")
-        self.btn_home.setObjectName("homeTabBtn")
-        self.btn_home.setCheckable(True)
-        self.btn_home.setToolTip("Trang chủ (Alt+Home)")
-        self.btn_home.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_home.clicked.connect(self.action_go_home)
-        lay.addWidget(self.btn_home)
-
-        self.btn_open = QPushButton("📂  Mở")
-        self.btn_open.setObjectName("openTopBtn")
-        self.btn_open.setToolTip("Mở tệp PDF (Ctrl+O)")
-        self.btn_open.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_open.clicked.connect(self.action_open_pdf)
-        lay.addWidget(self.btn_open)
-
-        sep = QFrame()
-        sep.setObjectName("topBarSep")
-        sep.setFrameShape(QFrame.Shape.VLine)
-        sep.setFixedHeight(20)
-        lay.addSpacing(6)
-        lay.addWidget(sep)
-        lay.addSpacing(6)
-
-        # Mỗi menu con của `main_menu` thành một nút thả xuống nằm ngang (phím tắt vẫn chạy nhờ `addActions`)
-        self.menu_buttons: dict[str, QPushButton] = {}
-        for action in self.main_menu.actions():
-            submenu = action.menu()
-            if submenu is None:
-                continue
-            btn = QPushButton(action.text())
-            btn.setObjectName("menuBarBtn")
-            btn.setMenu(submenu)
-            btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            lay.addWidget(btn)
-            self.menu_buttons[submenu.title().replace("&&", "&")] = btn
-
-        # Nhãn «🎉 Có bản mới» chỉ hiện khi bộ cập nhật phát hiện bản mới (xem `show_update_badge`)
-        self.btn_update_badge = QPushButton("")
-        self.btn_update_badge.setObjectName("updateBadgeBtn")
-        self.btn_update_badge.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_update_badge.setVisible(False)
+    def _build_top_bar(self) -> None:
+        """Tầng 1 (`TopBar`): Trang chủ · Mở · tab tài liệu · nhãn bản mới · Tìm lệnh · Sáng/Tối · ☰."""
+        self.top_bar = TopBar(self.command_actions, self.recent_menu, self)
+        self.btn_home, self.btn_open = self.top_bar.btn_home, self.top_bar.btn_open
+        self.btn_update_badge = self.top_bar.btn_update_badge
         self.btn_update_badge.clicked.connect(self.updater.on_badge_clicked)
-        lay.addSpacing(8)
-        lay.addWidget(self.btn_update_badge)
-        lay.addStretch(1)
-
-        self.toolbar_search_input = QLineEdit()
-        self.toolbar_search_input.setObjectName("commandSearch")
-        self.toolbar_search_input.setPlaceholderText("🔍 Tìm công cụ & lệnh…  Ctrl+K")
-        self.toolbar_search_input.setMinimumWidth(180)
-        self.toolbar_search_input.setMaximumWidth(300)
-        self.toolbar_search_input.returnPressed.connect(self._on_toolbar_quick_search)
-        completer = QCompleter([c.label_text() for c in commands.search("")], self.toolbar_search_input)
-        completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
-        completer.setFilterMode(Qt.MatchFlag.MatchContains)
-        completer.activated.connect(self._on_completer_activated)
-        self.toolbar_search_input.setCompleter(completer)
-        lay.addWidget(self.toolbar_search_input)
-        lay.addSpacing(6)
-
-        btn_github = QPushButton("⟨/⟩ GitHub")
-        btn_github.setObjectName("ghostBtn")
-        btn_github.setToolTip("Mã nguồn, báo lỗi & góp ý trên GitHub")
-        btn_github.clicked.connect(lambda: self._open_link(f"https://github.com/{__github_repo__}"))
-        lay.addWidget(btn_github)
-
-        self.btn_theme_toggle = QPushButton("☀️ Giao diện Sáng")
-        self.btn_theme_toggle.setObjectName("themeToggleBtn")
-        self.btn_theme_toggle.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_theme_toggle.clicked.connect(self.action_toggle_theme)
-        lay.addWidget(self.btn_theme_toggle)
-        return strip
-
-    def show_update_badge(self, text: str = "", ready: bool = False) -> None:
-        """Hiện/ẩn nhãn nhắc bản mới ở thanh trên cùng (`text` rỗng = ẩn)."""
-        self.btn_update_badge.setText(text)
-        self.btn_update_badge.setProperty("ready", ready)
-        self.btn_update_badge.style().unpolish(self.btn_update_badge)
-        self.btn_update_badge.style().polish(self.btn_update_badge)
-        self.btn_update_badge.setVisible(bool(text))
-
-    def _build_tab_strip(self) -> QFrame:
-        """Hàng tab tài liệu — chỉ hiện khi có tài liệu đang mở."""
-        strip = QFrame()
-        strip.setObjectName("titleStrip")
-        lay = QHBoxLayout(strip)
-        lay.setContentsMargins(10, 4, 10, 0)
-        lay.setSpacing(4)
-
-        self.doc_tab_bar = QTabBar()
-        self.doc_tab_bar.setObjectName("docTabBar")
-        self.doc_tab_bar.setTabsClosable(True)
-        self.doc_tab_bar.setMovable(True)
-        self.doc_tab_bar.setDocumentMode(True)
-        self.doc_tab_bar.setExpanding(False)
-        self.doc_tab_bar.setElideMode(Qt.TextElideMode.ElideMiddle)
-        self.doc_tab_bar.setDrawBase(False)
+        self.toolbar_search_input = self.top_bar.search
+        self.btn_theme_toggle = self.top_bar.btn_theme
+        self.doc_tab_bar = self.top_bar.tab_bar
+        self.top_bar.paletteRequested.connect(self.action_command_palette)
         self.doc_tab_bar.tabBarClicked.connect(self._on_header_tab_clicked)
         self.doc_tab_bar.currentChanged.connect(self._on_header_tab_changed)
         self.doc_tab_bar.tabCloseRequested.connect(self.close_tab_at)
         self.doc_tab_bar.tabMoved.connect(self._on_header_tab_moved)
-        lay.addWidget(self.doc_tab_bar, 0, Qt.AlignmentFlag.AlignBottom)
-        lay.addStretch(1)
-        strip.setVisible(False)
-        return strip
+        self._refresh_recent_menu()
 
-    def _sync_tab_strip(self) -> None:
-        self.tab_strip.setVisible(self.doc_tab_bar.count() > 0)
+    def show_update_badge(self, text: str = "", ready: bool = False) -> None:
+        """Hiện/ẩn nhãn nhắc bản mới ở thanh trên cùng (`text` rỗng = ẩn)."""
+        self.top_bar.show_update_badge(text, ready)
+
+    def _sync_tab_bar(self) -> None:
+        self.doc_tab_bar.setVisible(self.doc_tab_bar.count() > 0)
 
     # ─── Tầng 3: Thanh chế độ ──────────────────────────────────────────────
 
@@ -1718,13 +1594,10 @@ class MainWindow(QMainWindow):
         icons.set_icon_color(theme_tokens(normalized)["text"])
         for key, act in getattr(self, "command_actions", {}).items():
             act.setIcon(icons.icon(commands.get(key).icon))
-        if hasattr(self, "btn_theme_toggle"):
-            if normalized == "dark":
-                self.btn_theme_toggle.setText("☀️ Giao diện Sáng")
-                self.btn_theme_toggle.setToolTip("Đang ở Giao diện Tối — Bấm để chuyển sang Giao diện Sáng (Ctrl+Shift+T)")
-            else:
-                self.btn_theme_toggle.setText("🌙 Giao diện Tối")
-                self.btn_theme_toggle.setToolTip("Đang ở Giao diện Sáng — Bấm để chuyển sang Giao diện Tối (Ctrl+Shift+T)")
+        if hasattr(self, "top_bar"):
+            self.top_bar.set_theme(normalized)
+            for i in range(self.doc_tab_bar.count()):
+                self.doc_tab_bar.setTabIcon(i, icons.icon("file-text", size=16))
         if hasattr(self, "status_theme_lbl"):
             mode_txt = "Sáng (Light)" if normalized == "light" else "Tối (Dark)"
             self.status_theme_lbl.setText(f"Giao diện: {mode_txt}  |  ")
@@ -1869,10 +1742,10 @@ class MainWindow(QMainWindow):
         safe_tab_title = path.name.replace("&", "&&")
         idx = self.doc_tabs.addTab(tab, safe_tab_title)
         self.doc_tab_bar.blockSignals(True)
-        self.doc_tab_bar.insertTab(idx, f"📄 {safe_tab_title}")
+        self.doc_tab_bar.insertTab(idx, icons.icon("file-text", size=16), safe_tab_title)
         self.doc_tab_bar.setTabToolTip(idx, str(path))
         self.doc_tab_bar.blockSignals(False)
-        self._sync_tab_strip()
+        self._sync_tab_bar()
         self.doc_tabs.setTabToolTip(idx, str(path))
         self.doc_tabs.setCurrentIndex(idx)
         self._show_documents()
@@ -1893,7 +1766,7 @@ class MainWindow(QMainWindow):
         self.doc_tab_bar.blockSignals(True)
         self.doc_tab_bar.removeTab(index)
         self.doc_tab_bar.blockSignals(False)
-        self._sync_tab_strip()
+        self._sync_tab_bar()
         if isinstance(w, PDFDocumentTab):
             w.close_document()
             w.deleteLater()
@@ -1913,6 +1786,8 @@ class MainWindow(QMainWindow):
 
     def _sync_toolbar_with_active_tab(self) -> None:
         tab = self.active_tab()
+        for key in ("close_tab", "save", "save_as"):  # menu ☰: chỉ bật khi có tài liệu
+            self.command_actions[key].setEnabled(tab is not None)
         if tab is None:
             self.page_spin.blockSignals(True)
             self.page_spin.setMaximum(1)
@@ -2086,7 +1961,7 @@ class MainWindow(QMainWindow):
         if idx < 0:
             return
         name = tab.reader.path.name.replace("&", "&&")
-        mark = "● " if tab.reader.has_unsaved_changes else "📄 "
+        mark = "● " if tab.reader.has_unsaved_changes else ""
         self.doc_tab_bar.setTabText(idx, f"{mark}{name}")
         self.doc_tab_bar.setTabToolTip(idx, str(tab.reader.path))
         self.doc_tabs.setTabText(idx, name)
@@ -2414,21 +2289,9 @@ class MainWindow(QMainWindow):
         dlg.move(geo.x() + (geo.width() - dlg.width()) // 2, geo.y() + 90)
         if dlg.exec() and dlg.selected_key:
             if dlg.selected_key == SEARCH_IN_DOCUMENT_KEY:
-                self.toolbar_search_input.setText(dlg.search_text)
-                self._on_toolbar_quick_search()
+                self._search_in_document(dlg.search_text)
             else:
                 self.run_command(dlg.selected_key)
-
-    @staticmethod
-    def _command_by_label(text: str) -> Optional[commands.Command]:
-        wanted = text.strip().lower()
-        return next((c for c in commands.COMMANDS if c.palette and c.label_text().lower() == wanted), None)
-
-    def _on_completer_activated(self, text: str) -> None:
-        cmd = self._command_by_label(text)
-        if cmd is not None:
-            QTimer.singleShot(0, lambda: self.toolbar_search_input.clear())
-            self.run_command(cmd.key)
 
     def _show_toast(self, text: str, msec: int = 3200) -> None:
         if self._toast is None:
@@ -2515,15 +2378,10 @@ class MainWindow(QMainWindow):
             mode, pct = data
             tab.viewer.set_zoom_mode(mode, pct)
 
-    def _on_toolbar_quick_search(self) -> None:
-        query = self.toolbar_search_input.text().strip()
+    def _search_in_document(self, query: str) -> None:
+        """Tìm `query` trong tài liệu đang mở (ngăn «Tìm kiếm» bên phải)."""
+        query = query.strip()
         if not query:
-            self.action_command_palette("")
-            return
-        cmd = self._command_by_label(query)
-        if cmd is not None:
-            self.toolbar_search_input.clear()
-            self.run_command(cmd.key)
             return
         tab = self.active_tab()
         if tab is not None:

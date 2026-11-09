@@ -210,3 +210,20 @@ def sample_vietnamese_pdf(tmp_path: Path) -> Path:
     doc.save(str(pdf_path))
     doc.close()
     return pdf_path
+
+
+# ─── PDF mẫu cho test GUI (xem `tests/ui_helpers.py`) ───
+
+@pytest.fixture
+def sample_pdf(tmp_path: Path) -> Path:
+    from ui_helpers import make_sample_pdf
+
+    return make_sample_pdf(tmp_path / "mau.pdf")
+
+
+@pytest.fixture
+def admin_pdf(tmp_path: Path) -> Path:
+    from ui_helpers import copy_pdf
+
+    src = Path(__file__).resolve().parent.parent / "samples" / "nd30" / "quyet_dinh_mau.pdf"
+    return copy_pdf(src, tmp_path / "quyet_dinh_mau.pdf")

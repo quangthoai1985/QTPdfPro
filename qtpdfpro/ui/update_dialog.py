@@ -717,11 +717,11 @@ class UpdateController(QObject):
         if release is None:
             show("", False)
         elif ready:
-            show(f"✅ v{release.version} sẵn sàng — Khởi động lại", True)
+            show(f"v{release.version} sẵn sàng — Khởi động lại", True)
         elif downloading:
-            show(f"🎉 Có bản mới v{release.version} — đang tải…", False)
+            show(f"Có bản mới v{release.version} — đang tải…", False)
         else:
-            show(f"🎉 Có bản mới v{release.version} — Cập nhật", False)
+            show(f"Có bản mới v{release.version} — Cập nhật", False)
 
     def _show_available(self, release: uc.ReleaseInfo) -> None:
         self.notice.show_for(release)

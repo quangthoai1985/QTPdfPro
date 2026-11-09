@@ -55,8 +55,7 @@ def test_main_window_open_pdf_search_and_layout_overlay(sample_vietnamese_pdf: P
     app.processEvents()
 
     # Tìm kiếm nhanh từ thanh công cụ trên cùng
-    win.toolbar_search_input.setText("Độc lập")
-    win._on_toolbar_quick_search()
+    win._search_in_document("Độc lập")
     app.processEvents()
     assert tab.search_results_list.count() >= 1
 
@@ -70,13 +69,13 @@ def test_main_window_open_pdf_search_and_layout_overlay(sample_vietnamese_pdf: P
     app.processEvents()
     assert win.settings.theme == "light"
     assert tab.viewer._canvas_theme == "light"
-    assert "Tối" in win.btn_theme_toggle.text()
+    assert win.btn_theme_toggle.text() == "" and "Tối" in win.btn_theme_toggle.toolTip()
 
     win.btn_theme_toggle.click()
     app.processEvents()
     assert win.settings.theme == "dark"
     assert tab.viewer._canvas_theme == "dark"
-    assert "Sáng" in win.btn_theme_toggle.text()
+    assert win.btn_theme_toggle.text() == "" and "Sáng" in win.btn_theme_toggle.toolTip()
 
     # Kiểm tra khởi tạo hộp thoại chuyển đổi PDF sang DOCX
     dlg = ConvertToDocxDialog(
@@ -168,11 +167,9 @@ def test_home_page_pdfcraft_layout_and_coming_soon(sample_vietnamese_pdf: Path) 
     assert win.btn_home.isChecked() is True
     assert win.doc_controls.isVisible() is False
     assert win.btn_convert_docx.isVisible() is False  # «Xuất Word» và «ℹ» nằm trong doc_controls
-    # Thanh top: Mở + các menu nằm ngang; chưa có tài liệu thì chưa có hàng tab
-    assert win.btn_open.isVisible() and set(win.menu_buttons) == {
-        "Tệp", "Xem", "Công cụ", "Chỉnh sửa PDF", "Trợ giúp"}
-    assert all(b.isVisible() and b.menu() is not None for b in win.menu_buttons.values())
-    assert win.tab_strip.isVisible() is False
+    # Thanh top: Mở + nút ☰; chưa có tài liệu thì chưa có hàng tab
+    assert win.btn_open.isVisible() and win.top_bar.btn_menu.isVisible()
+    assert win.doc_tab_bar.isVisible() is False
 
     # Danh mục: khoá duy nhất, công cụ chưa có đều có mốc phát hành và nhãn Coming Soon
     keys = [t.key for t in TOOLS]
@@ -209,7 +206,7 @@ def test_home_page_pdfcraft_layout_and_coming_soon(sample_vietnamese_pdf: Path) 
     app.processEvents()
     assert tab is not None
     assert win.doc_tab_bar.count() == 1 and win.doc_tabs.count() == 1
-    assert win.tab_strip.isVisible() is True
+    assert win.doc_tab_bar.isVisible() is True
     assert win.stack.currentWidget() is win.doc_tabs
     assert win.doc_controls.isVisible() is True and win.btn_convert_docx.isVisible() is True
 
@@ -241,7 +238,7 @@ def test_home_page_pdfcraft_layout_and_coming_soon(sample_vietnamese_pdf: Path) 
     # Đóng tab cuối → quay về Trang chủ
     win.close_tab_at(0)
     app.processEvents()
-    assert win.doc_tab_bar.count() == 0 and win.tab_strip.isVisible() is False
+    assert win.doc_tab_bar.count() == 0 and win.doc_tab_bar.isVisible() is False
     assert win.stack.currentWidget() is win.home_page
     win.close()
     app.processEvents()

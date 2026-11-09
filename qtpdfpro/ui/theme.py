@@ -77,28 +77,20 @@ _DARK_TOKENS = {
 _SHELL_TEMPLATE = """
 QWidget#appRoot, QWidget#homeContent, QScrollArea#homeScroll { background-color: @page; }
 QFrame#topBar { background-color: @strip; border: none; }
-QFrame#titleStrip { background-color: @strip; border: none; }
 QFrame#modeBar { background-color: @bar; border-bottom: 1px solid @border; }
-QPushButton#homeTabBtn {
+QPushButton#topBtn {
     background-color: transparent; color: @text; border: 1px solid transparent; border-radius: 6px;
     padding: 5px 12px; font-weight: 600;
 }
-QPushButton#homeTabBtn:hover { background-color: @hover; border-color: @border; }
-QPushButton#homeTabBtn:checked { background-color: @accent_soft; color: @accent_text; border-color: @accent; }
-QPushButton#openTopBtn {
-    background-color: @accent; color: @on_accent; border: 1px solid @accent; border-radius: 6px;
-    padding: 5px 14px; font-weight: 600;
+QPushButton#topBtn:hover { background-color: @hover; border-color: @border; }
+QPushButton#topBtn:checked { background-color: @accent_soft; color: @accent_text; border-color: @accent; }
+QToolButton#iconBtn {
+    background-color: transparent; border: 1px solid transparent; border-radius: 6px; padding: 5px;
 }
-QPushButton#openTopBtn:hover { background-color: @accent_text; border-color: @accent_text; }
-QFrame#topBarSep { color: @border_strong; }
-QPushButton#menuBarBtn {
-    background-color: transparent; color: @text; border: 1px solid transparent; border-radius: 6px;
-    padding: 5px 11px; font-weight: 500;
-}
-QPushButton#menuBarBtn:hover, QPushButton#menuBarBtn:pressed, QPushButton#menuBarBtn:open {
+QToolButton#iconBtn:hover, QToolButton#iconBtn:pressed, QToolButton#iconBtn:open {
     background-color: @hover; border-color: @border;
 }
-QPushButton#menuBarBtn::menu-indicator { image: none; width: 0px; }
+QToolButton#iconBtn::menu-indicator { image: none; width: 0px; }
 QPushButton#updateBadgeBtn {
     background-color: @accent; color: @on_accent; border: none; border-radius: 13px;
     padding: 4px 12px; font-weight: 600;
@@ -109,7 +101,7 @@ QPushButton#updateBadgeBtn[ready="true"]:hover { background-color: #15803D; }
 QTabBar#docTabBar { background: transparent; }
 QTabBar#docTabBar::tab {
     background-color: transparent; color: @muted; border: none; border-top-left-radius: 8px;
-    border-top-right-radius: 8px; padding: 7px 12px; margin-right: 2px; min-width: 120px; max-width: 260px;
+    border-top-right-radius: 8px; padding: 6px 12px; margin-right: 2px; min-width: 110px; max-width: 240px;
 }
 QTabBar#docTabBar::tab:hover { background-color: @hover; color: @text; }
 QTabBar#docTabBar::tab:selected { background-color: @tab_sel; color: @text; font-weight: 600; }
