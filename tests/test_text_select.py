@@ -505,6 +505,7 @@ def test_drag_and_shift_click_select_across_pages(tmp_path: Path) -> None:
     app.processEvents()
     pages = sorted({a.page_index for a in tab.annot_controller.session.list_annotations()})
     assert pages == [0, 1, 2]
+    win.close_tab_at(0, force=True)  # tô sáng chưa lưu: đóng thẳng, không bật hộp thoại «Lưu thay đổi?» thật
     win.close()
     app.processEvents()
 

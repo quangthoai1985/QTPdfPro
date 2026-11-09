@@ -26,6 +26,9 @@ class Command:
     checkable: bool = False
     register_shortcut: bool = True  # False: phím do tab / `EditToolbar` đăng ký theo ngữ cảnh (V, H, phím chữ cái)
     palette: bool = True            # False: không liệt kê ở Ctrl+K
+    # True: phím tắt / bấm `QAction` khi chưa có tài liệu thì bỏ qua (Ctrl+S ở Trang chủ không bật hộp thoại);
+    # chọn từ Ctrl+K vẫn hỏi mở tệp rồi chạy (spec §5.3)
+    quiet_without_document: bool = False
 
     def label_text(self) -> str:
         """Nhãn để hiển thị (bỏ cách viết `&&` của Qt)."""
@@ -45,6 +48,8 @@ TABS: tuple[tuple[str, str], ...] = (
 TAB_LABELS: dict[str, str] = {**dict(TABS), "system": "Hệ thống"}
 
 _C = Command
+# Cần tài liệu; phím tắt khi chưa có tài liệu thì bỏ qua, Ctrl+K thì hỏi mở tệp
+_QUIET = {"needs_document": True, "quiet_without_document": True}
 
 # Công cụ chú thích: (khoá TOOL_DEFS, nhãn, biểu tượng, phím chữ cái của `EditToolbar`, nhóm ▾, từ khoá)
 _EDIT_TOOLS: tuple[tuple[str, str, str, str, str, str], ...] = (
@@ -99,15 +104,15 @@ COMMANDS: tuple[Command, ...] = (
     _C("doc_info", "Thuộc tính", "info", "read", "Ctrl+I", needs_document=True,
        summary="Metadata · Phông chữ · Bảo mật", keywords="thuoc tinh thong tin tai lieu metadata"),
     # ── Chuyển đổi ──
-    _C("convert_word", "Xuất Word", "file-text", "convert", "Ctrl+Shift+W", needs_document=True,
+    _C("convert_word", "Xuất Word", "file-text", "convert", "Ctrl+Shift+W",
        summary="Chuyển PDF sang Word (.docx) — văn bản hành chính tự dùng chuẩn NĐ30",
        keywords="xuat word chuyen doi pdf sang word docx"),
-    _C("convert_word_nd30", "Xuất Word chuẩn NĐ30", "landmark", "convert", group="word", needs_document=True,
+    _C("convert_word_nd30", "Xuất Word chuẩn NĐ30", "landmark", "convert", group="word",
        summary="Văn bản hành chính · Bảng không viền · Lề chuẩn",
        keywords="nghi dinh 30 hanh chinh docx quoc hieu tieu ngu"),
-    _C("convert_word_exact", "Xuất Word giữ vị trí 1:1", "ruler", "convert", group="word", needs_document=True,
+    _C("convert_word_exact", "Xuất Word giữ vị trí 1:1", "ruler", "convert", group="word",
        summary="Biểu mẫu · Hoá đơn · Bằng cấp", keywords="exact khung toa do giu vi tri docx"),
-    _C("convert_word_flow", "Xuất Word dạng dòng chảy", "wrap-text", "convert", group="word", needs_document=True,
+    _C("convert_word_flow", "Xuất Word dạng dòng chảy", "wrap-text", "convert", group="word",
        summary="Tài liệu thường · pdf2docx + OpenXML", keywords="hybrid dong chay pdf2docx docx"),
     _C("ocr", "OCR tiếng Việt", "scan-text", "convert", "Ctrl+Shift+R",
        summary="PDF ảnh quét → PDF tìm kiếm được / Word NĐ30",
@@ -115,7 +120,7 @@ COMMANDS: tuple[Command, ...] = (
     _C("nd30_check", "Kiểm tra thể thức NĐ30", "badge-check", "convert", "Ctrl+Shift+N",
        summary="Đo lề, cỡ chữ, giãn dòng · Đối chiếu từng thành phần",
        keywords="nghi dinh 30 the thuc kiem tra le can le"),
-    _C("verify_docx", "Kiểm chứng DOCX", "microscope", "convert", needs_document=True,
+    _C("verify_docx", "Kiểm chứng DOCX", "microscope", "convert",
        summary="Dựng bằng MS Word · So vị trí từng dòng với PDF", keywords="so sanh lech kiem chung word docx"),
     _C("layout_overlay", "Soi bố cục", "scan-eye", "convert", "F8", needs_document=True, checkable=True,
        summary="Lớp phủ khung bố cục, bảng, con dấu, chữ ký số trên trang",
@@ -124,59 +129,59 @@ COMMANDS: tuple[Command, ...] = (
        summary="Nhiều PDF → DOCX · Bảng điểm từng tệp", keywords="batch nhieu tep hang loat thu muc keo tha"),
     # ── Chỉnh sửa ──
     *_annot_commands(_EDIT_TOOLS, "edit"),
-    _C("undo", "Hoàn tác", "undo-2", "edit", "Ctrl+Z", needs_document=True,
+    _C("undo", "Hoàn tác", "undo-2", "edit", "Ctrl+Z", **_QUIET,
        summary="Hoàn tác chú thích vừa thêm / sửa", keywords="hoan tac undo"),
-    _C("redo", "Làm lại", "redo-2", "edit", "Ctrl+Y, Ctrl+Shift+Z", needs_document=True,
+    _C("redo", "Làm lại", "redo-2", "edit", "Ctrl+Y, Ctrl+Shift+Z", **_QUIET,
        summary="Làm lại thao tác vừa hoàn tác", keywords="lam lai redo"),
     _C("organize", "Sắp xếp && cắt ghép trang", "layers", "edit", "Ctrl+Shift+O", group="pages",
-       needs_document=True, summary="Kéo thả · Xoay · Xoá · Trang trắng",
+       summary="Kéo thả · Xoay · Xoá · Trang trắng",
        keywords="organize xoay xoa trang sap xep keo tha cat ghep"),
     _C("combine", "Ghép tệp PDF", "combine", "edit", "Ctrl+Shift+M", group="pages",
        summary="Nhiều tệp thành một · Giữ mục lục", keywords="merge ghep noi tep"),
-    _C("split", "Tách tệp PDF", "scissors", "edit", group="pages", needs_document=True,
+    _C("split", "Tách tệp PDF", "scissors", "edit", group="pages",
        summary="Mỗi N trang · Theo khoảng · Theo điểm cắt", keywords="split tach chia cat tep"),
-    _C("extract_pages", "Trích trang", "file-output", "edit", group="pages", needs_document=True,
+    _C("extract_pages", "Trích trang", "file-output", "edit", group="pages",
        summary="Lưu các trang chọn thành tệp mới", keywords="trich trang extract"),
-    _C("compress", "Nén PDF", "file-archive", "edit", group="process", needs_document=True,
+    _C("compress", "Nén PDF", "file-archive", "edit", group="process",
        summary="Nhẹ · Vừa · Mạnh — báo dung lượng trước/sau", keywords="compress nen giam dung luong anh email"),
-    _C("watermark", "Đóng dấu nước", "droplet", "edit", group="process", needs_document=True,
+    _C("watermark", "Đóng dấu nước", "droplet", "edit", group="process",
        summary="Chữ tiếng Việt · Độ mờ · Góc xoay · Lát gạch",
        keywords="watermark dau nuoc ban sao mat noi bo du thao chim"),
-    _C("page_numbers", "Đánh số trang", "list-ordered", "edit", group="process", needs_document=True,
+    _C("page_numbers", "Đánh số trang", "list-ordered", "edit", group="process",
        summary="6 vị trí · «Trang 1 / 10» · Mẫu chuẩn NĐ30",
        keywords="page number danh so trang nd30 dau trang chan trang"),
-    _C("save", "Lưu", "save", "edit", "Ctrl+S", needs_document=True,
+    _C("save", "Lưu", "save", "edit", "Ctrl+S", **_QUIET,
        summary="Ghi bổ sung vào tệp gốc (giữ chữ ký số)", keywords="luu ghi save"),
-    _C("save_as", "Lưu thành tệp mới…", "save-all", "edit", "Ctrl+Shift+S", group="save", needs_document=True,
+    _C("save_as", "Lưu thành tệp mới…", "save-all", "edit", "Ctrl+Shift+S", group="save", **_QUIET,
        summary="Ghi toàn bộ thành tệp PDF mới", keywords="luu thanh tep moi save as"),
     _C("export_flattened", "Xuất bản làm phẳng chú thích…", "file-down", "edit", group="save",
-       needs_document=True, summary="Vẽ chú thích vào nội dung trang", keywords="lam phang flatten xuat ban"),
+       **_QUIET, summary="Vẽ chú thích vào nội dung trang", keywords="lam phang flatten xuat ban"),
     # ── Điền & Ký ──
     *_annot_commands(_FILL_TOOLS, "fill"),
-    _C("signatures", "Thư viện chữ ký", "library", "fill", needs_document=True,
+    _C("signatures", "Thư viện chữ ký", "library", "fill",
        summary="Vẽ · Gõ tên · Ảnh · Tách nền ảnh chụp chữ ký / con dấu",
        keywords="thu vien chu ky nhay signature initials anh chup tach nen con dau"),
     # ── Bảo mật ──
     _C("sig_inspect", "Soi chữ ký số && con dấu", "shield-check", "security", needs_document=True,
        summary="Phát hiện widget ký số VGCA, con dấu", keywords="chu ky so vgca con dau soi"),
-    _C("protect", "Đặt mật khẩu", "lock", "security", needs_document=True,
+    _C("protect", "Đặt mật khẩu", "lock", "security",
        summary="AES-256 · Mật khẩu mở · Quyền in / sao chép / sửa",
        keywords="password mat khau bao ve ma hoa aes quyen protect encrypt"),
-    _C("unlock", "Gỡ mật khẩu", "lock-open", "security", needs_document=True,
+    _C("unlock", "Gỡ mật khẩu", "lock-open", "security",
        summary="Khi biết mật khẩu · Gỡ hạn chế quyền", keywords="unlock go mat khau mo khoa decrypt password"),
     # ── Hệ thống ──
     _C("open", "Mở tệp…", "folder-open", "system", "Ctrl+O", summary="Mở một hoặc nhiều tệp PDF",
        keywords="mo tep file open"),
-    _C("close_tab", "Đóng tài liệu", "x", "system", "Ctrl+F4, Ctrl+W", needs_document=True,
+    _C("close_tab", "Đóng tài liệu", "x", "system", "Ctrl+F4, Ctrl+W", **_QUIET,
        summary="Đóng tài liệu đang xem", keywords="dong tai lieu tab close"),
     _C("home", "Trang chủ", "house", "system", "Alt+Home", summary="Về Trang chủ / quay lại tài liệu",
        keywords="trang chu home"),
     _C("quit", "Thoát", "log-out", "system", "Ctrl+Q", summary="Đóng QT PDF Pro", keywords="thoat quit exit"),
-    _C("zoom_in", "Phóng to", "zoom-in", "system", "Ctrl++", needs_document=True, keywords="phong to zoom in"),
-    _C("zoom_out", "Thu nhỏ", "zoom-out", "system", "Ctrl+-", needs_document=True, keywords="thu nho zoom out"),
-    _C("fit_width", "Vừa chiều ngang", "move-horizontal", "system", "Ctrl+1", needs_document=True,
+    _C("zoom_in", "Phóng to", "zoom-in", "system", "Ctrl++", **_QUIET, keywords="phong to zoom in"),
+    _C("zoom_out", "Thu nhỏ", "zoom-out", "system", "Ctrl+-", **_QUIET, keywords="thu nho zoom out"),
+    _C("fit_width", "Vừa chiều ngang", "move-horizontal", "system", "Ctrl+1", **_QUIET,
        keywords="vua chieu ngang fit width thu phong"),
-    _C("fit_page", "Vừa trang", "maximize", "system", "Ctrl+0", needs_document=True,
+    _C("fit_page", "Vừa trang", "maximize", "system", "Ctrl+0", **_QUIET,
        keywords="vua trang fit page thu phong"),
     _C("pointer_select", "Chọn chữ", "text-cursor", "system", "V", needs_document=True, checkable=True,
        summary="Kéo chọn liền nhiều trang · Bản scan tự nhận dạng",
@@ -185,7 +190,7 @@ COMMANDS: tuple[Command, ...] = (
     _C("pointer_hand", "Bàn tay", "hand", "system", "H", needs_document=True, checkable=True,
        summary="Kéo chuột để cuộn trang · Giữ Space", keywords="ban tay hand pan keo cuon con tro",
        register_shortcut=False),
-    _C("toggle_sidebar", "Ẩn/hiện ngăn bên phải", "panel-right", "system", "F4", needs_document=True,
+    _C("toggle_sidebar", "Ẩn/hiện ngăn bên phải", "panel-right", "system", "F4", **_QUIET,
        keywords="an hien ngan ben phai sidebar"),
     _C("toggle_theme", "Đổi giao diện Sáng / Tối", "sun-moon", "system", "Ctrl+Shift+T",
        keywords="doi giao dien sang toi theme dark light"),

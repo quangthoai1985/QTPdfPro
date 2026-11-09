@@ -95,11 +95,6 @@ POINTER_MODES = ("select", "hand")  # chuột trái trên khung đọc: chọn c
 # không đi qua `run_command`; `run_command(khoá)` (Ctrl+K…) gọi `QAction.trigger()`.
 _ACTION_DRIVEN_COMMANDS = frozenset(
     {"layout_overlay", "check_update", "auto_check_updates", "auto_download_updates", "default_app"})
-# Lệnh cần tài liệu nhưng mở tệp xong mới chạy thì vô nghĩa: chưa có tài liệu → bỏ qua (không hỏi mở tệp),
-# có tài liệu → chạy mà không chuyển khỏi Trang chủ (như các phím tắt trước đây).
-_QUIET_WITHOUT_DOCUMENT = frozenset(
-    {"close_tab", "undo", "redo", "save", "save_as", "export_flattened", "zoom_in", "zoom_out", "fit_width",
-     "fit_page", "toggle_sidebar"})
 # Khoá cũ của `tool_catalog` (Trang chủ, cột trái, thanh công cụ nhanh — còn tới Task 4/8) → khoá lệnh mới
 _LEGACY_TOOL_KEYS = {
     "pdf_to_word_nd30": "convert_word_nd30", "pdf_to_word_exact": "convert_word_exact",
@@ -1325,7 +1320,7 @@ class MainWindow(QMainWindow):
             if cmd.register_shortcut and cmd.shortcut:
                 act.setShortcuts([QKeySequence(s) for s in cmd.shortcuts()])
             if cmd.key not in _ACTION_DRIVEN_COMMANDS:
-                act.triggered.connect(lambda _checked=False, k=cmd.key: self.run_command(k))
+                act.triggered.connect(lambda _checked=False, k=cmd.key: self.run_command(k, from_action=True))
             self.addAction(act)
             self.command_actions[cmd.key] = act
 
@@ -1940,16 +1935,18 @@ class MainWindow(QMainWindow):
 
     # ─── Công cụ ───────────────────────────────────────────────────────────
 
-    def run_command(self, key: str) -> None:
+    def run_command(self, key: str, from_action: bool = False) -> None:
         """Chạy một lệnh của `ui/commands.py` (nhận cả khoá cũ của `tool_catalog` tới khi bỏ hẳn — Task 8).
 
-        Lệnh cần tài liệu mà chưa có tab → hỏi mở tệp rồi chạy nếu đã mở được (trừ `_QUIET_WITHOUT_DOCUMENT`);
-        công cụ «Coming Soon» cũ chỉ hiện thông báo."""
+        Lệnh cần tài liệu mà chưa có tab → hỏi mở tệp rồi chạy nếu đã mở được (spec §5.3). Riêng lệnh
+        `quiet_without_document` gọi từ phím tắt / `QAction` (`from_action=True`) thì bỏ qua khi chưa có tài liệu
+        và không rời Trang chủ khi đã có. Công cụ «Coming Soon» cũ chỉ hiện thông báo."""
         key = _LEGACY_TOOL_KEYS.get(key, key)
         cmd = commands.BY_KEY.get(key)
         if cmd is not None:
             fn = self._command_handlers().get(key)
             name, needs_document = cmd.label_text(), cmd.needs_document
+            quiet = from_action and cmd.quiet_without_document
         else:
             tool = get_tool(key)
             if tool is None:
@@ -1959,8 +1956,7 @@ class MainWindow(QMainWindow):
                     f"⏳ {tool.name} — {COMING_SOON_LABEL} (dự kiến {tool.milestone}). Theo dõi tiến độ trên GitHub.")
                 return
             fn = self._legacy_tool_handlers().get(key)
-            name, needs_document = tool.name, tool.needs_document
-        quiet = key in _QUIET_WITHOUT_DOCUMENT
+            name, needs_document, quiet = tool.name, tool.needs_document, False
         if needs_document and self.active_tab() is None:
             if quiet:
                 return

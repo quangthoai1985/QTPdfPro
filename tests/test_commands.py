@@ -13,7 +13,8 @@ from qtpdfpro.ui.main_window import MainWindow
 def test_command_keys_and_shortcuts_unique():
     keys = [c.key for c in commands.COMMANDS]
     assert len(keys) == len(set(keys))
-    sc = [c.shortcut for c in commands.COMMANDS if c.shortcut and c.register_shortcut]
+    # Từng tổ hợp phím (lệnh có nhiều phím: "Ctrl+Y, Ctrl+Shift+Z") — so theo QKeySequence để "ctrl+s" = "Ctrl+S"
+    sc = [QKeySequence(s).toString() for c in commands.COMMANDS if c.register_shortcut for s in c.shortcuts()]
     assert len(sc) == len(set(sc))
     assert "F3" not in sc
 
@@ -44,7 +45,7 @@ def test_search_is_accent_insensitive_and_has_system_commands():
     assert [c.tab for c in everything] == sorted((c.tab for c in everything), key=tab_order.index)
 
 
-def test_every_registered_shortcut_has_window_action(qapp, tmp_path):
+def test_every_registered_shortcut_has_window_action(qapp):
     win = MainWindow(settings=AppSettings.load())
     for c in commands.COMMANDS:
         act = win.command_actions[c.key]
@@ -59,13 +60,64 @@ def test_every_registered_shortcut_has_window_action(qapp, tmp_path):
     win.close()
 
 
+def _record_open_dialogs(monkeypatch) -> list[str]:
+    asked: list[str] = []
+    monkeypatch.setattr(QFileDialog, "getOpenFileNames", lambda *a, **k: asked.append("open") or ([], ""))
+    monkeypatch.setattr(QFileDialog, "getOpenFileName", lambda *a, **k: asked.append("source") or ("", ""))
+    return asked
+
+
 def test_palette_command_needing_document_cancelled_on_home(qapp, monkeypatch):
     win = MainWindow(settings=AppSettings.load())
-    monkeypatch.setattr(QFileDialog, "getOpenFileNames", lambda *a, **k: ([], ""))
-    monkeypatch.setattr(QFileDialog, "getOpenFileName", lambda *a, **k: ("", ""))
-    win.run_command("compress")
+    asked = _record_open_dialogs(monkeypatch)
+    assert commands.get("doc_info").needs_document
+    win.run_command("doc_info")
+    assert asked == ["open"]  # hỏi mở tệp; huỷ → không đổi gì
     assert win.active_tab() is None and win.stack.currentWidget() is win.home_page
     win.close()
+
+
+def test_quiet_command_shortcut_silent_but_palette_asks_to_open(qapp, monkeypatch):
+    win = MainWindow(settings=AppSettings.load())
+    asked = _record_open_dialogs(monkeypatch)
+    for key in ("save", "undo", "close_tab", "zoom_in"):
+        assert commands.get(key).quiet_without_document
+        win.command_actions[key].trigger()  # đường phím tắt / QAction: im lặng
+    assert asked == []
+    win.run_command("save")  # đường Ctrl+K (spec §5.3): hỏi mở tệp rồi chạy
+    assert asked == ["open"]
+    assert win.active_tab() is None and win.stack.currentWidget() is win.home_page
+    win.close()
+
+
+def test_source_picking_tools_do_not_force_opening_a_tab(qapp, monkeypatch):
+    win = MainWindow(settings=AppSettings.load())
+    asked = _record_open_dialogs(monkeypatch)
+    called: list[tuple] = []
+    monkeypatch.setattr(win, "action_signature_library", lambda: called.append(("signatures",)))
+    monkeypatch.setattr(win, "action_pdf_tool", lambda key: called.append(("pdf_tool", key)))
+    monkeypatch.setattr(win, "action_organize", lambda mode="organize": called.append(("organize", mode)))
+    for key in ("signatures", "compress", "organize"):
+        win.run_command(key)
+    assert called == [("signatures",), ("pdf_tool", "compress"), ("organize", "organize")]
+    assert asked == [] and win.active_tab() is None
+
+
+def test_needs_document_matches_old_tool_catalog():
+    """Lệnh ứng với khoá cũ của `tool_catalog` giữ đúng `needs_document` cũ (giữ hành vi run_tool, spec §4)."""
+    from qtpdfpro.ui.main_window import _LEGACY_TOOL_KEYS
+    from qtpdfpro.ui.tool_catalog import TOOLS
+
+    checked = 0
+    for tool in TOOLS:
+        key = _LEGACY_TOOL_KEYS.get(tool.key, tool.key)
+        if tool.ready and key in commands.BY_KEY:
+            assert commands.get(key).needs_document == tool.needs_document, (tool.key, key)
+            checked += 1
+    assert checked >= 25
+    win_free = ("convert_word", "verify_docx", "split", "extract_pages", "watermark", "page_numbers", "protect",
+                "unlock")
+    assert not any(commands.get(k).needs_document for k in win_free)
 
 
 def test_command_palette_lists_commands_with_shortcuts(qapp):
@@ -91,7 +143,7 @@ def test_theme_sets_icon_color_from_tokens(qapp):
 
     win = MainWindow(settings=AppSettings.load())
     win._apply_theme("light")
-    assert icons.current_color() == theme._LIGHT_TOKENS["text"]
+    assert icons.current_color() == theme.theme_tokens("light")["text"]
     win._apply_theme("dark")
-    assert icons.current_color() == theme._DARK_TOKENS["text"]
+    assert icons.current_color() == theme.theme_tokens("dark")["text"]
     win.close()
