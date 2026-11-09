@@ -124,6 +124,7 @@ class PDFDocumentTab(QWidget):
     statusMessage = Signal(str)
     toolsetChanged = Signal(str)  # "edit" | "fill" khi vào / đổi bộ công cụ chỉnh sửa, "" khi thoát → tầng 2 đổi thẻ
     noticeCommandRequested = Signal(str)  # liên kết của dòng thông báo → MainWindow.run_command(khoá)
+    historyChanged = Signal()  # có / hết thao tác để Hoàn tác / Làm lại → MainWindow bật / tắt QAction
     pointerModeRequested = Signal(str)  # "select" | "hand" (phím V/H, nút thanh dọc, menu) → MainWindow áp mọi tab
     saveSearchableRequested = Signal()  # tài liệu ảnh quét → «Lưu thành PDF tìm kiếm được» (MainWindow)
 
@@ -673,19 +674,16 @@ class PDFDocumentTab(QWidget):
                 ctl.place_pending_signature()
         self.fill_toolbar.sync_from_controller()
 
-    def toggle_edit_mode(self, toolset: str = "edit") -> None:
-        """Bật/tắt chế độ chỉnh sửa; đang ở bộ công cụ kia thì chuyển sang bộ `toolset`."""
-        if self.edit_mode and self._toolset == toolset:
-            self.exit_edit_mode()
-        else:
-            self.enter_edit_mode(toolset=toolset)
+    def history_state(self) -> tuple[bool, bool, str, str]:
+        """(hoàn tác được, làm lại được, tên thao tác hoàn tác, tên thao tác làm lại) của phiên chỉnh sửa."""
+        if self.reader.is_closed or not self.reader.has_edit_session:
+            return False, False, "", ""
+        ses = self.annot_controller.session
+        return ses.can_undo, ses.can_redo, ses.undo_label, ses.redo_label
 
     def _sync_history(self) -> None:
-        if not self.reader.has_edit_session:
-            self.edit_toolbar.update_history(False, False)
-            return
-        ses = self.annot_controller.session
-        self.edit_toolbar.update_history(ses.can_undo, ses.can_redo, ses.undo_label, ses.redo_label)
+        self.edit_toolbar.update_history(*self.history_state())
+        self.historyChanged.emit()
 
     def _on_annotations_changed(self, page_index: int) -> None:
         self.viewer.refresh_pages([page_index])
@@ -1282,6 +1280,7 @@ class MainWindow(QMainWindow):
         tab.viewer.zoomChanged.connect(lambda _z: self._sync_toolbar_with_active_tab())
         tab.extract_page_text_btn.clicked.connect(self.action_extract_current_page_text)
         tab.noticeCommandRequested.connect(self.run_command)
+        tab.historyChanged.connect(lambda t=tab: self._sync_history_actions() if t is self.active_tab() else None)
         tab.toolsetChanged.connect(lambda _ts, t=tab: self._sync_function_tab_with_tab(t))
         tab.edit_toolbar.saveRequested.connect(self.action_save)
         tab.edit_toolbar.organizeRequested.connect(lambda: self.run_command("organize"))
@@ -1341,6 +1340,7 @@ class MainWindow(QMainWindow):
         tab = self.active_tab()
         for key in ("close_tab", "save", "save_as"):  # menu ☰: chỉ bật khi có tài liệu
             self.command_actions[key].setEnabled(tab is not None)
+        self._sync_history_actions()
         if tab is None:
             self.function_bar.set_page(0, 0)
             self.function_bar.set_save_visible(False)
@@ -1355,6 +1355,17 @@ class MainWindow(QMainWindow):
             pw, ph = tab.reader.get_page_size(cur)
             self.status_doc_lbl.setText(f"{tab.reader.path.name} — Trang {cur + 1}/{total} ({pw:.0f}×{ph:.0f} pt)")
         self.status_zoom_lbl.setText(f"Thu phóng: {tab.viewer.zoom_percent}%")
+
+    def _sync_history_actions(self) -> None:
+        """Hoàn tác / Làm lại (nút tầng 2, Ctrl+Z / Ctrl+Y) theo phiên chỉnh sửa của tab đang xem; không có
+        tài liệu → tắt."""
+        tab = self.active_tab()
+        can_undo, can_redo, undo_label, redo_label = tab.history_state() if tab is not None else (False, False, "", "")
+        for key, enabled, what in (("undo", can_undo, undo_label), ("redo", can_redo, redo_label)):
+            cmd, act = commands.get(key), self.command_actions[key]
+            act.setEnabled(enabled)
+            name = f"{cmd.label_text()}: {what}" if what else cmd.label_text()
+            act.setToolTip(f"{name} ({cmd.shortcuts()[0]})")
 
     # ─── Công cụ ───────────────────────────────────────────────────────────
 
@@ -1482,12 +1493,11 @@ class MainWindow(QMainWindow):
         self.set_function_tab("read" if tab.edit_mode and tab.toolset == "edit" else "edit")
 
     def action_fill_sign(self) -> None:
-        """Ctrl+Shift+F: thẻ «Điền & Ký»; đang ở đó thì về thẻ «Đọc» (như Ctrl+E)."""
-        tab = self.active_tab()
-        if tab is None:
+        """Ctrl+Shift+F: luôn sang thẻ «Điền & Ký» (chỉ Ctrl+E bấm lại mới về thẻ «Đọc»)."""
+        if self.active_tab() is None:
             self.run_command("fill_sign")
             return
-        self.set_function_tab("read" if tab.edit_mode and tab.toolset == "fill" else "fill")
+        self.set_function_tab("fill")
 
     def action_signature_library(self) -> None:
         """Thư viện chữ ký — dùng được cả khi chưa mở tài liệu."""

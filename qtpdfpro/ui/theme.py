@@ -119,13 +119,13 @@ QPushButton#pillBtn:hover { border-color: @accent; background-color: @card_hover
 QFrame#functionBar { background-color: @bar; border-bottom: 1px solid @border; }
 QPushButton#fnTabBtn {
     background-color: transparent; color: @muted; border: none; border-bottom: 2px solid transparent;
-    border-radius: 0px; padding: 7px 9px 5px 9px; font-weight: 600;
+    border-radius: 0px; padding: 7px 8px 5px 8px; font-weight: 600;
 }
 QPushButton#fnTabBtn:hover { color: @text; background-color: transparent; }
 QPushButton#fnTabBtn:checked { color: @text; border-bottom: 2px solid @accent; }
 QToolButton#fnToolBtn, QToolButton#fnIconBtn {
     background-color: transparent; color: @text; border: 1px solid transparent; border-radius: 6px;
-    padding: 4px 7px; font-weight: 500;
+    padding: 4px 5px; font-weight: 500;
 }
 QToolButton#fnIconBtn { padding: 4px; }
 QToolButton#fnToolBtn:hover, QToolButton#fnIconBtn:hover, QToolButton#fnToolBtn:open {
@@ -135,9 +135,10 @@ QToolButton#fnToolBtn:checked, QToolButton#fnIconBtn:checked {
     background-color: @accent_soft; color: @accent_text; border-color: @accent;
 }
 QToolButton#fnToolBtn:disabled, QToolButton#fnIconBtn:disabled { color: @faint; }
-QToolButton#fnToolBtn[popupMode="1"], QToolButton#primaryConvertBtn[popupMode="1"] { padding-right: 18px; }
-QToolButton#fnToolBtn::menu-button { border: none; border-left: 1px solid @border; width: 15px; }
-QToolButton#primaryConvertBtn::menu-button { border: none; border-left: 1px solid @on_accent; width: 15px; }
+QToolButton#fnToolBtn[popupMode="1"], QToolButton#primaryConvertBtn[popupMode="1"] { padding-right: 16px; }
+QToolButton#fnToolBtn::menu-button { border: none; border-left: 1px solid @border; width: 14px; }
+QToolButton#primaryConvertBtn::menu-button { border: none; border-left: 1px solid @on_accent; width: 14px; }
+QFrame#functionBar QToolButton#primaryConvertBtn { padding: 4px 8px; padding-right: 16px; }
 QToolButton#fnToolBtn::menu-indicator { image: none; width: 0px; }
 QFrame#fnSep { color: @border_strong; margin: 6px 4px; }
 QSpinBox#pageSpin { padding: 3px 2px; }

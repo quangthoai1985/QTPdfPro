@@ -157,15 +157,15 @@ def test_fill_mode_with_mouse(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
     assert ctl.edit_annotation(0, xref)
     assert ses.list_annotations()[0].content == "Phạm Minh Châu Anh"
 
-    # Chuyển sang «Chỉnh sửa» → thanh Chỉnh sửa, công cụ của bộ đó; Ctrl+Shift+F quay lại Điền & Ký rồi tắt
+    # Chuyển sang «Chỉnh sửa» → thanh Chỉnh sửa, công cụ của bộ đó; Ctrl+Shift+F quay lại Điền & Ký
     win.set_function_tab("edit")
     app.processEvents()
     assert tab.toolset == "edit" and tab.edit_toolbar.isVisible() and not tab.fill_toolbar.isVisible()
     assert ctl.tool == "highlight"
     win.act_fill_sign.trigger()
     assert tab.toolset == "fill" and tab.fill_toolbar.isVisible() and win.function_bar.tab_buttons["fill"].isChecked()
-    win.act_fill_sign.trigger()
-    assert not tab.edit_mode and win.function_bar.current_tab() == "read"
+    win.act_fill_sign.trigger()  # bấm lại vẫn ở Điền & Ký (chỉ Ctrl+E bật / tắt)
+    assert tab.edit_mode and tab.toolset == "fill" and win.function_bar.current_tab() == "fill"
 
     # Lưu (ghi bổ sung) giữ chú thích
     monkeypatch.setattr(QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.StandardButton.Yes))

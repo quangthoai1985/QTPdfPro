@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QPoint, QRect, Qt
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QAbstractButton
 
@@ -60,6 +60,12 @@ def test_overflow_roundtrip_keeps_actions(qapp, sample_pdf):  # Review Focus 3
     qapp.processEvents()
     hidden = win.function_bar.overflow_keys()
     assert hidden
+    fb = win.function_bar
+    always = [*fb.tab_buttons.values(), fb.btn_pointer_select, fb.btn_pointer_hand, fb.btn_prev_page, fb.page_spin,
+              fb.total_page_lbl, fb.btn_next_page, fb.zoom_combo]
+    for w in always:  # thẻ và cụm điều khiển xem luôn hiện đủ, không bị cắt
+        top_left = w.mapTo(fb, QPoint(0, 0))
+        assert w.isVisible() and fb.rect().contains(QRect(top_left, w.size())), w
     for k in hidden:  # mục trong ⋯ vẫn là QAction dùng được
         act = win.command_actions[commands.expand_layout_item(k)[0]]
         assert act.isEnabled() and act in win.function_bar.overflow_button.menu().actions()
@@ -76,4 +82,27 @@ def test_min_width_and_close_last_doc_in_edit(qapp, sample_pdf):  # Review Focus
     QTest.keyClick(win, Qt.Key.Key_3, Qt.KeyboardModifier.AltModifier)  # không có tài liệu → bỏ qua
     win2tab = win.open_pdf_path(sample_pdf)
     assert win.function_bar.current_tab() == "read" and not win2tab.edit_mode
+    win.close()
+
+
+def test_undo_redo_follow_active_tab_history(qapp, sample_pdf, tmp_path):
+    win, tab = open_window(sample_pdf)
+    undo, redo = win.command_actions["undo"], win.command_actions["redo"]
+    assert not undo.isEnabled() and not redo.isEnabled()
+    tab._highlight_selection(0, [(72, 85, 300, 104)])
+    assert undo.isEnabled() and not redo.isEnabled()
+    assert "Hoàn tác:" in undo.toolTip()
+    win.set_function_tab("edit")
+    assert win.function_bar.tool_buttons["undo"].isEnabled()  # nút tầng 2 theo QAction dùng chung
+    undo.trigger()
+    assert not undo.isEnabled() and redo.isEnabled()
+
+    from ui_helpers import make_sample_pdf
+    tab2 = win.open_pdf_path(make_sample_pdf(tmp_path / "khac.pdf"))  # tab khác chưa có lịch sử
+    assert win.active_tab() is tab2 and not undo.isEnabled() and not redo.isEnabled()
+    win.doc_tabs.setCurrentWidget(tab)
+    assert redo.isEnabled()
+    for i in range(win.doc_tabs.count() - 1, -1, -1):
+        win.close_tab_at(i, force=True)
+    assert not undo.isEnabled() and not redo.isEnabled()  # không có tài liệu → tắt
     win.close()
