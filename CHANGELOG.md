@@ -7,6 +7,25 @@
 
 ## [Chưa phát hành]
 
+### Việc còn dở / Ưu tiên kế tiếp cho Agent phiên sau (cập nhật 2026-11-10)
+1. ~~**Phát hành**~~ — đã phát hành **v1.3.0** ngày 2026-11-10 (gồm cả các thay đổi định cho v1.2.2 và đại tu giao diện).
+2. ~~**Hoàn thiện công cụ «Chọn chữ»**~~ — xong 2026-11-08 tối (mục trên cùng). Còn: chạy thử trên bản `.exe`; tuỳ chọn Ctrl+A lần hai = cả tài liệu, chọn liền qua trang ở chế độ xem một trang.
+3. **Kiểm thử engine NĐ30 trên văn bản thật** (PDF ký số VGCA, PDF xuất từ phần mềm quản lý văn bản, PDF in từ LibreOffice): chạy `python -m qtpdfpro.cli convert <tệp> --mode nd30 --verify-layout` (hoặc `cli batch <thư mục> --verify-layout`) và xử lý các trường hợp «Lệch nhỏ».
+4. **Lộ trình** (`docs/DE_XUAT_TINH_NANG.md`): **Xem 2 trang song song**, **V1** một cửa sổ duy nhất, **V2** thông báo «Đã lưu», phần còn lại của **A3** (đầu – chân trang, Bates, dấu nước ảnh), **A4** (metadata, làm sạch `scrub`), **A6** giai đoạn 2 (điền AcroForm); sau đó **B1** (áp công cụ trên tab có Hoàn tác), **B2** (so sánh 2 PDF), **V5** (trang quản lý mô-đun), **B4** (ký số USB token, v2.0). OCR: thử thêm bản scan mờ / nghiêng / có bảng, dựng bảng Word từ trang scan. In thử 1 trang ra giấy trên máy in thật khi người dùng đồng ý.
+   - «Chỉnh sửa PDF» mở rộng: đổi cỡ hộp chữ/hình bằng tay nắm, sửa kiểu dáng chú thích đã có, che thông tin (redaction), dấu đóng có ảnh chữ ký.
+5. Tuỳ chọn: chuyển hàng loạt song song bằng nhiều tiến trình (`ProcessPoolExecutor`, cần `multiprocessing.freeze_support()` cho bản PyInstaller); ký số (code signing) bộ cài để SmartScreen không cảnh báo.
+
+---
+
+## [1.3.0] — 2026-11-10 (Giao diện mới gọn 2 tầng, «Có gì mới», chọn chữ trên bản scan và qua nhiều trang)
+
+### 2026-11-10 — Phát hành v1.3.0 trên GitHub
+- `__version__` 1.3.0; gộp mọi thay đổi chưa phát hành từ 2026-11-08 (Chọn chữ / Bàn tay, chọn chữ trên bản scan, chọn liền nhiều trang, mở tệp nhanh, đường tải dự phòng) và đại tu giao diện 2026-11-10.
+- Ghi chú «Có gì mới» bản 1.3.0 (`qtpdfpro/ui/assets/whats_new.json`, ngày 2026-11-10); `tests/test_version.py::test_whats_new_has_notes_for_current_version` giờ bắt buộc có ghi chú cho đúng `__version__`.
+- Đóng gói bằng `python tools/build_release.py` (Python 3.14.5 trên PATH, PyInstaller + Inno Setup 6): `QTPdfPro_Setup.exe` 99,3 MB (sha256 `41b550cc43d039e9d2e1e465142df3ba9a5e6129c74e65645646afd7f34480e9`), `QTPdfPro_Update.zip` = `QTPdfPro-v1.3.0-win64.zip` 139,9 MB (sha256 `a746b382606053b699425ace603c6ec714070da3beabf033ba81e2dd4e1ba493`). Gói zip: gốc `QTPdfPro/`, 1040 tệp, có `assets/icons/*.svg` + `assets/whats_new.json` (mục 1.3.0), không có `pymupdf/layout`.
+- Máy phát triển có bản cài thật → không cài thử bộ cài. Chạy thử `dist\QTPdfPro\QTPdfPro.exe --skip-default-prompt` với `QT_PDF_PRO_DATA` tạm chứa `last_seen_version` 1.2.1 (giả lập máy vừa cập nhật): mở cửa sổ «QT PDF Pro v1.3.0» cùng hộp thoại «Có gì mới», mở được PDF mẫu.
+- `python -m pytest -q tests` → 296 qua, 1 bỏ qua, mã thoát 0.
+
 ### 2026-11-10 — Ghi bảng nhớ tạm chắc chắn (sau khi gộp đại tu giao diện)
 - **Vấn đề**: trên máy phát triển, bài test chép chữ (Ctrl+Shift+C) đỏ ~1/2 số lần. Đo bằng Qt thuần: ghi rồi đọc lại bảng nhớ tạm ngay thì sai 18/40 lần — một chương trình theo dõi bảng nhớ tạm của Windows giữ nó trong chốc lát sau mỗi lần ghi, lệnh ghi kế tiếp của Qt thất bại **im lặng**. Người dùng thật cũng có thể bấm Ctrl+C mà không chép được.
 - **Sửa**: `qtpdfpro/ui/clipboard.py` — `set_text` / `set_image` ghi rồi đọc lại, chưa khớp thì chờ 20 ms và ghi lại (tối đa 10 lần, đo được cần tới 4 lần); mọi chỗ chép trong ứng dụng (Chọn chữ, bong bóng OCR, ảnh vùng chọn, báo cáo NĐ30, thông tin tài liệu, văn bản trang) dùng hàm này; ghi thất bại hẳn thì thanh trạng thái báo «Không ghi được vào bộ nhớ tạm… — thử lại» thay vì báo «Đã sao chép». Test: `tests/test_clipboard.py` (bảng nhớ tạm giả thất bại 2 lần đầu, bỏ cuộc sau N lần, bảng nhớ tạm thật); `tests/ui_helpers.clipboard_text` đọc lại có chờ. `python -m pytest -q tests` → 296 qua, 1 bỏ qua, mã thoát 0; bài test chép chữ qua 8/8 lần liên tiếp.
@@ -96,14 +115,6 @@ Người dùng yêu cầu ghi bàn giao, **chưa cần phát hành** bản cập
 - Kéo 13 commit (v1.0.1 → v1.2.1) về `main` cục bộ, cài thêm `onnxruntime` theo `requirements.txt`.
 - **Sửa** `tests/test_ocr.py::test_real_models_read_vietnamese` lỗi `OcrModelsMissing` trên máy **đã** cài mô hình OCR: `skipif` gọi `find_bundle()` lúc nạp module (thư mục dữ liệu thật) nhưng khi chạy, `conftest` đã đổi `QT_PDF_PRO_DATA` sang thư mục tạm. Test giờ đặt `QT_PDF_PRO_OCR_MODELS` (`ocr_models.MODELS_ENV`) trỏ về bộ mô hình đã tìm thấy.
 - Kiểm thử: `python -m pytest -q tests` → 185 qua, 1 bỏ qua.
-
-### Việc còn dở / Ưu tiên kế tiếp cho Agent phiên sau (cập nhật 2026-11-08)
-1. **Phát hành v1.2.2 khi người dùng yêu cầu** (chưa yêu cầu): gom các mục «2026-11-08 — …» ở trên thành `## [1.2.2]`, quy trình ở `CLAUDE.md` mục 6.4. Chưa chạy thử các tính năng mới trên bản `.exe` đóng gói.
-2. ~~**Hoàn thiện công cụ «Chọn chữ»**~~ — xong 2026-11-08 tối (mục trên cùng). Còn: chạy thử trên bản `.exe`; tuỳ chọn Ctrl+A lần hai = cả tài liệu, chọn liền qua trang ở chế độ xem một trang.
-3. **Kiểm thử engine NĐ30 trên văn bản thật** (PDF ký số VGCA, PDF xuất từ phần mềm quản lý văn bản, PDF in từ LibreOffice): chạy `python -m qtpdfpro.cli convert <tệp> --mode nd30 --verify-layout` (hoặc `cli batch <thư mục> --verify-layout`) và xử lý các trường hợp «Lệch nhỏ».
-4. **Lộ trình** (`docs/DE_XUAT_TINH_NANG.md`): **Xem 2 trang song song**, **V1** một cửa sổ duy nhất, **V2** thông báo «Đã lưu», phần còn lại của **A3** (đầu – chân trang, Bates, dấu nước ảnh), **A4** (metadata, làm sạch `scrub`), **A6** giai đoạn 2 (điền AcroForm); sau đó **B1** (áp công cụ trên tab có Hoàn tác), **B2** (so sánh 2 PDF), **V5** (trang quản lý mô-đun), **B4** (ký số USB token, v2.0). OCR: thử thêm bản scan mờ / nghiêng / có bảng, dựng bảng Word từ trang scan. In thử 1 trang ra giấy trên máy in thật khi người dùng đồng ý.
-   - «Chỉnh sửa PDF» mở rộng: đổi cỡ hộp chữ/hình bằng tay nắm, sửa kiểu dáng chú thích đã có, che thông tin (redaction), dấu đóng có ảnh chữ ký.
-5. Tuỳ chọn: chuyển hàng loạt song song bằng nhiều tiến trình (`ProcessPoolExecutor`, cần `multiprocessing.freeze_support()` cho bản PyInstaller); ký số (code signing) bộ cài để SmartScreen không cảnh báo.
 
 ---
 

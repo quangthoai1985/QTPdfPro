@@ -54,7 +54,12 @@ def test_bat_files_are_pure_ascii_and_crlf() -> None:
         assert b"\n" not in raw.replace(b"\r\n", b""), f"Tệp {bat_name} không được chứa LF đơn lẻ"
 
 
-def test_whats_new_ready_for_current_or_next_version() -> None:
+def test_whats_new_has_notes_for_current_version() -> None:
+    """Phát hành bản mới mà quên viết ghi chú «Có gì mới» (hoặc quên ngày) thì đỏ."""
     notes = wn.load_notes()
-    newest = parse_version(notes[0].version)
-    assert wn.notes_for(__version__, notes) is not None or newest > parse_version(__version__)
+    current = wn.notes_for(__version__, notes)
+    assert current is not None, f"whats_new.json chưa có mục cho {__version__}"
+    assert re.match(r"^\d{4}-\d{2}-\d{2}$", current.date), "Mục «Có gì mới» thiếu ngày phát hành (YYYY-MM-DD)"
+    assert 3 <= len(current.items) <= 6
+    assert notes[0].version == __version__, "Mục mới nhất trong whats_new.json phải là phiên bản đang phát hành"
+    assert parse_version(notes[0].version) == parse_version(__version__)
