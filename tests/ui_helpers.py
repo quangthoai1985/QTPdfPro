@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import shutil
+import time
 from pathlib import Path
 
 import fitz
+from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import QApplication
 
 from qtpdfpro.core.settings import AppSettings
@@ -49,3 +51,18 @@ def make_sample_pdf(path: Path) -> Path:
     doc.save(str(path))
     doc.close()
     return path
+
+
+def clipboard_text(expected: str | None = None, timeout: float = 1.5) -> str:
+    """Chữ trong bảng nhớ tạm của Windows. Một số máy có chương trình theo dõi bảng nhớ tạm (lịch sử bảng nhớ tạm,
+    đồng bộ…) giữ nó trong chốc lát ngay sau khi ghi → đọc ngay có thể ra chuỗi rỗng / cũ (đo được 18/40 lần sai
+    khi chỉ dùng Qt). Đọc lại tới khi khớp `expected` hoặc hết `timeout` giây; trả về lần đọc cuối."""
+    app = QApplication.instance()
+    deadline = time.monotonic() + timeout
+    text = QGuiApplication.clipboard().text()
+    while expected is not None and text != expected and time.monotonic() < deadline:
+        if app is not None:
+            app.processEvents()
+        time.sleep(0.02)
+        text = QGuiApplication.clipboard().text()
+    return text

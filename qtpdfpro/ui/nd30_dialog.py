@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Optional
 
 from PySide6.QtCore import QThread, Qt, Signal
-from PySide6.QtGui import QColor, QGuiApplication
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QDialog,
     QHBoxLayout,
@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
 )
 
 from qtpdfpro.core.layout_verify import LayoutVerifyReport, verify_docx_layout
+from qtpdfpro.ui import clipboard
 from qtpdfpro.core.nd30_engine import analyze_pdf_nd30
 from qtpdfpro.core.nd30_standard import DocxLayoutPlan, ND30Report, build_docx_plan
 
@@ -157,7 +158,7 @@ class ND30ReportDialog(QDialog):
         lines = [f"Đối chiếu thể thức NĐ30 — {self.pdf_path.name}: {self.report.score:.1f}%"]
         for c in self.report.checks:
             lines.append(f"[{_STATUS.get(c.status, ('?',))[0]}] {c.name}: {c.measured} | Quy định: {c.expected} {c.note}".rstrip())
-        QGuiApplication.clipboard().setText("\n".join(lines))
+        clipboard.set_text("\n".join(lines))
 
 
 class _VerifyWorker(QThread):

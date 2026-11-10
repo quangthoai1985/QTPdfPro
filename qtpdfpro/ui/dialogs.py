@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
@@ -18,6 +17,7 @@ from PySide6.QtWidgets import (
 )
 
 from qtpdfpro import __app_name__, __author__, __github_repo__, __version__
+from qtpdfpro.ui import clipboard
 from qtpdfpro.core.reader import DocumentInfo
 
 
@@ -90,9 +90,7 @@ class DocumentInfoDialog(QDialog):
         layout.addLayout(btn_row)
 
     def _copy_info(self) -> None:
-        cb = QGuiApplication.clipboard()
-        if cb is not None:
-            cb.setText("\n".join(self._summary_lines))
+        clipboard.set_text("\n".join(self._summary_lines))
 
 
 class PageTextDialog(QDialog):
@@ -120,9 +118,7 @@ class PageTextDialog(QDialog):
         layout.addLayout(btn_row)
 
     def _copy_all(self) -> None:
-        cb = QGuiApplication.clipboard()
-        if cb is not None:
-            cb.setText(self.editor.toPlainText())
+        clipboard.set_text(self.editor.toPlainText())
 
 
 class AboutDialog(QDialog):

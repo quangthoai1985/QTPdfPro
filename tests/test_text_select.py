@@ -22,6 +22,7 @@ from qtpdfpro.core.font_resolver import _TCVN3_TO_UNICODE
 from qtpdfpro.core.ocr import OcrLine
 from qtpdfpro.core.settings import AppSettings
 from qtpdfpro.ui.main_window import MainWindow
+from ui_helpers import clipboard_text
 
 LEFT = Qt.MouseButton.LeftButton
 
@@ -307,9 +308,9 @@ def test_select_mode_drag_copy_double_click_and_context_menu(tmp_path: Path) -> 
     assert tool.selection_page == 0
     assert tool.selected_text() == "Cộng hoà xã hội chủ nghĩa Việt Nam\nĐộc lập"
     _key(viewer.widget(), Qt.Key.Key_C, Qt.KeyboardModifier.ControlModifier)
-    assert QGuiApplication.clipboard().text() == "Cộng hoà xã hội chủ nghĩa Việt Nam\nĐộc lập"
+    assert clipboard_text("Cộng hoà xã hội chủ nghĩa Việt Nam\nĐộc lập") == "Cộng hoà xã hội chủ nghĩa Việt Nam\nĐộc lập"
     _key(viewer.widget(), Qt.Key.Key_C, Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.ShiftModifier)
-    assert QGuiApplication.clipboard().text() == "Cộng hoà xã hội chủ nghĩa Việt Nam Độc lập"
+    assert clipboard_text("Cộng hoà xã hội chủ nghĩa Việt Nam Độc lập") == "Cộng hoà xã hội chủ nghĩa Việt Nam Độc lập"
 
     # Kéo từ chỗ trống → khung chữ nhật chỉ lấy hai ô
     _drag(viewer, 0, (290, 380), (420, 425))
@@ -411,7 +412,7 @@ def test_scanned_page_drag_recognizes_region(tmp_path: Path) -> None:
     res = tool.ocr_result
     assert res is not None and res.text() == "Văn bản quét thử nghiệm\ndòng thứ hai"
     assert all(abs(a - b) < 2.5 for a, b in zip(res.page_rects[0], (72, 300, 200, 330)))
-    assert QGuiApplication.clipboard().text() == "Văn bản quét thử nghiệm\ndòng thứ hai"
+    assert clipboard_text("Văn bản quét thử nghiệm\ndòng thứ hai") == "Văn bản quét thử nghiệm\ndòng thứ hai"
     assert tool.popup.text_edit.toPlainText() == "Văn bản quét thử nghiệm\ndòng thứ hai"
 
     # Bật «Nối dòng thành đoạn» trong bong bóng; người dùng sửa chữ rồi Ctrl+C → lấy chữ đã sửa
@@ -419,7 +420,7 @@ def test_scanned_page_drag_recognizes_region(tmp_path: Path) -> None:
     assert tool.popup.text_edit.toPlainText() == "Văn bản quét thử nghiệm dòng thứ hai"
     tool.popup.text_edit.setPlainText("Văn bản đã sửa")
     _key(tab.viewer.widget(), Qt.Key.Key_C, Qt.KeyboardModifier.ControlModifier)
-    assert QGuiApplication.clipboard().text() == "Văn bản đã sửa"
+    assert clipboard_text("Văn bản đã sửa") == "Văn bản đã sửa"
 
     # Lần sau: mô hình đã có → nhận dạng ngay; khung trống → báo không thấy chữ
     _drag(tab.viewer, 0, (400, 600), (500, 700))
@@ -488,7 +489,7 @@ def test_drag_and_shift_click_select_across_pages(tmp_path: Path) -> None:
     assert tool.selection_pages == [0, 1]
     assert tool.selected_text() == "dòng cuối\nTrang hai"
     _key(surface, Qt.Key.Key_C, Qt.KeyboardModifier.ControlModifier)
-    assert QGuiApplication.clipboard().text() == "dòng cuối\nTrang hai"
+    assert clipboard_text("dòng cuối\nTrang hai") == "dòng cuối\nTrang hai"
 
     # Shift+nhấp trên trang 3 → mở rộng từ điểm đầu (trang 1) sang trang 3
     c = viewer.page_transform(2).map(QPointF(112, 96))

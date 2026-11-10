@@ -22,6 +22,7 @@ from qtpdfpro.core import text_select as ts
 from qtpdfpro.core.ocr import OcrLine
 from qtpdfpro.core.settings import AppSettings
 from qtpdfpro.ui.main_window import MainWindow
+from ui_helpers import clipboard_text
 
 LEFT = Qt.MouseButton.LeftButton
 LINES = ["Cộng hòa xã hội chủ nghĩa", "Độc lập tự do hạnh phúc"]
@@ -226,7 +227,7 @@ def test_scanned_page_background_layer_makes_text_selectable(tmp_path: Path) -> 
     QApplication.sendEvent(surface, QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_A, Qt.KeyboardModifier.ControlModifier))
     assert tool.selected_text() == "\n".join(LINES)
     QApplication.sendEvent(surface, QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_C, Qt.KeyboardModifier.ControlModifier))
-    assert QGuiApplication.clipboard().text() == "\n".join(LINES)
+    assert clipboard_text("\n".join(LINES)) == "\n".join(LINES)
 
     # Sang trang 3 → nhận dạng ngầm trang đó
     tab.viewer.go_to_page(2)

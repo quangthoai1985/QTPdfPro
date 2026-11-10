@@ -23,7 +23,7 @@ from typing import Callable, Dict, List, Optional
 import fitz  # PyMuPDF
 
 from PySide6.QtCore import QObject, QPoint, QPointF, QRect, QRectF, Qt, QThread, Signal
-from PySide6.QtGui import QBrush, QColor, QGuiApplication, QImage, QKeyEvent, QKeySequence, QMouseEvent, QPainter, QPen
+from PySide6.QtGui import QBrush, QColor, QImage, QKeyEvent, QKeySequence, QMouseEvent, QPainter, QPen
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -41,6 +41,7 @@ from PySide6.QtWidgets import (
 from qtpdfpro.core import text_select as ts
 from qtpdfpro.core.reader import PDFDocumentReader
 from qtpdfpro.ui.ocr_layer_service import OcrLayerService, shared_ocr_engine
+from qtpdfpro.ui import clipboard
 
 SELECTION_COLOR = QColor(37, 99, 235, 72)
 OCR_COLOR = QColor(22, 163, 74, 64)
@@ -433,7 +434,9 @@ class TextSelectTool(QObject):
         if not text:
             self.message.emit("Chưa chọn chữ nào — kéo chuột qua chữ cần sao chép.")
             return False
-        QGuiApplication.clipboard().setText(text)
+        if not clipboard.set_text(text):
+            self.message.emit("Không ghi được vào bộ nhớ tạm (đang bị chương trình khác giữ) — thử lại.")
+            return False
         joined = " (đã nối dòng thành đoạn)" if join_lines else ""
         self.message.emit(f"Đã sao chép {len(text):,} ký tự{joined}.".replace(",", "."))
         return True
@@ -449,7 +452,9 @@ class TextSelectTool(QObject):
         except Exception as exc:
             self.message.emit(f"Không chụp được ảnh vùng chọn: {exc}")
             return False
-        QGuiApplication.clipboard().setImage(img)
+        if not clipboard.set_image(img):
+            self.message.emit("Không ghi được ảnh vào bộ nhớ tạm (đang bị chương trình khác giữ) — thử lại.")
+            return False
         self.message.emit(f"Đã sao chép ảnh vùng chọn ({img.width()}×{img.height()} điểm ảnh, 200 dpi).")
         return True
 
@@ -556,7 +561,7 @@ class TextSelectTool(QObject):
         popup.show_result(f"🔤 Đã nhận dạng {len(res.lines)} dòng ({secs} giây) và chép vào bộ nhớ tạm — "
                           "sửa được trước khi chép lại.", res.text(self.join_lines))
         self._place_popup()
-        QGuiApplication.clipboard().setText(res.text(self.join_lines))
+        clipboard.set_text(res.text(self.join_lines))
         self.message.emit(f"Đã nhận dạng {len(res.lines)} dòng chữ trong vùng chọn — đã chép vào bộ nhớ tạm (Ctrl+V để dán).")
         self.selectionChanged.emit()
         self._repaint()
@@ -599,7 +604,7 @@ class TextSelectTool(QObject):
             return
         text = self._popup.text().strip()
         if text:
-            QGuiApplication.clipboard().setText(text)
+            clipboard.set_text(text)
             self.message.emit(f"Đã sao chép {len(text):,} ký tự chữ nhận dạng.".replace(",", "."))
 
     def _on_popup_join(self, on: bool) -> None:
