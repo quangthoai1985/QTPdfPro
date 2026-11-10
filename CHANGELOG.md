@@ -8,12 +8,26 @@
 ## [Chưa phát hành]
 
 ### Việc còn dở / Ưu tiên kế tiếp cho Agent phiên sau (cập nhật 2026-11-10)
-1. ~~**Phát hành**~~ — đã phát hành **v1.3.0** ngày 2026-11-10 (gồm cả các thay đổi định cho v1.2.2 và đại tu giao diện).
+1. ~~**Phát hành**~~ — đã phát hành **v1.4.0** ngày 2026-11-10 (một cửa sổ duy nhất, mục V1). Còn: chạy thử mở nhiều PDF từ Explorer trên **bản cài** (đã thử bản `dist\QTPdfPro\QTPdfPro.exe` với dữ liệu tạm).
 2. ~~**Hoàn thiện công cụ «Chọn chữ»**~~ — xong 2026-11-08 tối (mục trên cùng). Còn: chạy thử trên bản `.exe`; tuỳ chọn Ctrl+A lần hai = cả tài liệu, chọn liền qua trang ở chế độ xem một trang.
 3. **Kiểm thử engine NĐ30 trên văn bản thật** (PDF ký số VGCA, PDF xuất từ phần mềm quản lý văn bản, PDF in từ LibreOffice): chạy `python -m qtpdfpro.cli convert <tệp> --mode nd30 --verify-layout` (hoặc `cli batch <thư mục> --verify-layout`) và xử lý các trường hợp «Lệch nhỏ».
-4. **Lộ trình** (`docs/DE_XUAT_TINH_NANG.md`): **Xem 2 trang song song**, **V1** một cửa sổ duy nhất, **V2** thông báo «Đã lưu», phần còn lại của **A3** (đầu – chân trang, Bates, dấu nước ảnh), **A4** (metadata, làm sạch `scrub`), **A6** giai đoạn 2 (điền AcroForm); sau đó **B1** (áp công cụ trên tab có Hoàn tác), **B2** (so sánh 2 PDF), **V5** (trang quản lý mô-đun), **B4** (ký số USB token, v2.0). OCR: thử thêm bản scan mờ / nghiêng / có bảng, dựng bảng Word từ trang scan. In thử 1 trang ra giấy trên máy in thật khi người dùng đồng ý.
+4. **Lộ trình** (`docs/DE_XUAT_TINH_NANG.md`): **Xem 2 trang song song**, ~~**V1**~~ (xong v1.4.0), **V2** thông báo «Đã lưu», phần còn lại của **A3** (đầu – chân trang, Bates, dấu nước ảnh), **A4** (metadata, làm sạch `scrub`), **A6** giai đoạn 2 (điền AcroForm); sau đó **B1** (áp công cụ trên tab có Hoàn tác), **B2** (so sánh 2 PDF), **V5** (trang quản lý mô-đun), **B4** (ký số USB token, v2.0). OCR: thử thêm bản scan mờ / nghiêng / có bảng, dựng bảng Word từ trang scan. In thử 1 trang ra giấy trên máy in thật khi người dùng đồng ý.
    - «Chỉnh sửa PDF» mở rộng: đổi cỡ hộp chữ/hình bằng tay nắm, sửa kiểu dáng chú thích đã có, che thông tin (redaction), dấu đóng có ảnh chữ ký.
 5. Tuỳ chọn: chuyển hàng loạt song song bằng nhiều tiến trình (`ProcessPoolExecutor`, cần `multiprocessing.freeze_support()` cho bản PyInstaller); ký số (code signing) bộ cài để SmartScreen không cảnh báo.
+
+---
+
+## [1.4.0] — 2026-11-10 (Một cửa sổ duy nhất: mở nhiều PDF cùng lúc thành các tab, như Foxit Reader)
+
+### 2026-11-10 — Một cửa sổ duy nhất (mục V1) và phát hành v1.4.0
+- **Người dùng thấy gì**: chọn nhiều PDF trong Explorer rồi Enter, nhấp đúp từng tệp, hay kéo tệp vào lối tắt khi ứng dụng đang chạy → tất cả mở thành **tab trong cùng một cửa sổ**; cửa sổ đang thu nhỏ tự bật lên và lên trước. Tệp đã mở thì chỉ chuyển sang tab đó. Bấm lối tắt khi ứng dụng đang mở chỉ đưa cửa sổ lên (không mở cửa sổ thứ hai).
+- **Cách làm** — Explorer chạy **một tiến trình cho mỗi tệp** (`"QTPdfPro.exe" "%1"`):
+  - `qtpdfpro/core/single_instance.py` (không Qt): `channel_name()` theo người dùng + thư mục dữ liệu (bản chạy thử với `QT_PDF_PRO_DATA` tạm không gửi tệp sang ứng dụng thật), `normalize_paths` (đường dẫn tuyệt đối theo thư mục làm việc của tiến trình phụ, bỏ trùng), `encode_message`/`decode_message` (một dòng JSON `{"v":1,"files":[…]}`), `PrimaryLock` (mutex `Local\<tên kênh>` bầu tiến trình chính — Windows tự nhả khi tiến trình thoát/treo), `allow_foreground_for_any_process` (`AllowSetForegroundWindow(ASFW_ANY)`: tiến trình phụ vừa được người dùng mở nhường quyền lên trước cho cửa sổ chính).
+  - `qtpdfpro/ui/single_instance.py`: `InstanceServer` (`QLocalServer`, `UserAccessOption`, trả `ok` rồi phát `filesRequested`), `send_to_primary` (thử kết nối lại tới 60 giây, chờ xác nhận 60 giây), `SingleInstance.start()` → `primary` / `forwarded` / `standalone` (không gửi được thì cư xử như trước), `attach(handler)` phát lại các yêu cầu đến khi cửa sổ còn đang dựng.
+  - `ui/app.main`: bầu tiến trình **trước** khi nạp `MainWindow` (PyMuPDF, ONNX…) → tiến trình phụ thoát sau ~1–5 giây; `open_files_from_instance` + `bring_to_front` (khôi phục nếu thu nhỏ, giữ trạng thái phóng to/thường, `_force_foreground`).
+- **Rào cản gặp phải**: (1) trên Windows `QLocalServer.listen` **không** báo lỗi khi tên kênh đã có người nghe (named pipe cho nhiều phiên bản cùng tên) → phải bầu bằng mutex. (2) Lần thử đầu mở 4 tệp vẫn ra 2–4 cửa sổ: `QLocalServer` trên Windows chỉ giữ một phiên bản ống chờ, phiên bản kế tiếp tạo trong vòng lặp sự kiện — tức khi cửa sổ chính dựng xong (có lúc > 15 giây khi máy bận) → tiến trình phụ thứ hai trở đi nhận ERROR_PIPE_BUSY, hết 15 giây thì tự mở cửa sổ riêng. Nới lên 60 giây (mutex đã bảo đảm có tiến trình chính). (3) Test gửi bằng luồng Python bị kẹt: các hàm chờ chặn của `QLocalSocket` giữ GIL → phía gửi chạy ở tiến trình con.
+- **Kiểm thử**: `tests/test_single_instance.py` 16 bài (tên kênh theo thư mục dữ liệu, chuẩn hoá đường dẫn, mã hoá đường dẫn tiếng Việt / `&`, từ chối thông điệp hỏng, mutex một người giữ, máy chủ nhận + xác nhận, bỏ cuộc khi không có máy chủ, phát lại yêu cầu trước `attach`, tiến trình thứ hai chuyển tiếp, **tiến trình thật `python -m qtpdfpro tệp_tương_đối.pdf`** gửi tệp rồi thoát mã 0, cửa sổ chính mở tab + khôi phục khi đang thu nhỏ + không mở trùng). Chạy thật (dữ liệu tạm): khởi chạy **6 PDF cùng lúc** (có tên «Văn bản số 2 & phụ lục.pdf») → còn **1** tiến trình, 5 tiến trình phụ thoát mã 0, đủ 6 tệp trong «Gần đây».
+- Ghi chú «Có gì mới» bản 1.4.0; lộ trình: đánh dấu V1 xong.
 
 ---
 

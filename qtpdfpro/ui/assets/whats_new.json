@@ -1,6 +1,19 @@
 {
   "versions": [
     {
+      "version": "1.4.0",
+      "date": "2026-11-10",
+      "headline": "Mở nhiều tệp, chỉ một cửa sổ",
+      "items": [
+        {"icon": "files", "title": "Mỗi tệp một tab, chung một cửa sổ",
+         "text": "Chọn nhiều tệp PDF trong thư mục rồi bấm Enter, hoặc mở thêm tệp khi ứng dụng đang chạy: tất cả mở thành tab trong cùng một cửa sổ, giống Foxit Reader."},
+        {"icon": "arrow-up-right", "title": "Cửa sổ tự hiện lên trước",
+         "text": "Ứng dụng đang thu nhỏ cũng tự bật lên và chuyển tới tệp vừa mở."},
+        {"icon": "file-text", "title": "Không mở trùng tệp",
+         "text": "Mở lại một tệp đang mở thì chỉ chuyển sang tab của tệp đó. Bấm biểu tượng ứng dụng khi đang chạy chỉ đưa cửa sổ lên, không mở thêm cửa sổ mới."}
+      ]
+    },
+    {
       "version": "1.3.0",
       "date": "2026-11-10",
       "headline": "Giao diện gọn hơn, chọn chữ tiện hơn",

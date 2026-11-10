@@ -6,16 +6,18 @@ import argparse
 import ctypes
 import sys
 from pathlib import Path
-from typing import List, Optional
+from typing import TYPE_CHECKING, List, Optional
 
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
 
 from qtpdfpro import __app_name__, __github_repo__, __version__
-from qtpdfpro.core.settings import AppSettings
-from qtpdfpro.ui.main_window import MainWindow
-from qtpdfpro.ui.theme import install_ui_fonts
+from qtpdfpro.core.single_instance import normalize_paths
+from qtpdfpro.ui.single_instance import SingleInstance
+
+if TYPE_CHECKING:  # nạp MainWindow (PyMuPDF, ONNX…) chỉ khi là tiến trình chính — tiến trình phụ thoát nhanh
+    from qtpdfpro.ui.main_window import MainWindow
 
 # Sinh lại bằng `python tools/make_app_icon.py`; build.bat nhúng vào .exe (--icon) và chép kèm (--add-data)
 ICON_PATH = Path(__file__).resolve().parent / "assets" / "app_icon.ico"
@@ -99,6 +101,33 @@ def show_main_window(win: MainWindow) -> None:
     _force_foreground(int(win.winId()))
 
 
+def bring_to_front(win: MainWindow) -> None:
+    """Đưa cửa sổ đang chạy lên trước khi tiến trình khác gửi tệp tới: khôi phục nếu đang thu nhỏ, giữ
+    nguyên trạng thái phóng to / thường người dùng đã chọn."""
+    if not win.isVisible():
+        show_main_window(win)
+        return
+    state = win.windowState()
+    if state & Qt.WindowState.WindowMinimized:
+        win.setWindowState((state & ~Qt.WindowState.WindowMinimized) | Qt.WindowState.WindowActive)
+    win.show()
+    win.raise_()
+    win.activateWindow()
+    _force_foreground(int(win.winId()))
+
+
+def open_files_from_instance(win: MainWindow, files: List[str]) -> None:
+    """Yêu cầu từ tiến trình QT PDF Pro khác (mở PDF từ Explorer khi ứng dụng đang chạy): mỗi tệp một tab.
+
+    Danh sách rỗng (bấm lối tắt khi ứng dụng đang mở) chỉ đưa cửa sổ lên trước, như Foxit Reader.
+    """
+    bring_to_front(win)
+    for f in files:
+        win.open_pdf_path(Path(f))  # tệp đã mở thì chuyển tới tab đó; tệp không còn thì báo
+    if files:
+        bring_to_front(win)  # mở tệp lớn mất vài giây — người dùng có thể đã bấm sang cửa sổ khác
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     parser = argparse.ArgumentParser(
         prog="qtpdfpro",
@@ -108,10 +137,22 @@ def main(argv: Optional[List[str]] = None) -> int:
     # Bộ cài (installer.iss) mở ứng dụng kèm cờ này: nó vừa đề nghị đặt mặc định rồi, không hỏi lại
     parser.add_argument("--skip-default-prompt", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
+    files = normalize_paths(args.files)
 
     _set_windows_app_id()
+    app = QApplication.instance() or QApplication([])
+
+    # Một cửa sổ duy nhất (V1): đã có QT PDF Pro đang chạy → gửi tệp sang đó (mở thành tab mới) rồi thoát
+    instance = SingleInstance(parent=app)
+    role = instance.start(files)
+    if role == SingleInstance.FORWARDED:
+        return 0
+
+    from qtpdfpro.core.settings import AppSettings
+    from qtpdfpro.ui.main_window import MainWindow
+    from qtpdfpro.ui.theme import install_ui_fonts
+
     _create_app_mutex()
-    app =QApplication.instance() or QApplication([])
     app.setApplicationName(__app_name__)
     app.setApplicationVersion(__version__)
     app.setWindowIcon(app_icon())
@@ -124,10 +165,13 @@ def main(argv: Optional[List[str]] = None) -> int:
     win = MainWindow(settings=settings)
     show_main_window(win)
 
-    for f in args.files:
+    for f in files:
         p = Path(f)
         if p.exists():
             win.open_pdf_path(p)
+    # Tệp mở từ Explorer trong lúc cửa sổ còn đang dựng (đã xếp hàng) → mở ngay; về sau mở khi nhận được
+    instance.attach(lambda fs: open_files_from_instance(win, fs))
+    app.aboutToQuit.connect(instance.shutdown)
     # Lần nữa khi vòng lặp sự kiện đã chạy (mở tệp lớn ở trên có thể mất vài giây)
     QTimer.singleShot(0, lambda: _force_foreground(int(win.winId())))
 

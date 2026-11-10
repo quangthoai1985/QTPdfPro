@@ -117,7 +117,7 @@ Mọi mục đều theo quy tắc của `CLAUDE.md`: phần xử lý viết tron
 
 ### Vỏ ứng dụng
 
-- [ ] **V1. Một cửa sổ duy nhất + mở tệp từ Explorer vào tab mới** — *v0.5*.
+- [x] **V1. Một cửa sổ duy nhất + mở tệp từ Explorer vào tab mới** — *xong ở v1.4.0 (2026-11-10)*: mutex có tên bầu tiến trình chính (trên Windows `QLocalServer.listen` không báo trùng tên), tiến trình phụ gửi đường dẫn tuyệt đối qua `QLocalServer`/`QLocalSocket` (tên kênh theo người dùng + thư mục dữ liệu), `AllowSetForegroundWindow` rồi thoát; `core/single_instance.py` + `ui/single_instance.py`.
   - Hiện mở 2 tệp PDF từ Explorer sẽ chạy 2 tiến trình. Dùng `QLocalServer`/`QLocalSocket` (tên kênh theo người dùng): tiến trình thứ hai gửi danh sách đường dẫn rồi thoát; cửa sổ đang chạy mở thành tab mới và tự đưa lên trước (lưu ý giới hạn `SetForegroundWindow` của Windows).
   - Nhận nhiều tệp ở dòng lệnh (`python -m qtpdfpro a.pdf b.pdf`).
 - [ ] **V2. Thông báo «Đã lưu» sau khi ghi tệp** — *v0.5*: thông báo nhỏ ở góc thay cho hộp thoại, kèm nút **Xem kết quả** (mở PDF vừa ghi thành tab mới; DOCX thì mở bằng Word) và **Mở thư mục**; dùng cho Lưu thành, chuyển đổi, ghép/tách, các công cụ nhóm A.
