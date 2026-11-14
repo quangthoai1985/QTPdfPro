@@ -241,9 +241,15 @@ class PDFScrollViewer(QScrollArea):
         self._surface.setCursor(shape)
 
     def refresh_pages(self, pages: Iterable[int]) -> None:
-        """Vẽ lại các trang vừa thay đổi nội dung (chú thích mới / xoá / di chuyển)."""
+        """Vẽ lại các trang vừa thay đổi nội dung (chú thích mới / xoá / di chuyển / cắt / xoay)."""
         self.reader.invalidate_pages(pages)
+        old_page = self._current_page
+        if self.reader.page_count > 0:
+            self._current_page = max(0, min(self._current_page, self.reader.page_count - 1))
+        self._recompute_layout()
         self._surface.update()
+        if self._current_page != old_page:
+            self.pageChanged.emit(self._current_page)
 
     def page_at(self, pos: QPointF) -> Optional[int]:
         if not self._page_rects_px:

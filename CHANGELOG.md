@@ -17,6 +17,27 @@
 
 ---
 
+## [1.5.0] — 2026-11-14 (Nâng cấp Chỉnh sửa PDF kiểu PdfCraft, Thanh công cụ nổi Hotbar & Lưu thay đổi trang)
+
+### Thêm mới
+- **Thu gọn bảng thumbnail mặc định & mở rộng không gian đọc**: Khi mở tài liệu PDF, bảng trang nhỏ/mục lục bên phải (`sidebar_tabs`) tự động thu gọn mặc định; người dùng đóng/mở nhanh qua thanh dọc phải hoặc phím `F4`.
+- **Thanh Chỉnh sửa bên trái (`EditSidebar`, `qtpdfpro/ui/edit_sidebar.py`)**: Chỉ xuất hiện khi chuyển sang tab **Chỉnh sửa** (`Ctrl+E`), tự ẩn ở tab Đọc / Điền & Ký hoặc khi bấm nút `✕`. Bố cục theo nhóm thao tác kiểu PdfCraft:
+  - *Sửa đổi trang*: Xoay trái/phải (`90°`), Lật ngang (`Flip Horizontal`), Lật dọc (`Flip Vertical`), Cắt trang (`Crop` kéo chuột hoặc hộp thoại cắt lề), Chèn trang trắng, Nhân bản trang, Xoá trang, Tổ chức trang.
+  - *Thêm nội dung*: Hộp văn bản, Chèn Ảnh (kéo/nhấp chèn + xoay/lật ngang-dọc ảnh đang chọn trên `EditToolbar`), Đầu trang & Chân trang, Đánh số trang, Dấu nước (tại chỗ & xuất tệp), Liên kết (URL hoặc nhảy tới trang), Đánh số Bates, Nền trang (màu/ảnh), Đính kèm tệp.
+  - *Tác vụ khác*: Ghép nhiều PDF, Che thông tin nhạy cảm (`Redact`: khoanh vùng, tìm & đánh dấu hàng loạt, áp dụng xoá vĩnh viễn), Làm sạch siêu dữ liệu (`Sanitize`), Nén PDF, Trích xuất trang, Điền & Ký (`Fill & Sign`).
+- **Thanh công cụ nổi nhanh (`FloatingHotbar`, `qtpdfpro/ui/hotbar.py`)**: Thanh dạng viên thuốc dọc nổi ở góc trên-trái vùng đọc với tay nắm kéo thả (`.grip`), chọn nhanh công cụ đọc/chỉnh sửa (`select`, `hand`, `crop`, `text`, `image`, `highlight`, `draw`, `stamp`, `link`, `redact`, `fill_sign`), tuỳ chỉnh ẩn/hiện từng nút và ẩn/khôi phục thanh nổi.
+- **Lõi xử lý trang (`qtpdfpro/core/page_edit.py` & `qtpdfpro/ui/page_edit_dialogs.py`)**: Thực hiện lật nội dung vector/ảnh chuẩn theo ma trận trang (`flip_page_contents`), cắt vùng/lề trang, chèn/biến đổi ảnh (`add_image_annotation`, `rebuild_image_annotation`), liên kết, đầu/chân trang, Bates, nền trang, đính kèm, Redact và Sanitize — hỗ trợ đầy đủ **Hoàn tác / Làm lại (`EditSession`)**.
+- **Lưu thay đổi bền vững (`Ctrl+S`)**: Bật trạng thái cần lưu cho cả xoay trang xem (`has_pending_view_rotations`), xoay/lật/cắt/thêm-xoá trang, ảnh, liên kết, Redact, Sanitize và các thao tác cấp tài liệu; ghi nguyên vẹn qua lưu nguyên tử (`PDFDocumentReader.save()`) và cập nhật lại ảnh thu nhỏ trang sau khi lưu.
+- **Bộ 14 biểu tượng Lucide SVG mới** trong `qtpdfpro/ui/assets/icons/` (đăng ký trong `qtpdfpro/ui/icons.py`).
+
+### Sửa lỗi
+- Sửa lỗi không lưu được khi xoay trang ở chế độ Đọc hoặc sau các thao tác sửa cấu trúc/lật/cắt trang trong chế độ Chỉnh sửa.
+- Sửa lỗi `sanitize_doc_in_place` khi PyMuPDF gặp xref rác sau thao tác liên kết/Redact (nén dọn rác tạm trên `src`, vẫn giữ liên kết rõ & tệp đính kèm khi `remove_links=False`).
+- Giữ `font-weight: 600` tối đa trên các QSS mới trong `qtpdfpro/ui/theme.py` để đồng bộ với chuẩn phông Inter/Segoe UI.
+
+### Kiểm thử & Xác minh
+- Bổ sung `tests/test_edit_enhanced.py` kiểm thử đầy đủ thu gọn thumbnail, vòng đời `EditSidebar`, `FloatingHotbar`, xoay/lật ngang-dọc/cắt/chèn-nhân bản-xoá trang, chèn-biến đổi ảnh, liên kết, Redact, Đầu/Chân trang, Bates, nền trang, đính kèm, dấu nước, Sanitize, Hoàn tác/Làm lại và Lưu `Ctrl+S`.
+
 ## [1.4.0] — 2026-11-10 (Một cửa sổ duy nhất: mở nhiều PDF cùng lúc thành các tab, như Foxit Reader)
 
 ### 2026-11-10 — Một cửa sổ duy nhất (mục V1) và phát hành v1.4.0

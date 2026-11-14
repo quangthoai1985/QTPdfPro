@@ -271,6 +271,53 @@ QRadioButton::indicator:checked:disabled {
 }
 QCheckBox::indicator:checked:disabled { border-color: @border_strong; background-color: @border_strong; }
 QRadioButton:disabled, QCheckBox:disabled { color: @faint; }
+
+/* ── Sidebar Chỉnh sửa bên trái (kiểu PdfCraft) ── */
+QFrame#editSidebar { background-color: @bar; border-right: 1px solid @border; }
+QFrame#editSidebarHeader { background-color: @bar; border-bottom: 1px solid @border; }
+QLabel#editSidebarTitle { font-size: 15px; font-weight: 600; color: @text; }
+QToolButton#editSidebarCloseBtn {
+    background: transparent; border: 1px solid transparent; border-radius: 6px; padding: 3px;
+}
+QToolButton#editSidebarCloseBtn:hover { background-color: @hover; border-color: @border; }
+QScrollArea#editSidebarScroll, QWidget#editSidebarBody { background: transparent; }
+QLabel#editSectionLabel {
+    font-size: 11px; font-weight: 600; color: @muted; letter-spacing: 0.4px;
+    padding: 6px 2px 2px 2px;
+}
+QFrame#editSidebarSep { background-color: @border; max-height: 1px; margin: 6px 0px; }
+QToolButton#editQuickBtn {
+    background-color: transparent; border: 1px solid transparent; border-radius: 6px; padding: 4px;
+}
+QToolButton#editQuickBtn:hover { background-color: @hover; border-color: @border; }
+QToolButton#editQuickBtn:checked { background-color: @accent_soft; border-color: @accent; }
+QPushButton#editListBtn {
+    background-color: transparent; color: @text; border: 1px solid transparent; border-radius: 7px;
+    padding: 6px 8px; text-align: left; font-size: 13px; font-weight: 500;
+}
+QPushButton#editListBtn:hover { background-color: @hover; border-color: @border; }
+QPushButton#editListBtn:checked {
+    background-color: @accent_soft; color: @accent_text; border-color: @accent; font-weight: 600;
+}
+QPushButton#editListBtn::menu-indicator {
+    subcontrol-origin: padding; subcontrol-position: center right; right: 6px; width: 10px;
+}
+QPushButton#editMoreToggleBtn {
+    background-color: transparent; color: @accent_text; border: none; border-radius: 6px;
+    padding: 4px 8px; text-align: left; font-size: 12px; font-weight: 600;
+}
+QPushButton#editMoreToggleBtn:hover { background-color: @accent_soft; }
+
+/* ── Thanh công cụ nổi nhanh (Hotbar) ── */
+QFrame#floatingHotbar {
+    background-color: @bar; border: 1px solid @border_strong; border-radius: 12px;
+}
+QToolButton#hotbarBtn {
+    background-color: transparent; border: 1px solid transparent; border-radius: 7px; padding: 4px;
+}
+QToolButton#hotbarBtn:hover { background-color: @hover; border-color: @border; }
+QToolButton#hotbarBtn:checked { background-color: @accent_soft; border-color: @accent; }
+QFrame#hotbarSep { background-color: @border; max-height: 1px; margin: 2px 4px; }
 """
 
 

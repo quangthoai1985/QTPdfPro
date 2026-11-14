@@ -19,6 +19,7 @@ import fitz  # PyMuPDF
 
 from qtpdfpro.core import annotations as an
 from qtpdfpro.core import fill_sign as fs
+from qtpdfpro.core import page_edit as pe
 
 _ids = count(1)
 
@@ -62,6 +63,9 @@ class EditSession:
         self._redo: List[EditAction] = []
         self._saved_top: Optional[int] = None
         self._unsaved_purge = False  # đã xoá hẳn chú thích ẩn nhưng chưa ghi tệp xong
+        self._full_save_ids: set[int] = set()
+        self._prepared_full_save = False
+        self._annot_images: Dict[int, bytes] = {}
         self._words: Dict[int, List[tuple]] = {}
         self._leaders: Dict[int, List[fs.Leader]] = {}
         self._boxes: Dict[int, List[fitz.Rect]] = {}
@@ -72,6 +76,11 @@ class EditSession:
     def modified(self) -> bool:
         top = self._undo[-1].action_id if self._undo else None
         return self._unsaved_purge or top != self._saved_top
+
+    @property
+    def needs_full_save(self) -> bool:
+        """True nếu phiên có thao tác xoay/lật/cắt/sửa luồng nội dung hoặc tổ chức trang."""
+        return self._prepared_full_save or any(a.action_id in self._full_save_ids for a in self._undo)
 
     @property
     def can_undo(self) -> bool:
@@ -96,6 +105,9 @@ class EditSession:
         self._redo.clear()
         self._saved_top = None
         self._unsaved_purge = False
+        self._full_save_ids.clear()
+        self._prepared_full_save = False
+        self._annot_images.clear()
         self._words.clear()
         self._leaders.clear()
         self._boxes.clear()
@@ -103,23 +115,49 @@ class EditSession:
     def prepare_save(self) -> int:
         """Xoá hẳn chú thích đã xoá mềm trước khi ghi tệp; trả về số chú thích đã xoá."""
         was_modified = self.modified
+        was_full = self.needs_full_save
         removed = an.purge_deleted(self.doc)
         self._undo.clear()
         self._redo.clear()
         self._saved_top = None
         self._unsaved_purge = was_modified
+        self._full_save_ids.clear()
+        self._prepared_full_save = was_full
         return removed
 
     def mark_saved(self) -> None:
         self._saved_top = self._undo[-1].action_id if self._undo else None
         self._unsaved_purge = False
+        self._prepared_full_save = False
 
     # ─── Tiện ích nội bộ ──────────────────────────────────────────────────
 
-    def _push(self, label: str, page_index: int, undo: Callable[[], None], redo: Callable[[], None]) -> None:
-        self._undo.append(EditAction(label, page_index, undo, redo, next(_ids)))
+    def _invalidate_page_cache(self, page_index: Optional[int] = None) -> None:
+        if page_index is None:
+            self._words.clear()
+            self._leaders.clear()
+            self._boxes.clear()
+        else:
+            self._words.pop(page_index, None)
+            self._leaders.pop(page_index, None)
+            self._boxes.pop(page_index, None)
+
+    def _push(
+        self,
+        label: str,
+        page_index: int,
+        undo: Callable[[], None],
+        redo: Callable[[], None],
+        *,
+        full_save: bool = False,
+    ) -> None:
+        aid = next(_ids)
+        self._undo.append(EditAction(label, page_index, undo, redo, aid))
+        if full_save:
+            self._full_save_ids.add(aid)
         if len(self._undo) > self.MAX_HISTORY:
-            del self._undo[0]
+            dropped = self._undo.pop(0)
+            self._full_save_ids.discard(dropped.action_id)
         self._redo.clear()
 
     def _set_hidden(self, page_index: int, xref: int, hidden: bool) -> None:
@@ -286,6 +324,262 @@ class EditSession:
 
         self._push("Sửa nội dung chú thích", page_index, undo=lambda: apply(before), redo=lambda: apply(after))
         return True
+
+    # ─── Xoay / lật / cắt trang & thêm ảnh / liên kết / che thông tin ────
+
+    def rotate_page(self, page_index: int, delta: int) -> int:
+        """Xoay trang trong tài liệu (thay đổi `/Rotate` của trang, Hoàn tác & Lưu được)."""
+        page = self.doc[page_index]
+        old_rot = page.rotation % 360
+        new_rot = (old_rot + int(delta)) % 360
+        if new_rot == old_rot:
+            return old_rot
+
+        def apply(rot: int) -> None:
+            self.doc[page_index].set_rotation(rot)
+            self._invalidate_page_cache(page_index)
+
+        apply(new_rot)
+        label = "Xoay trang trái 90°" if delta % 360 == 270 else "Xoay trang phải 90°"
+        self._push(label, page_index, undo=lambda: apply(old_rot), redo=lambda: apply(new_rot), full_save=True)
+        return new_rot
+
+    def flip_page(self, page_index: int, horizontal: bool = True, extra_rot: int = 0) -> None:
+        """Lật trang ngang (`horizontal=True`) hoặc dọc (`False`), hỗ trợ Hoàn tác / Làm lại."""
+        geom_keys = ("Rect", "QuadPoints", "InkList", "L", "Vertices", "CL", "M")
+
+        def snap_page() -> Tuple[Tuple[str, str], List[Tuple[int, bytes]], List[Tuple[int, Dict[str, str]]]]:
+            p = self.doc[page_index]
+            ckey = self.doc.xref_get_key(p.xref, "Contents")
+            streams = [(x, bytes(self.doc.xref_stream(x) or b"")) for x in p.get_contents()]
+            annots = [(a.xref, _snapshot(self.doc, a.xref, geom_keys)) for a in (p.annots() or ())]
+            return ckey, streams, annots
+
+        def restore_page(state: Tuple[Tuple[str, str], List[Tuple[int, bytes]], List[Tuple[int, Dict[str, str]]]]) -> None:
+            ckey, streams, annots = state
+            p = self.doc[page_index]
+            self.doc.xref_set_key(p.xref, "Contents", "null" if ckey[0] == "null" else ckey[1])
+            for xref, raw in streams:
+                self.doc.update_stream(xref, raw)
+            for axref, snap in annots:
+                _restore(self.doc, axref, snap)
+            self._invalidate_page_cache(page_index)
+
+        before = snap_page()
+        pe.flip_page_contents(self.doc, page_index, horizontal=horizontal, extra_rot=extra_rot)
+        after = snap_page()
+        self._invalidate_page_cache(page_index)
+        label = "Lật trang ngang" if horizontal else "Lật trang dọc"
+        self._push(
+            label,
+            page_index,
+            undo=lambda: restore_page(before),
+            redo=lambda: restore_page(after),
+            full_save=True,
+        )
+
+    def crop_page(self, page_index: int, rect: fitz.Rect, *, view_coords: bool = True) -> fitz.Rect:
+        """Cắt vùng hiển thị (`CropBox`) của trang, trả về CropBox mới."""
+        old_crop = pe.crop_page_rect(self.doc, page_index, rect, view_coords=view_coords)
+        new_crop = fitz.Rect(self.doc[page_index].cropbox)
+        self._invalidate_page_cache(page_index)
+
+        def apply(box: fitz.Rect) -> None:
+            self.doc[page_index].set_cropbox(box)
+            self._invalidate_page_cache(page_index)
+
+        self._push(
+            "Cắt lề trang",
+            page_index,
+            undo=lambda: apply(old_crop),
+            redo=lambda: apply(new_crop),
+            full_save=True,
+        )
+        return new_crop
+
+    def crop_margins(
+        self,
+        page_index: int,
+        *,
+        top_pt: float = 0.0,
+        bottom_pt: float = 0.0,
+        left_pt: float = 0.0,
+        right_pt: float = 0.0,
+        reset: bool = False,
+    ) -> fitz.Rect:
+        """Cắt lề trang theo 4 cạnh hoặc khôi phục khổ gốc."""
+        old_crop = pe.crop_page_margins(
+            self.doc, page_index, top_pt=top_pt, bottom_pt=bottom_pt, left_pt=left_pt, right_pt=right_pt, reset=reset
+        )
+        new_crop = fitz.Rect(self.doc[page_index].cropbox)
+        self._invalidate_page_cache(page_index)
+
+        def apply(box: fitz.Rect) -> None:
+            self.doc[page_index].set_cropbox(box)
+            self._invalidate_page_cache(page_index)
+
+        self._push(
+            "Khôi phục khổ trang" if reset else "Cắt lề trang",
+            page_index,
+            undo=lambda: apply(old_crop),
+            redo=lambda: apply(new_crop),
+            full_save=True,
+        )
+        return new_crop
+
+    def add_image(
+        self,
+        page_index: int,
+        rect: fitz.Rect,
+        image_bytes: bytes,
+        *,
+        rotation: int = 0,
+        flip_h: bool = False,
+        flip_v: bool = False,
+        opacity: float = 1.0,
+    ) -> int:
+        """Chèn hình ảnh lên trang (di chuyển, xoay 90°, lật ngang/dọc, xoá và Hoàn tác được)."""
+        xref = self._add(
+            "Chèn ảnh",
+            page_index,
+            lambda p: pe.add_image_annotation(
+                p, rect, image_bytes, rotation=rotation, flip_h=flip_h, flip_v=flip_v, opacity=opacity,
+                author=self.author,
+            ),
+        )
+        self._annot_images[xref] = image_bytes
+        return xref
+
+    def transform_image_annot(
+        self,
+        page_index: int,
+        xref: int,
+        *,
+        rotate_delta: int = 0,
+        toggle_flip_h: bool = False,
+        toggle_flip_v: bool = False,
+    ) -> bool:
+        """Xoay 90° hoặc lật ngang/dọc một hình ảnh đã chèn trên trang."""
+        info = self.info(page_index, xref)
+        if info is None or info.app_kind != "image":
+            return False
+        page = self.doc[page_index]
+        raw = self._annot_images.get(xref)
+        if not raw:
+            raw = pe.render_annot_png(page, xref, scale=2.0)
+            self._annot_images[xref] = raw
+        keys = ("AP", "Rect", "M", an.QT_KEY)
+        before = _snapshot(self.doc, xref, keys)
+        pe.rebuild_image_annotation(
+            page,
+            xref,
+            raw,
+            rotate_delta=rotate_delta,
+            toggle_flip_h=toggle_flip_h,
+            toggle_flip_v=toggle_flip_v,
+        )
+        after = _snapshot(self.doc, xref, keys)
+
+        def apply(snap: Dict[str, str]) -> None:
+            _restore(self.doc, xref, snap)
+
+        label = (
+            "Lật ảnh ngang" if toggle_flip_h
+            else "Lật ảnh dọc" if toggle_flip_v
+            else "Xoay ảnh"
+        )
+        self._push(label, page_index, undo=lambda: apply(before), redo=lambda: apply(after))
+        return True
+
+    def add_link(
+        self,
+        page_index: int,
+        rect: fitz.Rect,
+        *,
+        uri: str = "",
+        target_page: Optional[int] = None,
+    ) -> None:
+        """Chèn liên kết URL hoặc nhảy tới trang đích lên trang `page_index`."""
+        page = self.doc[page_index]
+        before_links = [dict(lk) for lk in (page.get_links() or ())]
+        pe.add_link_on_page(page, rect, uri=uri, target_page=target_page)
+        page = self.doc.reload_page(page)
+        after_links = [dict(lk) for lk in (page.get_links() or ())]
+
+        def apply_links(links: List[dict]) -> None:
+            pg = self.doc.reload_page(self.doc[page_index])
+            for existing in list(pg.get_links() or ()):
+                pg.delete_link(existing)
+            for lk in links:
+                pg.insert_link(dict(lk))
+            self.doc.reload_page(pg)
+
+        self._push(
+            "Thêm liên kết",
+            page_index,
+            undo=lambda: apply_links(before_links),
+            redo=lambda: apply_links(after_links),
+            full_save=True,
+        )
+
+    def add_redaction(
+        self,
+        page_index: int,
+        rect: fitz.Rect,
+        *,
+        text: str = "",
+        fill: Tuple[float, float, float] = (0.0, 0.0, 0.0),
+    ) -> int:
+        """Đánh dấu vùng che thông tin nhạy cảm trên trang."""
+        return self._add(
+            "Đánh dấu che thông tin",
+            page_index,
+            lambda p: pe.add_redaction_on_page(p, rect, text=text, fill=fill),
+        )
+
+    def run_doc_operation(
+        self,
+        label: str,
+        page_index: int,
+        mutate_fn: Callable[[fitz.Document], None],
+    ) -> None:
+        """Chạy thao tác biến đổi cấp tài liệu (chèn/xoá trang, đóng dấu nước, đầu/chân trang, Bates, áp dụng che…)
+        kèm chụp bản sao trước/sau để Hoàn tác và Làm lại toàn vẹn."""
+        an.purge_deleted(self.doc)
+        before_bytes = self.doc.tobytes(deflate=False)
+        before_meta = dict(self.doc.metadata or {})
+        before_toc = list(self.doc.get_toc(simple=False) or ())
+
+        mutate_fn(self.doc)
+
+        after_bytes = self.doc.tobytes(deflate=False)
+        after_meta = dict(self.doc.metadata or {})
+        after_toc = list(self.doc.get_toc(simple=False) or ())
+        self._invalidate_page_cache(None)
+
+        def restore_snapshot(data: bytes, meta: dict, toc: list) -> None:
+            old_n = self.doc.page_count
+            src = fitz.open("pdf", data)
+            try:
+                self.doc.insert_pdf(src)
+            finally:
+                src.close()
+            if old_n > 0:
+                self.doc.delete_pages(list(range(old_n)))
+            self.doc.set_metadata(meta)
+            try:
+                self.doc.set_toc(toc)
+            except Exception:
+                pass
+            self._invalidate_page_cache(None)
+
+        self._push(
+            label,
+            max(0, min(page_index, max(0, self.doc.page_count - 1))),
+            undo=lambda: restore_snapshot(before_bytes, before_meta, before_toc),
+            redo=lambda: restore_snapshot(after_bytes, after_meta, after_toc),
+            full_save=True,
+        )
 
     # ─── Hoàn tác / Làm lại ───────────────────────────────────────────────
 

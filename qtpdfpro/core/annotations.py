@@ -103,6 +103,7 @@ APP_KIND_LABELS = {
     "filltext": ("Aa", "Chữ điền"),
     "fillmark": ("✓", "Dấu điền"),
     "signature": ("✍", "Chữ ký"),
+    "image": ("🖼", "Hình ảnh"),
 }
 
 FONT_FAMILIES: List[Tuple[str, str]] = [
@@ -862,7 +863,7 @@ def _annot_color(annot: fitz.Annot, data: dict) -> str:
         return str(style.get("fill") or style.get("text_color") or "")
     if data.get("kind") == "filltext":
         return str(style.get("text_color") or "")
-    if data.get("kind") in ("fillmark", "signature") and style.get("color"):
+    if data.get("kind") in ("fillmark", "signature", "image") and style.get("color"):
         return str(style["color"])
     colors = annot.colors or {}
     rgb = colors.get("stroke") or colors.get("fill")

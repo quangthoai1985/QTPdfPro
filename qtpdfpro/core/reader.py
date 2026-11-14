@@ -145,6 +145,10 @@ class PDFDocumentReader:
         return self._edit_session is not None and self._edit_session.modified
 
     @property
+    def has_pending_view_rotations(self) -> bool:
+        return any(rot % 360 != 0 for rot in self._page_rotations.values())
+
+    @property
     def has_digital_signature(self) -> bool:
         try:
             return self._doc.get_sigflags() > 0
@@ -152,10 +156,19 @@ class PDFDocumentReader:
             return False
 
     def invalidate_pages(self, pages: Iterable[int]) -> None:
-        """Bỏ ảnh kết xuất trong bộ đệm của các trang vừa thay đổi (chú thích mới, xoá, di chuyển…)."""
+        """Bỏ ảnh kết xuất và bộ đệm kích thước/bố cục của các trang vừa thay đổi."""
         targets = set(pages)
         for key in [k for k in self._render_cache if k[0] in targets]:
             self._render_cache.pop(key, None)
+        for pno in targets:
+            self._page_size_cache.pop(pno, None)
+            self._layout_cache.pop(pno, None)
+
+    def invalidate_all(self) -> None:
+        """Xoá toàn bộ bộ đệm kết xuất, kích thước và bố cục."""
+        self._render_cache.clear()
+        self._page_size_cache.clear()
+        self._layout_cache.clear()
 
     @property
     def is_closed(self) -> bool:
@@ -205,19 +218,34 @@ class PDFDocumentReader:
             self._edit_session.rebind(self._doc)
 
     def save(self, path: Optional[str | Path] = None) -> Path:
-        """Lưu chú thích / thay đổi.
+        """Lưu chú thích / xoay / lật / cắt / chỉnh sửa trang.
 
-        - Lưu vào chính tệp đang mở: ghi **bổ sung (incremental)** — giữ nguyên các bản ký số trước đó
-          (chữ ký số VGCA vẫn kiểm tra được phần đã ký) và nhanh với tệp lớn.
+        - Lưu vào chính tệp đang mở: ưu tiên ghi **bổ sung (incremental)** khi chỉ thêm chú thích/ký số để
+          giữ nguyên chữ ký số; nếu có sửa nội dung/cấu trúc trang (xoay, lật, cắt, chèn/xoá trang…) hoặc ghi
+          incremental không khả dụng thì tự động ghi toàn phần an toàn qua tệp tạm.
         - Lưu thành tệp khác: ghi toàn bộ (nén, dọn đối tượng thừa), sau đó tab chuyển sang tệp mới.
         """
+        force_full = False
+        if self._page_rotations:
+            for pno, extra in list(self._page_rotations.items()):
+                if extra % 360 != 0 and 0 <= pno < self.page_count:
+                    page = self._doc[pno]
+                    page.set_rotation((page.rotation + extra) % 360)
+                    force_full = True
+            self._page_rotations.clear()
         if self._edit_session is not None:
+            force_full = force_full or self._edit_session.needs_full_save
             self._edit_session.prepare_save()
         target = Path(path).resolve() if path else self.path
         if target == self.path:
-            if self._doc.can_save_incrementally():
-                self._doc.save(str(self.path), incremental=True, encryption=fitz.PDF_ENCRYPT_KEEP)
-            else:
+            saved_inc = False
+            if not force_full and self._doc.can_save_incrementally():
+                try:
+                    self._doc.save(str(self.path), incremental=True, encryption=fitz.PDF_ENCRYPT_KEEP)
+                    saved_inc = True
+                except Exception:
+                    saved_inc = False
+            if not saved_inc:
                 data = self._doc.tobytes(garbage=3, deflate=True, encryption=fitz.PDF_ENCRYPT_KEEP)
                 tmp = self.path.with_name(f".{self.path.stem}.qtpdfpro-tmp.pdf")
                 tmp.write_bytes(data)
@@ -228,7 +256,7 @@ class PDFDocumentReader:
             target.parent.mkdir(parents=True, exist_ok=True)
             self._doc.save(str(target), garbage=3, deflate=True, encryption=fitz.PDF_ENCRYPT_KEEP)
             self._reopen(target)
-        self._render_cache.clear()
+        self.invalidate_all()
         if self._edit_session is not None:
             self._edit_session.mark_saved()
         return self.path
@@ -310,6 +338,69 @@ class PDFDocumentReader:
 
     def get_page_rotation(self, page_index: int) -> int:
         return self._page_rotations.get(page_index, 0)
+
+    def rotate_page_in_doc(self, page_index: int, delta_degrees: int = 90) -> int:
+        """Xoay thật trang trong tài liệu (ghi vào `EditSession`, có Hoàn tác/Làm lại và Lưu)."""
+        self._check_page_index(page_index)
+        pending = self._page_rotations.pop(page_index, 0) % 360
+        total_delta = (pending + int(delta_degrees)) % 360
+        if total_delta == 0:
+            self.invalidate_pages([page_index])
+            return self._doc[page_index].rotation % 360
+        rot = self.edit_session().rotate_page(page_index, total_delta)
+        self.invalidate_pages([page_index])
+        return rot
+
+    def flip_page_in_doc(self, page_index: int, horizontal: bool = True) -> None:
+        """Lật trang ngang hoặc dọc trực tiếp trong tài liệu (có Hoàn tác/Làm lại và Lưu)."""
+        self._check_page_index(page_index)
+        extra = self._page_rotations.get(page_index, 0)
+        self.edit_session().flip_page(page_index, horizontal=horizontal, extra_rot=extra)
+        self.invalidate_pages([page_index])
+
+    def crop_page_in_doc(self, page_index: int, rect: fitz.Rect, *, view_coords: bool = True) -> fitz.Rect:
+        """Cắt vùng hiển thị (`CropBox`) của trang trong tài liệu (có Hoàn tác/Làm lại và Lưu)."""
+        self._check_page_index(page_index)
+        res = self.edit_session().crop_page(page_index, rect, view_coords=view_coords)
+        self.invalidate_pages([page_index])
+        return res
+
+    def insert_blank_page_in_doc(self, after_index: int) -> int:
+        """Chèn một trang trắng cùng kích thước ngay sau `after_index`."""
+        self._check_page_index(after_index)
+        rect = self._doc[after_index].rect
+        w, h = float(rect.width), float(rect.height)
+        self.edit_session().run_doc_operation(
+            "Chèn trang trắng",
+            after_index,
+            lambda d: d.new_page(pno=after_index + 1, width=w, height=h),
+        )
+        self.invalidate_all()
+        return after_index + 1
+
+    def duplicate_page_in_doc(self, page_index: int) -> int:
+        """Nhân bản trang `page_index` ngay sau nó."""
+        self._check_page_index(page_index)
+        self.edit_session().run_doc_operation(
+            "Nhân bản trang",
+            page_index,
+            lambda d: d.fullcopy_page(page_index, page_index + 1),
+        )
+        self.invalidate_all()
+        return page_index + 1
+
+    def delete_page_in_doc(self, page_index: int) -> int:
+        """Xoá trang `page_index` trực tiếp trong tài liệu đang mở."""
+        self._check_page_index(page_index)
+        if self.page_count <= 1:
+            raise ValueError("Không thể xoá trang duy nhất còn lại của tài liệu.")
+        self.edit_session().run_doc_operation(
+            "Xoá trang",
+            page_index,
+            lambda d: d.delete_page(page_index),
+        )
+        self.invalidate_all()
+        return min(page_index, self.page_count - 1)
 
     def render_page(self, page_index: int, scale: float = 1.0, cache: bool = True) -> RenderedPageBuffer:
         """Kết xuất trang `page_index` ở tỷ lệ `scale` (1.0 = 72 DPI, 2.0 = 144 DPI) sang RGB.

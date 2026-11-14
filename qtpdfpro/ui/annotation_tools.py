@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import fitz  # PyMuPDF
@@ -35,7 +36,9 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QColorDialog,
     QComboBox,
+    QDialog,
     QDoubleSpinBox,
+    QFileDialog,
     QFrame,
     QHBoxLayout,
     QInputDialog,
@@ -53,6 +56,7 @@ from PySide6.QtWidgets import (
 
 from qtpdfpro.core import annotations as an
 from qtpdfpro.core import fill_sign as fs
+from qtpdfpro.core import page_edit as pe
 from qtpdfpro.core.edit_session import EditSession
 from qtpdfpro.core.reader import PDFDocumentReader
 from qtpdfpro.ui import icons
@@ -65,9 +69,9 @@ FILL_TEXT_TOOLS = ("fill_text", "fill_date")
 FILL_MARK_TOOLS = {"fill_check": "check", "fill_cross": "cross", "fill_dot": "dot", "fill_line": "line"}
 FILL_SIGN_TOOLS = ("fill_sign", "fill_initials")
 FILL_TOOLS = FILL_TEXT_TOOLS + tuple(FILL_MARK_TOOLS) + FILL_SIGN_TOOLS
-CREATE_TOOLS = MARKUP_TOOLS + INK_TOOLS + SHAPE_TOOLS + ("text", "note", "stamp") + FILL_TOOLS
+CREATE_TOOLS = MARKUP_TOOLS + INK_TOOLS + SHAPE_TOOLS + ("text", "image", "redact", "note", "stamp") + FILL_TOOLS
 TEXT_COLOR_TOOLS = ("text",) + FILL_TEXT_TOOLS  # màu chọn trên thanh = màu chữ
-STYLELESS_TOOLS = ("pan", "select", "eraser")  # không có hàng kiểu dáng
+STYLELESS_TOOLS = ("pan", "eraser", "crop", "link")  # không có hàng kiểu dáng ("select" hiện nút khi chọn ảnh)
 
 
 @dataclass(frozen=True)
@@ -97,6 +101,13 @@ TOOL_DEFS: List[ToolDef] = [
     ToolDef("line", "╱", "Đường thẳng", "L", "Kéo từ điểm đầu tới điểm cuối · giữ Shift để bắt góc 45°."),
     ToolDef("arrow", "➜", "Mũi tên", "A", "Kéo từ gốc tới đầu mũi tên · giữ Shift để bắt góc 45°."),
     ToolDef("text", "T", "Hộp chữ", "T", "Nhấp (hoặc kéo để đặt độ rộng) rồi nhập nội dung hộp chữ."),
+    ToolDef("image", "🖼", "Chèn ảnh", "I",
+            "Chọn ảnh rồi nhấp hoặc kéo khung để đặt lên trang (kéo di chuyển, xoay/lật khi đang chọn)."),
+    ToolDef("crop", "✂", "Cắt trang", "C", "Kéo chọn vùng cần giữ lại trên trang để cắt lề."),
+    ToolDef("link", "🔗", "Thêm liên kết", "J",
+            "Nhấp hoặc kéo khung để chèn liên kết URL hoặc nhảy tới trang đích."),
+    ToolDef("redact", "▓", "Che thông tin", "B",
+            "Kéo khung vùng thông tin nhạy cảm cần che rồi bấm «Áp dụng che vĩnh viễn»."),
     ToolDef("note", "💬", "Ghi chú dán", "N", "Nhấp vào vị trí cần ghi chú rồi nhập nội dung."),
     ToolDef("stamp", "🔖", "Đóng dấu", "D", "Chọn mẫu dấu rồi nhấp vào trang để đóng dấu."),
     ToolDef("fill_text", "Aa", "Gõ chữ", "T",
@@ -126,6 +137,8 @@ _DEFAULT_STYLES: Dict[str, an.AnnotStyle] = {
     "line": an.AnnotStyle(color="#DC2626", width=2.0),
     "arrow": an.AnnotStyle(color="#DC2626", width=2.0),
     "text": an.AnnotStyle(color="#111827", text_color="#111827", font_size=12.0),
+    "image": an.AnnotStyle(color="#3B82F6", opacity=1.0),
+    "redact": an.AnnotStyle(color="#111827", opacity=1.0),
     "note": an.AnnotStyle(color="#FACC15"),
     "stamp": an.AnnotStyle(color="#16A34A", font_size=18.0, opacity=0.9),
     **{k: an.AnnotStyle(color="#1E3A8A", text_color="#1E3A8A", font_family="serif", font_size=12.0)
@@ -181,6 +194,7 @@ class AnnotationController(QObject):
     selectionChanged = Signal()
     message = Signal(str)
     signatureNeeded = Signal(bool)  # Điền & Ký: chưa có chữ ký (True = chữ ký nháy) → mở hộp thoại tạo chữ ký
+    docStructureChanged = Signal()  # cắt / xoay / lật / chèn / xoá trang hoặc che vĩnh viễn
 
     def __init__(self, reader: PDFDocumentReader, author: Optional[str] = None, parent: QObject | None = None) -> None:
         super().__init__(parent)
@@ -194,6 +208,12 @@ class AnnotationController(QObject):
         self._selected: Optional[Tuple[int, int]] = None
         self._hover: Optional[Tuple[int, int]] = None
         self._erased: set[Tuple[int, int]] = set()
+        # Chèn ảnh
+        self.pending_image_bytes: Optional[bytes] = None
+        self.pending_image_name: str = ""
+        self.pending_image_rotation: int = 0
+        self.pending_image_flip_h: bool = False
+        self.pending_image_flip_v: bool = False
         # Điền & Ký
         self.fill_snap = True  # chữ tự bắt dòng chấm, dấu tự vào ô vuông
         self.date_format = "dmy"
@@ -282,7 +302,7 @@ class AnnotationController(QObject):
             return False
         try:
             self.session.add_signature(page_index, sig, center=point, rect=rect)
-        except an.AnnotationError as exc:
+        except (an.AnnotationError, pe.PageEditError) as exc:
             self.message.emit(str(exc))
             return False
         self._done(page_index, "Đã ký nháy." if initials else "Đã ký.")
@@ -290,6 +310,134 @@ class AnnotationController(QObject):
 
     def cursor(self) -> Qt.CursorShape:
         return _CURSORS.get(self._tool, Qt.CursorShape.CrossCursor)
+
+    # ─── Chèn ảnh & Che thông tin ─────────────────────────────────────────
+
+    def set_pending_image(self, image_bytes: bytes, name: str = "") -> None:
+        """Gán dữ liệu ảnh chờ đặt lên trang khi nhấp/kéo với công cụ Chèn ảnh."""
+        self.pending_image_bytes = bytes(image_bytes)
+        self.pending_image_name = name
+        self.pending_image_rotation = 0
+        self.pending_image_flip_h = False
+        self.pending_image_flip_v = False
+        self.styleChanged.emit()
+
+    def choose_image(self, parent: Optional[QWidget] = None) -> bool:
+        """Mở hộp thoại chọn ảnh từ máy để chèn vào trang."""
+        path, _ = QFileDialog.getOpenFileName(
+            parent,
+            "Chọn hình ảnh để chèn",
+            "",
+            "Hình ảnh (*.png *.jpg *.jpeg *.webp *.bmp *.gif);;Tất cả (*.*)",
+        )
+        if not path:
+            return False
+        try:
+            data = Path(path).read_bytes()
+        except OSError as exc:
+            self.message.emit(f"Không đọc được tệp ảnh: {exc}")
+            return False
+        self.set_pending_image(data, Path(path).name)
+        self.message.emit(f"Đã chọn ảnh «{Path(path).name}» — nhấp hoặc kéo khung lên trang để đặt.")
+        return True
+
+    def is_image_selected(self) -> bool:
+        if self._selected is None:
+            return False
+        info = self.session.info(*self._selected)
+        return info is not None and info.app_kind == "image"
+
+    def transform_selected_image(
+        self,
+        *,
+        rotate_delta: int = 0,
+        flip_h: bool = False,
+        flip_v: bool = False,
+    ) -> bool:
+        """Xoay 90° hoặc lật ngang/dọc hình ảnh đang chọn (hoặc ảnh sắp chèn)."""
+        if self._selected is not None and self.is_image_selected():
+            page_index, xref = self._selected
+            if self.session.transform_image_annot(
+                page_index,
+                xref,
+                rotate_delta=rotate_delta,
+                toggle_flip_h=flip_h,
+                toggle_flip_v=flip_v,
+            ):
+                self._done(page_index, "Đã biến đổi hình ảnh.")
+                return True
+        if self._tool == "image":
+            if rotate_delta:
+                self.pending_image_rotation = (self.pending_image_rotation + rotate_delta) % 360
+            if flip_h:
+                self.pending_image_flip_h = not self.pending_image_flip_h
+            if flip_v:
+                self.pending_image_flip_v = not self.pending_image_flip_v
+            self.styleChanged.emit()
+            self.message.emit("Đã cập nhật hướng xoay/lật cho ảnh sắp chèn.")
+            return True
+        self.message.emit("Hãy chọn một hình ảnh trên trang để xoay hoặc lật.")
+        return False
+
+    def search_and_mark_redactions(self, needle: str, page_index: int = 0) -> int:
+        """Tìm từ khoá trên toàn tài liệu và đánh dấu vùng che tương ứng (Hoàn tác được)."""
+        q = an._nfc(needle).strip()
+        if not q:
+            self.message.emit("Hãy nhập từ khoá cần che.")
+            return 0
+        hits = 0
+        q_nbsp = q.replace(" ", "\u00a0")
+        for pg in self.reader.doc:
+            rects = list(pg.search_for(q))
+            if not rects and q_nbsp != q:
+                rects = list(pg.search_for(q_nbsp))
+            hits += len(rects)
+        if hits == 0:
+            self.message.emit(f"Không tìm thấy «{q}» trong tài liệu để đánh dấu che.")
+            return 0
+        self.session.run_doc_operation(
+            "Đánh dấu che từ khoá",
+            page_index,
+            lambda d: pe.mark_redactions_for_text(d, q),
+        )
+        self.reader.invalidate_all()
+        self.docStructureChanged.emit()
+        self._done(page_index, f"Đã đánh dấu che {hits} vị trí cho «{q}».")
+        return hits
+
+    def apply_redactions(self, page_index: int = 0) -> int:
+        """Áp dụng xoá vĩnh viễn mọi vùng đã đánh dấu Redact trong tài liệu."""
+        has_any = any(
+            a.type[1] == "Redact"
+            for pg in self.reader.doc
+            for a in (pg.annots() or ())
+        )
+        if not has_any:
+            self.message.emit("Chưa có vùng che thông tin nào trên tài liệu.")
+            return 0
+        applied_pages: List[int] = [0]
+
+        def _mutate(d: fitz.Document) -> None:
+            applied_pages[0] = pe.apply_document_redactions(d)
+
+        self.session.run_doc_operation("Áp dụng che vĩnh viễn", page_index, _mutate)
+        self.reader.invalidate_all()
+        self._set_selected(None)
+        self.docStructureChanged.emit()
+        n = applied_pages[0]
+        self._done(page_index, f"Đã che vĩnh viễn thông tin trên {n} trang.")
+        return n
+
+    @staticmethod
+    def _is_structure_label(label: str) -> bool:
+        low = label.lower()
+        return any(
+            kw in low
+            for kw in (
+                "trang", "cắt lề", "khổ", "xoay", "lật", "nhân bản", "che", "bates",
+                "nền", "dấu nước", "làm sạch", "liên kết", "đính kèm",
+            )
+        )
 
     # ─── Hoàn tác / chọn / xoá / sửa ──────────────────────────────────────
 
@@ -299,21 +447,29 @@ class AnnotationController(QObject):
             self.selectionChanged.emit()
 
     def undo(self) -> bool:
+        old_count = self.reader.page_count
         res = self.session.undo()
         if res is None:
             self.message.emit("Không còn thao tác để hoàn tác.")
             return False
         self._set_selected(None)
+        if self.reader.page_count != old_count or self._is_structure_label(res[0]):
+            self.reader.invalidate_all()
+            self.docStructureChanged.emit()
         self.documentChanged.emit(res[1])
         self.message.emit(f"Đã hoàn tác: {res[0]}")
         return True
 
     def redo(self) -> bool:
+        old_count = self.reader.page_count
         res = self.session.redo()
         if res is None:
             self.message.emit("Không còn thao tác để làm lại.")
             return False
         self._set_selected(None)
+        if self.reader.page_count != old_count or self._is_structure_label(res[0]):
+            self.reader.invalidate_all()
+            self.docStructureChanged.emit()
         self.documentChanged.emit(res[1])
         self.message.emit(f"Đã làm lại: {res[0]}")
         return True
@@ -334,8 +490,9 @@ class AnnotationController(QObject):
         info = self.session.info(page_index, xref)
         if info is None:
             return False
-        if info.app_kind in ("fillmark", "signature"):
-            self.message.emit(f"{info.label}: kéo bằng công cụ Chọn để di chuyển, Delete để xoá.")
+        if info.app_kind in ("fillmark", "signature", "image"):
+            extra = " (chọn ảnh để xoay/lật)" if info.app_kind == "image" else ""
+            self.message.emit(f"{info.label}: kéo bằng công cụ Chọn để di chuyển{extra}, Delete để xoá.")
             return False
         title = {"textbox": "Sửa hộp chữ", "filltext": "Sửa chữ điền"}.get(info.app_kind, f"Nội dung — {info.label}")
         own_text = info.app_kind in ("textbox", "filltext")
@@ -350,7 +507,7 @@ class AnnotationController(QObject):
             return self.delete_annotation(page_index, xref)
         try:
             self.session.set_content(page_index, xref, text)
-        except an.AnnotationError as exc:
+        except (an.AnnotationError, pe.PageEditError) as exc:
             self.message.emit(str(exc))
             return False
         self.documentChanged.emit(page_index)
@@ -430,6 +587,44 @@ class AnnotationController(QObject):
                 self._done(page_index, f"Đã vẽ {TOOL_BY_KEY[tool].tip.lower()}.")
             elif tool == "text":
                 self._create_text_box(viewer, page_index, d.start, end, moved, style)
+            elif tool == "image":
+                if self.pending_image_bytes is None and not self.choose_image(viewer):
+                    return
+                rect = fitz.Rect(d.start, end).normalize()
+                xref = session.add_image(
+                    page_index,
+                    rect,
+                    self.pending_image_bytes or b"",
+                    rotation=self.pending_image_rotation,
+                    flip_h=self.pending_image_flip_h,
+                    flip_v=self.pending_image_flip_v,
+                    opacity=style.opacity,
+                )
+                self._set_selected((page_index, xref))
+                self._done(page_index, "Đã chèn hình ảnh.")
+            elif tool == "crop":
+                rect = fitz.Rect(d.start, end).normalize()
+                if moved < 8 or rect.width < 12 or rect.height < 12:
+                    self.message.emit("Kéo chọn khung vùng trang cần giữ lại (tối thiểu 12 × 12 pt).")
+                    return
+                self.reader.crop_page_in_doc(page_index, rect, view_coords=True)
+                self.docStructureChanged.emit()
+                self._done(page_index, "Đã cắt trang theo vùng chọn.")
+            elif tool == "link":
+                from qtpdfpro.ui.page_edit_dialogs import LinkInsertDialog
+
+                rect = fitz.Rect(d.start, end).normalize()
+                dlg = LinkInsertDialog(
+                    self.reader.page_count, current_page_1based=page_index + 1, parent=viewer
+                )
+                if dlg.exec() == QDialog.DialogCode.Accepted:
+                    vals = dlg.values()
+                    session.add_link(page_index, rect, **vals)
+                    self._done(page_index, "Đã thêm liên kết.")
+            elif tool == "redact":
+                rect = fitz.Rect(d.start, end).normalize()
+                session.add_redaction(page_index, rect)
+                self._done(page_index, "Đã đánh dấu vùng che — bấm «Áp dụng che vĩnh viễn» để xoá hẳn.")
             elif tool == "note":
                 text, ok = QInputDialog.getMultiLineText(viewer, "Ghi chú dán", "Nội dung ghi chú:", "")
                 if ok and text.strip():
@@ -466,7 +661,7 @@ class AnnotationController(QObject):
             elif tool == "select" and d.xref is not None and moved >= 0.5:
                 if session.move(page_index, d.xref, end.x - d.start.x, end.y - d.start.y):
                     self._done(page_index, "Đã di chuyển chú thích.")
-        except an.AnnotationError as exc:
+        except (an.AnnotationError, pe.PageEditError) as exc:
             self.message.emit(str(exc))
         except Exception as exc:  # lỗi bất ngờ từ PyMuPDF — báo, không làm hỏng giao diện
             self.message.emit(f"Không thêm được chú thích: {exc}")
@@ -566,10 +761,31 @@ class AnnotationController(QObject):
                 painter.drawLine(a, b)
                 if tool == "arrow":
                     self._paint_arrow_head(painter, a, b, max(6.0, style.width * scale * 3.5), pen.color())
-        elif tool == "text" or tool in FILL_SIGN_TOOLS:
+        elif tool == "text" or tool in FILL_SIGN_TOOLS or tool == "image":
             painter.setPen(QPen(_qcolor("#2563EB"), 1, Qt.PenStyle.DashLine))
-            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.setBrush(QBrush(_qcolor("#2563EB", 24)) if tool == "image" else Qt.BrushStyle.NoBrush)
             painter.drawRect(viewer.page_rect_to_widget(page_index, fitz.Rect(d.start, d.current).normalize(), t))
+        elif tool == "link":
+            painter.setPen(QPen(_qcolor("#0284C7"), 1.4, Qt.PenStyle.DashLine))
+            painter.setBrush(QBrush(_qcolor("#0284C7", 36)))
+            painter.drawRect(viewer.page_rect_to_widget(page_index, fitz.Rect(d.start, d.current).normalize(), t))
+        elif tool == "redact":
+            painter.setPen(QPen(_qcolor("#DC2626"), 1.5, Qt.PenStyle.SolidLine))
+            painter.setBrush(QBrush(_qcolor("#111827", 95)))
+            painter.drawRect(viewer.page_rect_to_widget(page_index, fitz.Rect(d.start, d.current).normalize(), t))
+        elif tool == "crop":
+            sel = viewer.page_rect_to_widget(page_index, fitz.Rect(d.start, d.current).normalize(), t)
+            pg_w, pg_h = self.reader.get_page_size(page_index)
+            page_rect = viewer.page_rect_to_widget(page_index, fitz.Rect(0, 0, pg_w, pg_h), t)
+            # Làm tối phần bên ngoài khung cắt trang
+            outer = QPainterPath()
+            outer.addRect(page_rect)
+            inner = QPainterPath()
+            inner.addRect(sel)
+            painter.fillPath(outer.subtracted(inner), QBrush(_qcolor("#000000", 85)))
+            painter.setPen(QPen(_qcolor("#2563EB"), 1.8, Qt.PenStyle.DashLine))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawRect(sel)
 
     # ─── Nội bộ ───────────────────────────────────────────────────────────
 
@@ -913,6 +1129,55 @@ class EditToolbar(QFrame):
         sb.addWidget(self.sig_box)
         self._sig_combo_key: Optional[tuple] = None
 
+        # Chèn ảnh: chọn ảnh, xoay/lật ảnh đang chọn hoặc sắp chèn
+        self.image_box = QWidget()
+        il = QHBoxLayout(self.image_box)
+        il.setContentsMargins(0, 0, 0, 0)
+        il.setSpacing(4)
+        self.btn_pick_image = QPushButton("Chọn ảnh…")
+        self.btn_pick_image.setIcon(icons.icon("image-plus"))
+        self.btn_pick_image.setToolTip("Chọn tệp ảnh khác để chèn lên trang")
+        self.btn_pick_image.clicked.connect(lambda: self.controller.choose_image(self))
+        self.btn_img_rot_l = QPushButton("Xoay trái")
+        self.btn_img_rot_l.setIcon(icons.icon("rotate-ccw"))
+        self.btn_img_rot_l.setToolTip("Xoay ảnh 90° ngược chiều kim đồng hồ")
+        self.btn_img_rot_l.clicked.connect(lambda: self.controller.transform_selected_image(rotate_delta=-90))
+        self.btn_img_rot_r = QPushButton("Xoay phải")
+        self.btn_img_rot_r.setIcon(icons.icon("rotate-cw"))
+        self.btn_img_rot_r.setToolTip("Xoay ảnh 90° theo chiều kim đồng hồ")
+        self.btn_img_rot_r.clicked.connect(lambda: self.controller.transform_selected_image(rotate_delta=90))
+        self.btn_img_flip_h = QPushButton("Lật ngang")
+        self.btn_img_flip_h.setIcon(icons.icon("flip-horizontal-2"))
+        self.btn_img_flip_h.setToolTip("Lật ngang hình ảnh")
+        self.btn_img_flip_h.clicked.connect(lambda: self.controller.transform_selected_image(flip_h=True))
+        self.btn_img_flip_v = QPushButton("Lật dọc")
+        self.btn_img_flip_v.setIcon(icons.icon("flip-vertical-2"))
+        self.btn_img_flip_v.setToolTip("Lật dọc hình ảnh")
+        self.btn_img_flip_v.clicked.connect(lambda: self.controller.transform_selected_image(flip_v=True))
+        for w in (self.btn_pick_image, self.btn_img_rot_l, self.btn_img_rot_r,
+                  self.btn_img_flip_h, self.btn_img_flip_v):
+            w.setObjectName("annotToolBtn")
+            il.addWidget(w)
+        sb.addWidget(self.image_box)
+
+        # Che thông tin nhạy cảm: tìm từ khoá hoặc áp dụng xoá vĩnh viễn
+        self.redact_box = QWidget()
+        rl = QHBoxLayout(self.redact_box)
+        rl.setContentsMargins(0, 0, 0, 0)
+        rl.setSpacing(5)
+        self.btn_redact_search = QPushButton("Tìm && che chữ…")
+        self.btn_redact_search.setObjectName("annotToolBtn")
+        self.btn_redact_search.setToolTip("Tìm cụm từ trên toàn tài liệu và đánh dấu che")
+        self.btn_redact_search.clicked.connect(self._on_redact_search)
+        self.btn_redact_apply = QPushButton("Áp dụng che vĩnh viễn")
+        self.btn_redact_apply.setObjectName("annotToolBtn")
+        self.btn_redact_apply.setIcon(icons.icon("eye-off"))
+        self.btn_redact_apply.setToolTip("Xoá vĩnh viễn nội dung dưới các vùng đã đánh dấu che")
+        self.btn_redact_apply.clicked.connect(self._on_redact_apply)
+        rl.addWidget(self.btn_redact_search)
+        rl.addWidget(self.btn_redact_apply)
+        sb.addWidget(self.redact_box)
+
         # Hàng kiểu dáng lấy đủ chỗ cho một hàng trước; gợi ý chỉ dùng phần còn trống
         self.style_box.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Preferred)
         row2.addWidget(self.style_box, 0)
@@ -933,11 +1198,12 @@ class EditToolbar(QFrame):
             self._shortcuts.append(sc)
 
         for box in (self.style_box, self.color_box, self.width_box, self.opacity_box,
-                    self.font_box, self.stamp_box, self.sig_box):
+                    self.font_box, self.stamp_box, self.sig_box, self.image_box, self.redact_box):
             box.setObjectName("editToolbarBox")  # nền trong suốt (theme.py), không lệch màu với thanh công cụ
 
         controller.toolChanged.connect(lambda _k: self.sync_from_controller())
         controller.styleChanged.connect(self.sync_from_controller)
+        controller.selectionChanged.connect(self.sync_from_controller)
         self.sync_from_controller()
 
     def set_shortcuts_enabled(self, enabled: bool) -> None:
@@ -960,7 +1226,7 @@ class EditToolbar(QFrame):
         finally:
             self._syncing = False
         boxes = (self.color_box, self.width_box, self.opacity_box, self.font_box, self.fill_chk, self.stamp_box,
-                 self.snap_chk, self.sig_box)
+                 self.snap_chk, self.sig_box, self.image_box, self.redact_box)
         has_style = tool not in STYLELESS_TOOLS and not self.style_box.isHidden() and any(
             not box.isHidden() for box in boxes)
         self.setVisible(self._active and has_style)
@@ -968,37 +1234,46 @@ class EditToolbar(QFrame):
     def _sync_style_widgets(self, tool: str) -> None:
         td = TOOL_BY_KEY[tool]
         hint = td.hint
+        img_selected = tool == "select" and self.controller.is_image_selected()
         if tool == "stamp":
             hint = f"Nhấp vào trang để đóng dấu «{self.controller.stamp_label}»."
+        elif tool == "image" and self.controller.pending_image_name:
+            hint = f"Ảnh đang chọn: «{self.controller.pending_image_name}» — nhấp hoặc kéo lên trang để đặt."
+        elif img_selected:
+            hint = "Đang chọn hình ảnh — kéo để di chuyển, Delete để xoá, hoặc bấm Xoay / Lật ở bên trái."
         elif tool in FILL_SIGN_TOOLS and self.controller.current_signature(tool == "fill_initials") is None:
             hint = "Chưa có chữ ký — nhấp vào trang hoặc bấm «Thư viện chữ ký» để tạo (vẽ, gõ tên, ảnh)."
         self.hint_lbl.setText(hint)
         self.hint_lbl.setToolTip(hint)
-        creating = tool in CREATE_TOOLS
+        creating = tool in CREATE_TOOLS or img_selected
         self.style_box.setVisible(creating)
         if not creating:
             return
         style = self.controller.style()
-        color = (style.text_color if tool in TEXT_COLOR_TOOLS else style.color).upper()
-        matched = self.swatches.get(color)
-        if matched is not None:
-            matched.setChecked(True)
-        else:
-            checked = self.swatch_group.checkedButton()
-            if checked is not None:
-                self.swatch_group.setExclusive(False)
-                checked.setChecked(False)
-                self.swatch_group.setExclusive(True)
-        self.btn_custom_color.setStyleSheet(
-            "" if matched is not None else f"QPushButton {{ color: {color}; font-weight: 600; }}"
-        )
-        self.width_box.setVisible(tool in INK_TOOLS + SHAPE_TOOLS)
+        matched = None
+        if not img_selected and tool not in ("image", "redact"):
+            color = (style.text_color if tool in TEXT_COLOR_TOOLS else style.color).upper()
+            matched = self.swatches.get(color)
+            if matched is not None:
+                matched.setChecked(True)
+            else:
+                checked = self.swatch_group.checkedButton()
+                if checked is not None:
+                    self.swatch_group.setExclusive(False)
+                    checked.setChecked(False)
+                    self.swatch_group.setExclusive(True)
+            self.btn_custom_color.setStyleSheet(
+                "" if matched is not None else f"QPushButton {{ color: {color}; font-weight: 600; }}"
+            )
+        self.width_box.setVisible(not img_selected and tool in INK_TOOLS + SHAPE_TOOLS)
         self.width_spin.setValue(style.width)
         self.opacity_slider.setValue(int(round(style.opacity * 100)))
         self.opacity_lbl.setText(f"{int(round(style.opacity * 100))}%")
         signing = tool in FILL_SIGN_TOOLS
-        self.color_box.setVisible(not signing)  # chữ ký mang màu riêng (chọn khi tạo chữ ký)
-        self.opacity_box.setVisible(tool not in FILL_TOOLS)
+        is_image_mode = tool == "image" or img_selected
+        is_redact = tool == "redact"
+        self.color_box.setVisible(not signing and not is_image_mode and not is_redact)
+        self.opacity_box.setVisible(tool not in FILL_TOOLS and not img_selected and not is_redact)
         self.font_box.setVisible(tool in ("text", "stamp") + FILL_TEXT_TOOLS + tuple(FILL_MARK_TOOLS))
         self.font_combo.setVisible(tool in ("text",) + FILL_TEXT_TOOLS)
         self.bold_btn.setVisible(tool in ("text",) + FILL_TEXT_TOOLS)
@@ -1023,6 +1298,9 @@ class EditToolbar(QFrame):
         self.sig_box.setVisible(signing)
         if signing:
             self.refresh_signatures()
+        self.image_box.setVisible(is_image_mode)
+        self.btn_pick_image.setVisible(tool == "image")
+        self.redact_box.setVisible(is_redact)
 
     def refresh_signatures(self) -> None:
         """Nạp lại danh sách chữ ký (hoặc chữ ký nháy) đã lưu vào ô chọn, kèm ảnh xem trước."""
@@ -1059,6 +1337,14 @@ class EditToolbar(QFrame):
     def _on_snap(self, checked: bool) -> None:
         if not self._syncing:
             self.controller.fill_snap = bool(checked)
+
+    def _on_redact_search(self) -> None:
+        text, ok = QInputDialog.getText(self, "Tìm && che thông tin", "Nhập từ khoá cần tìm và che đỏ:")
+        if ok and text.strip():
+            self.controller.search_and_mark_redactions(text.strip())
+
+    def _on_redact_apply(self) -> None:
+        self.controller.apply_redactions()
 
     def _set_style(self, **changes) -> None:
         if not self._syncing:

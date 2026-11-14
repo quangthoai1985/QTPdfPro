@@ -1,6 +1,35 @@
 {
   "versions": [
     {
+      "version": "1.5.0",
+      "date": "2026-11-14",
+      "headline": "Chỉnh sửa PDF kiểu PdfCraft & Thanh công cụ nổi (Hotbar)",
+      "items": [
+        {
+          "icon": "flip-horizontal-2",
+          "title": "Thanh Chỉnh sửa bên trái & Thu gọn trang nhỏ",
+          "text": "Thu gọn bảng trang nhỏ bên phải khi mở PDF (bật/tắt bằng F4) và hiện thanh Chỉnh sửa bên trái khi chọn mục Chỉnh sửa (Ctrl+E).",
+          "shortcut": "Ctrl+E"
+        },
+        {
+          "icon": "crop",
+          "title": "Xoay, lật trang ngang/dọc, cắt trang & quản lý trang",
+          "text": "Hỗ trợ Xoay trái/phải, Lật ngang/dọc nội dung trang, Cắt trang kéo khung/theo lề, Chèn trang trắng, Nhân bản, Xoá và Trích xuất trang."
+        },
+        {
+          "icon": "image-plus",
+          "title": "Chèn ảnh, liên kết, Bates, nền trang, che & làm sạch PDF",
+          "text": "Kéo chèn và xoay/lật ảnh, gắn liên kết URL/trang, đầu/chân trang, đánh số Bates, nền trang, đính kèm tệp, đóng dấu nước tại chỗ, Redact và Sanitize."
+        },
+        {
+          "icon": "grip-horizontal",
+          "title": "Thanh công cụ nổi (Hotbar) & Lưu chuẩn xác",
+          "text": "Thanh nổi kéo thả gọn nhẹ ngay trên vùng đọc với tuỳ chỉnh ẩn/hiện nút; lưu đầy đủ xoay xem, xoay/lật/cắt trang và chỉnh sửa bằng Ctrl+S.",
+          "shortcut": "Ctrl+S"
+        }
+      ]
+    },
+    {
       "version": "1.4.0",
       "date": "2026-11-10",
       "headline": "Mở nhiều tệp, chỉ một cửa sổ",

@@ -36,6 +36,10 @@ ICON_NAMES: tuple[str, ...] = (
     "gallery-vertical-end", "list-tree",
     # Hộp thoại «Có gì mới» (Task 7)
     "sparkles",
+    # Nâng cấp Chỉnh sửa (kiểu PdfCraft) & Hotbar
+    "crop", "flip-horizontal-2", "flip-vertical-2", "image-plus", "link-2", "hash",
+    "palette", "paperclip", "eye-off", "grip-horizontal", "heading", "file-plus-2",
+    "trash-2", "layout-grid",
 )
 
 _DEFAULT_COLOR = "#E6E8EC"  # màu chữ giao diện Tối (`_DARK_TOKENS["text"]`)
