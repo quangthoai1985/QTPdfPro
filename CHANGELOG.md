@@ -7,7 +7,19 @@
 
 ## [Chưa phát hành]
 
-### 2026-11-15 — Làm sạch đối tượng nền & nâng cấp hậu xử lý OCR bản quét màu sang DOCX
+### Việc còn dở / Ưu tiên kế tiếp cho Agent phiên sau (cập nhật 2026-11-15)
+1. ~~**Phát hành**~~ — đã phát hành **v1.5.1** ngày 2026-11-15.
+2. ~~**Hoàn thiện công cụ «Chọn chữ»**~~ — xong 2026-11-08 tối. Còn: Ctrl+A lần hai = cả tài liệu, chọn liền qua trang ở chế độ xem một trang.
+3. **Kiểm thử engine NĐ30 trên văn bản thật** (PDF ký số VGCA, PDF xuất từ phần mềm quản lý văn bản, PDF in từ LibreOffice): chạy `python -m qtpdfpro.cli convert <tệp> --mode nd30 --verify-layout` (hoặc `cli batch <thư mục> --verify-layout`) và xử lý các trường hợp «Lệch nhỏ».
+4. **Lộ trình** (`docs/DE_XUAT_TINH_NANG.md`): **Xem 2 trang song song**, ~~**V1**~~ (xong v1.4.0), **V2** thông báo «Đã lưu», phần còn lại của **A3** (dấu nước ảnh), **A6** giai đoạn 2 (điền AcroForm); sau đó **B1** (áp công cụ trên tab có Hoàn tác), **B2** (so sánh 2 PDF), **V5** (trang quản lý mô-đun), **B4** (ký số USB token, v2.0). OCR: thử thêm bản scan mờ / nghiêng / có bảng, dựng bảng Word từ trang scan. In thử 1 trang ra giấy trên máy in thật khi người dùng đồng ý.
+   - «Chỉnh sửa PDF» mở rộng: đổi cỡ hộp chữ/hình bằng tay nắm, sửa kiểu dáng chú thích đã có, dấu đóng có ảnh chữ ký.
+5. Tuỳ chọn: chuyển hàng loạt song song bằng nhiều tiến trình (`ProcessPoolExecutor`, cần `multiprocessing.freeze_support()` cho bản PyInstaller); ký số (code signing) bộ cài để SmartScreen không cảnh báo.
+
+---
+
+## [1.5.1] — 2026-11-15 (Làm sạch đối tượng nền & nâng cấp hậu xử lý OCR bản quét màu sang DOCX)
+
+### Sửa lỗi & Cải tiến
 - **Khử triệt để đối tượng ảnh rác dưới nền (`qtpdfpro/core/ocr.py` — `ink_images`)**: Trên bản quét màu nén JPEG bị quang sai viền đỏ/xanh quanh chữ in đen (ví dụ bản scan thực tế `801/QĐ-SGDĐT`), `ink_images` trước đây gom nhầm tới 55 ảnh nhỏ (`w:drawing`) rải rác dưới nền chữ. Giờ đây khử vùng hào quang `5×5` quanh chữ tối trung tính, lọc hạt mầm liên thông trước khi giãn `25×25`, kiểm tra mật độ & tổng pixel mực màu thật; đồng thời gộp cả nét chữ ký tay mực đen nằm ngoài khung chữ đã nhận dạng (`text_box_mask`) nối liền với con dấu đỏ và cắt khít kênh alpha → giảm từ **55** ảnh xuống **1 ảnh duy nhất** (con dấu đỏ + trọn chữ ký tay đen sạch nền).
 - **Trích xuất đường kẻ ngang trên trang quét (`extract_scan_rules` + `OcrPage.rules` + `build_text_pdf`)**: Tự động dò các đường kẻ ngang mảnh độc lập (dưới tên cơ quan, Quốc hiệu – Tiêu ngữ, trích yếu) bằng hình thái học kèm kiểm tra mật độ mực lân cận trên/dưới để bỏ qua nét ngang của chữ/chữ ký, vẽ lại thành nét vector trong `build_text_pdf` → engine NĐ30 tái tạo đủ 3 đường kẻ viền đoạn (`w:pBdr`) trong Word.
 - **Lọc nhiễu OCR, chuẩn hoá cỡ chữ/độ đậm & nối khối ký 2 cột (`_filter_false_lines`, `assign_styles`, `harmonize_sizes`, `split_long_line`, `clean_ocr_text`, `admin_layout._NOI_NHAN_RE`)**:
@@ -18,14 +30,10 @@
 - **Kiểm thử & Xác minh**:
   - Bổ sung 3 bài kiểm thử đơn vị trong `tests/test_ocr.py` (`test_ink_images_ignores_chromatic_aberration_and_keeps_seal_with_signature`, `test_extract_scan_rules`, `test_clean_ocr_text_and_filter_false_lines`).
   - Kiểm thử toàn bộ bộ test: `python -m pytest -q tests` → **320 passed, 1 skipped**, thoát mã **0**; kiểm chứng lại 3 văn bản mẫu `samples/nd30/` (`cong_van_mau` 100,0%, `ke_hoach_mau` 99,9%, `quyet_dinh_mau` 99,9%) và chạy thử thực tế `ocr_to_docx` trên PDF scan `801/QĐ-SGDĐT` → **1** ảnh con dấu + chữ ký sạch nền, **2** bảng không viền NĐ30, **3** đường kẻ ngang (`w:pBdr`).
-
-### Việc còn dở / Ưu tiên kế tiếp cho Agent phiên sau (cập nhật 2026-11-10)
-1. ~~**Phát hành**~~ — đã phát hành **v1.4.0** ngày 2026-11-10 (một cửa sổ duy nhất, mục V1). Còn: chạy thử mở nhiều PDF từ Explorer trên **bản cài** (đã thử bản `dist\QTPdfPro\QTPdfPro.exe` với dữ liệu tạm).
-2. ~~**Hoàn thiện công cụ «Chọn chữ»**~~ — xong 2026-11-08 tối (mục trên cùng). Còn: chạy thử trên bản `.exe`; tuỳ chọn Ctrl+A lần hai = cả tài liệu, chọn liền qua trang ở chế độ xem một trang.
-3. **Kiểm thử engine NĐ30 trên văn bản thật** (PDF ký số VGCA, PDF xuất từ phần mềm quản lý văn bản, PDF in từ LibreOffice): chạy `python -m qtpdfpro.cli convert <tệp> --mode nd30 --verify-layout` (hoặc `cli batch <thư mục> --verify-layout`) và xử lý các trường hợp «Lệch nhỏ».
-4. **Lộ trình** (`docs/DE_XUAT_TINH_NANG.md`): **Xem 2 trang song song**, ~~**V1**~~ (xong v1.4.0), **V2** thông báo «Đã lưu», phần còn lại của **A3** (đầu – chân trang, Bates, dấu nước ảnh), **A4** (metadata, làm sạch `scrub`), **A6** giai đoạn 2 (điền AcroForm); sau đó **B1** (áp công cụ trên tab có Hoàn tác), **B2** (so sánh 2 PDF), **V5** (trang quản lý mô-đun), **B4** (ký số USB token, v2.0). OCR: thử thêm bản scan mờ / nghiêng / có bảng, dựng bảng Word từ trang scan. In thử 1 trang ra giấy trên máy in thật khi người dùng đồng ý.
-   - «Chỉnh sửa PDF» mở rộng: đổi cỡ hộp chữ/hình bằng tay nắm, sửa kiểu dáng chú thích đã có, che thông tin (redaction), dấu đóng có ảnh chữ ký.
-5. Tuỳ chọn: chuyển hàng loạt song song bằng nhiều tiến trình (`ProcessPoolExecutor`, cần `multiprocessing.freeze_support()` cho bản PyInstaller); ký số (code signing) bộ cài để SmartScreen không cảnh báo.
+- **Đóng gói phát hành (`python tools/build_release.py`)**:
+  - `QTPdfPro_Setup.exe` (98,0 MB) — `sha256:08468b4a1a7a9729cf2d06f7389381eb839848910a4bd9c7214bbcf353cff16b`
+  - `QTPdfPro_Update.zip` & `QTPdfPro-v1.5.1-win64.zip` (137,6 MB, 1052 tệp, `whats_new.json` đầu mục `1.5.1`, không có `pymupdf/layout`) — `sha256:c7a996b6b4824ccafcabecaadfc06dab003414001b0ed7883e945e1c325d44fd`
+  - Chạy thử bản đóng gói `dist\QTPdfPro\QTPdfPro.exe --skip-default-prompt` với `QT_PDF_PRO_DATA` tạm trên `cong_van_mau.pdf`: khởi động sạch, ghi `last_seen_version="1.5.1"` vào `settings.json`.
 
 ---
 

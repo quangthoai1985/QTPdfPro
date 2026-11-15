@@ -1,6 +1,33 @@
 {
   "versions": [
     {
+      "version": "1.5.1",
+      "date": "2026-11-15",
+      "headline": "Bản scan màu sang Word sạch nền, giữ trọn chữ ký & đường kẻ NĐ30",
+      "items": [
+        {
+          "icon": "scan-text",
+          "title": "Xoá sạch các mảnh ảnh mờ dưới nền chữ khi OCR sang Word",
+          "text": "Khử triệt để viền màu nhiễu quanh chữ đen trên bản scan màu nén JPEG, không còn hiện tượng hàng chục đối tượng ảnh nhỏ nằm rải rác dưới chữ."
+        },
+        {
+          "icon": "stamp",
+          "title": "Giữ trọn con dấu đỏ kèm chữ ký tay mực đen",
+          "text": "Tự động gộp cả nét chữ ký tay màu đen nối liền với con dấu đỏ thành một ảnh trong suốt sắc nét duy nhất và đặt đúng vị trí khối ký."
+        },
+        {
+          "icon": "minus",
+          "title": "Tái tạo đường kẻ ngang & bảng khối ký chuẩn NĐ30 trên bản scan",
+          "text": "Dò các đường kẻ ngang mảnh dưới tên cơ quan, Quốc hiệu – Tiêu ngữ, trích yếu trên ảnh quét và dựng lại đầy đủ bảng 2 cột không viền cho phần Nơi nhận – Chữ ký."
+        },
+        {
+          "icon": "badge-check",
+          "title": "Làm sạch văn bản hành chính & chuẩn hoá cỡ chữ, độ đậm",
+          "text": "Tự động khôi phục dấu gạch nối trong số/ký hiệu văn bản, sửa lỗi dính chữ ở dòng dài và nhận diện chính xác tiêu đề in đậm cùng dòng tên người ký."
+        }
+      ]
+    },
+    {
       "version": "1.5.0",
       "date": "2026-11-14",
       "headline": "Chỉnh sửa PDF kiểu PdfCraft & Thanh công cụ nổi (Hotbar)",
