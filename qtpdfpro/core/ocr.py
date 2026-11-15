@@ -20,6 +20,7 @@ Mô hình tải lần đầu qua `core/ocr_models.py` (không nằm trong bộ c
 from __future__ import annotations
 
 import math
+import re
 import tempfile
 import time
 import unicodedata
@@ -46,7 +47,7 @@ LINE_PAD_X, LINE_PAD_Y = 0.020, 0.015  # lề cắt quanh khung dòng, theo inch
 SIZE_PER_BOX_HEIGHT = 0.75
 SIZE_SNAP = 0.25  # cỡ ước lượng lệch ≤ 25% so với trung vị trang → cỡ thân bài (chiều cao khung dao động theo dấu / nét xuống)
 COLUMN_GAP = 0.9  # khoảng trống trong khung dòng ≥ 0,9 × chiều cao khung (cách từ ~0,2–0,5) → tách thành hai cột
-BOLD_STROKE_RATIO = 1.22  # nét dày hơn trung vị trang chừng này lần → chữ đậm
+BOLD_STROKE_RATIO = 1.19  # nét dày hơn trung vị trang chừng này lần → chữ đậm
 ITALIC_SHEAR = 0.21  # tan(~12°): độ nghiêng của chữ nghiêng Times New Roman
 ITALIC_GAIN = 1.06  # độ sắc của hình chiếu cột tăng chừng này khi «dựng thẳng» → chữ nghiêng
 
@@ -94,6 +95,7 @@ class OcrPage:
     skipped: bool = False  # trang đã có lớp chữ → không OCR
     seconds: float = 0.0
     ink_images: List[Tuple[Tuple[float, float, float, float], bytes]] = field(default_factory=list)  # con dấu, chữ ký
+    rules: List[Tuple[float, float, float, float]] = field(default_factory=list)  # đường kẻ ngang (x0, y, x1, độ dày) pt
     # `bbox` của dòng theo trang hiển thị XOAY THÊM góc này (thuận chiều kim đồng hồ) — lớp chữ dùng lại từ công cụ
     # Chọn chữ khi người dùng đang xoay xem trang quét nằm ngang; 0 = trang hiển thị như thường
     view_rotation: int = 0
@@ -160,9 +162,14 @@ def split_long_line(gray: np.ndarray, max_ratio: float = SPLIT_RATIO) -> List[Tu
     ink = (gray < 140).sum(axis=0)
     smooth = np.convolve(ink.astype(float), np.ones(7), "same")
     cuts, joins = [0], [""]
+    max_seg = int(15.5 * h)
     for i in range(1, k):
         target = int(w * i / k)
-        lo, hi = max(cuts[-1] + h, target - 2 * h), min(w - h, target + 2 * h)
+        min_lo = cuts[-1] + h
+        if k - i == 1:
+            min_lo = max(min_lo, w - max_seg)
+        lo = max(min_lo, target - int(3.5 * h))
+        hi = min(w - h, cuts[-1] + max_seg, target + int(3.5 * h))
         if hi <= lo:
             cuts.append(target)
             joins.append("")
@@ -178,7 +185,7 @@ def split_long_line(gray: np.ndarray, max_ratio: float = SPLIT_RATIO) -> List[Tu
                 x = end
             else:
                 x += 1
-        if best is not None and best[0] >= max(2, int(0.15 * h)):
+        if best is not None and best[0] >= max(2, int(0.08 * h)):
             cuts.append(best[2])
             joins.append(" ")
         else:
@@ -344,10 +351,37 @@ class TextRecognizer:
         text = fix_stray_caps(text)
         if text and text[0] not in "-–—•" and has_leading_dash(gray):
             text = "- " + text
+        text = clean_ocr_text(text)
         return unicodedata.normalize("NFC", text)
 
 
 _TONED_UPPER = frozenset("ÀÁẢÃẠĂẰẮẲẴẶÂẦẤẨẪẬÈÉẺẼẸÊỀẾỂỄỆÌÍỈĨỊÒÓỎÕỌÔỒỐỔỖỘƠỜỚỞỠỢÙÚỦŨỤƯỪỨỬỮỰỲÝỶỸỴ")
+_NOI_NHAN_Q_RE = re.compile(r"^\s*\?\s*(?=[Nn][ơo]i\s+nh[ậa]n)")
+_INLINE_Q_DASH_RE = re.compile(r"(?<=\S)\s+\?\s+(?=\S)")
+_DIEU_NO_DOT_RE = re.compile(
+    r"^(\s*Điều\s+\d+)\s+([A-ZĐÀÁẢÃẠĂẰẮẲẴẶÂẦẤẨẪẬÈÉẺẼẸÊỀẾỂỄỆÌÍỈĨỊÒÓỎÕỌÔỒỐỔỖỘƠỜỚỞỠỢÙÚỦŨỤƯỪỨỬỮỰỲÝỶỸỴ])"
+)
+_DOC_CODE_SPACE_RE = re.compile(
+    r"\b(\d{1,5}(?:/\d{4})?/[A-ZĐƯƠĂÂÊÔ0-9]+(?:/[A-ZĐƯƠĂÂÊÔ0-9]+)*)\s+([A-ZĐƯƠĂÂÊÔ]{2,10})\b"
+)
+_VN_UPPER_WORDS = frozenset({"NGÀY", "CỦA", "VỀ", "TẠI", "CHO", "TRONG", "ĐỐI", "THEO", "BAN", "KÈM"})
+
+
+def clean_ocr_text(text: str) -> str:
+    """Làm sạch các lỗi nhận dạng ký tự đặc thù trong văn bản hành chính tiếng Việt bản quét."""
+    if not text:
+        return text
+    text = _NOI_NHAN_Q_RE.sub("* ", text)
+    text = _INLINE_Q_DASH_RE.sub(" – ", text)
+    text = _DIEU_NO_DOT_RE.sub(r"\1. \2", text)
+
+    def _fix_code(m: re.Match) -> str:
+        prefix, suffix = m.group(1), m.group(2)
+        if suffix in _VN_UPPER_WORDS or any(c in _TONED_UPPER for c in suffix):
+            return m.group(0)
+        return f"{prefix}-{suffix}"
+
+    return _DOC_CODE_SPACE_RE.sub(_fix_code, text)
 
 
 def fix_stray_caps(line: str) -> str:
@@ -434,28 +468,69 @@ def stroke_metrics(gray: np.ndarray) -> Tuple[float, float]:
     return stroke, (sharpness(upright) / base) if base else 1.0
 
 
+def _filter_false_lines(
+    lines: List[OcrLine],
+    metrics: List[Tuple[float, float, float]],
+    zoom: float,
+) -> Tuple[List[OcrLine], List[Tuple[float, float, float]]]:
+    """Loại bỏ hộp nhiễu bụi lề trang (quá nhỏ, 1–2 ký tự) hoặc nét chữ ký tay lớn mảnh bị nhận nhầm là chữ."""
+    kept_lines: List[OcrLine] = []
+    kept_metrics: List[Tuple[float, float, float]] = []
+    for ln, m in zip(lines, metrics):
+        _x0, y0, _x1, y1 = ln.bbox
+        h_pt = y1 - y0
+        txt = ln.text.strip()
+        size, norm_stroke, _slant = m
+        stroke_px = norm_stroke * max(1.0, size * zoom)
+        rel_stroke = stroke_px / max(1.0, h_pt * zoom)
+        if h_pt < 6.5 and len(txt) <= 2:
+            continue
+        if h_pt > 28.0 and len(txt) <= 6 and rel_stroke < 0.025:
+            continue
+        kept_lines.append(ln)
+        kept_metrics.append(m)
+    return kept_lines, kept_metrics
+
+
 def assign_styles(lines: List[OcrLine], metrics: List[Tuple[float, float, float]]) -> None:
     """Đậm theo độ dày nét so với trung vị trang, nghiêng theo độ sắc khi dựng thẳng; cỡ chữ thô (gom về cỡ thân
     bài ở `harmonize_sizes`). `metrics` = (cỡ chữ ước lượng pt, nét px / cỡ chữ px, độ nghiêng)."""
     if not lines:
         return
-    strokes = [k for _s, k, _i in metrics if k > 0]
-    base_stroke = float(np.median(strokes)) if strokes else 0.0
-    for line, (size, stroke, slant) in zip(lines, metrics):
+    sizes = [s for s, _k, _i in metrics if s > 0]
+    med_size = float(np.median(sizes)) if sizes else 0.0
+    adj_strokes: List[float] = []
+    for size, stroke, _slant in metrics:
+        ref = med_size if (med_size and abs(size - med_size) <= SIZE_SNAP * med_size) else size
+        adj = stroke * (size / ref) if ref > 0 else stroke
+        adj_strokes.append(adj)
+    valid = [k for k in adj_strokes if k > 0]
+    base_stroke = float(np.median(valid)) if valid else 0.0
+    for line, (size, stroke, slant), adj in zip(lines, metrics, adj_strokes):
         line.size = max(4.0, size)
-        line.bold = bool(base_stroke and stroke > base_stroke * BOLD_STROKE_RATIO)
+        raw_ratio = stroke * (size / med_size) if med_size > 0 else adj
+        line.bold = bool(
+            base_stroke
+            and adj > base_stroke * BOLD_STROKE_RATIO
+            and (not med_size or size >= 0.82 * med_size or raw_ratio > base_stroke * BOLD_STROKE_RATIO)
+        )
         line.italic = slant > ITALIC_GAIN
 
 
 def harmonize_sizes(lines: Sequence[OcrLine]) -> None:
-    """Chiều cao khung dao động theo dấu chồng / nét xuống: cỡ lệch ≤ `SIZE_SNAP` so với trung vị (cả tài liệu khi
-    gọi từ `recognize_document`) coi là cỡ thân bài; làm tròn 0,5 pt."""
+    """Chiều cao khung dao động theo dấu chồng / nét xuống / dấu tên đóng nghiêng: cỡ lệch ≤ `SIZE_SNAP` so với
+    trung vị (hoặc dòng có chữ thường bị nghiêng làm khung cao tới 2,2× thân bài) coi là cỡ thân bài; làm tròn 0,5 pt."""
     sizes = [ln.size for ln in lines if ln.size > 0]
     if not sizes:
         return
     body = float(np.median(sizes))
     for ln in lines:
-        size = body if abs(ln.size - body) <= SIZE_SNAP * body else ln.size
+        if abs(ln.size - body) <= SIZE_SNAP * body or (
+            body < ln.size <= 2.2 * body and any(c.islower() for c in ln.text)
+        ):
+            size = body
+        else:
+            size = ln.size
         ln.size = round(size * 2) / 2
 
 
@@ -511,25 +586,137 @@ def _render_rgb(page: fitz.Page, dpi: int) -> np.ndarray:
     return arr.reshape(pix.height, pix.width, 3).copy()
 
 
-def ink_images(rgb: np.ndarray, zoom: float, min_area_pt: float = 400.0) -> List[Tuple[Tuple[float, float, float, float], bytes]]:
-    """Cụm nét đỏ / xanh đủ lớn (con dấu, chữ ký) → [(khung pt, PNG nền trong suốt)] để neo lại vào DOCX."""
+def ink_images(
+    rgb: np.ndarray,
+    zoom: float,
+    min_area_pt: float = 400.0,
+    lines: Sequence[OcrLine] = (),
+) -> List[Tuple[Tuple[float, float, float, float], bytes]]:
+    """Cụm nét đỏ / xanh đủ lớn (con dấu, chữ ký; kèm nét chữ ký mực đen nối liền ngoài khung chữ) →
+    [(khung pt, PNG nền trong suốt)] để neo lại vào DOCX; khử viền màu quang sai quanh chữ đen."""
     cv2 = _cv2()
-    mask = color_ink_mask(rgb).astype(np.uint8)
-    if not mask.any():
+    a = rgb.astype(np.int16)
+    r, g, b = a[..., 0], a[..., 1], a[..., 2]
+    spread = a.max(axis=2) - a.min(axis=2)
+    raw_color = ((r - np.maximum(g, b)) > 50) | (((b - np.maximum(r, g)) > 35) & (b > 80))
+    neutral_dark = ((a.mean(axis=2) < 120) & (spread < 45)).astype(np.uint8)
+    halo = cv2.dilate(neutral_dark, np.ones((5, 5), np.uint8)) > 0
+    non_halo = (raw_color & ~halo).astype(np.uint8)
+
+    min_seed = max(12, int(round(0.8 * zoom * zoom)))
+    n_s, labels_s, stats_s, _ = cv2.connectedComponentsWithStats(non_halo, connectivity=8)
+    keep_s = np.zeros(n_s, dtype=bool)
+    for i in range(1, n_s):
+        if stats_s[i, cv2.CC_STAT_AREA] >= min_seed:
+            keep_s[i] = True
+    seed = keep_s[labels_s].astype(np.uint8)
+    if not seed.any():
         return []
-    grown = cv2.dilate(mask, np.ones((25, 25), np.uint8))
-    n, _labels, stats, _c = cv2.connectedComponentsWithStats(grown)
-    out = []
+    clean_color = (raw_color & (cv2.dilate(seed, np.ones((5, 5), np.uint8)) > 0)).astype(np.uint8)
+
+    grown_c = cv2.dilate(clean_color, np.ones((25, 25), np.uint8))
+    n_c, _labels_c, stats_c, _ = cv2.connectedComponentsWithStats(grown_c)
+    min_ink_px = max(80, int(round(18 * zoom * zoom)))
+    seal_boxes: List[Tuple[int, int, int, int]] = []
+    for i in range(1, n_c):
+        x, y, w, h, _area = stats_c[i]
+        if (w / zoom) * (h / zoom) < min_area_pt:
+            continue
+        ink_px = int(clean_color[y:y + h, x:x + w].sum())
+        if ink_px < min_ink_px or ink_px / max(1, w * h) < 0.015:
+            continue
+        seal_boxes.append((x, y, x + w, y + h))
+    if not seal_boxes:
+        return []
+
+    h_img, w_img = rgb.shape[:2]
+    sig_black = np.zeros((h_img, w_img), dtype=np.uint8)
+    if lines:
+        text_box_mask = np.zeros((h_img, w_img), dtype=np.uint8)
+        px_pad_x, px_pad_y = max(2, int(round(2.0 * zoom))), max(2, int(round(1.5 * zoom)))
+        for ln in lines:
+            lx0, ly0, lx1, ly1 = ln.bbox
+            ty0 = max(ly0, ln.base_y - 13.0) if (ly1 - ly0) > 22.0 else ly0
+            ix0 = max(0, int(math.floor(lx0 * zoom)) - px_pad_x)
+            iy0 = max(0, int(math.floor(ty0 * zoom)) - px_pad_y)
+            ix1 = min(w_img, int(math.ceil(lx1 * zoom)) + px_pad_x)
+            iy1 = min(h_img, int(math.ceil(ly1 * zoom)) + px_pad_y)
+            if ix1 > ix0 and iy1 > iy0:
+                text_box_mask[iy0:iy1, ix0:ix1] = 1
+
+        black_ink = (
+            (a.mean(axis=2) < 165) & (spread < 60) & (text_box_mask == 0) & (clean_color == 0)
+        ).astype(np.uint8)
+        n_b, labels_b, stats_b, _ = cv2.connectedComponentsWithStats(black_ink, connectivity=8)
+        band_pad_y = int(round(10 * zoom))
+        min_bh = int(round(4 * zoom))
+        keep_b = np.zeros(n_b, dtype=bool)
+        for i in range(1, n_b):
+            _bx, by, _bw, bh, barea = stats_b[i]
+            if barea < min_seed or bh < min_bh:
+                continue
+            by0, by1 = by, by + bh
+            if any(by0 >= sy0 - band_pad_y and by1 <= sy1 + band_pad_y for _sx0, sy0, _sx1, sy1 in seal_boxes):
+                keep_b[i] = True
+        sig_black = keep_b[labels_b].astype(np.uint8)
+
+    combined = np.maximum(clean_color, sig_black)
+    grown = cv2.dilate(combined, np.ones((25, 25), np.uint8))
+    n, labels, stats, _ = cv2.connectedComponentsWithStats(grown)
+    out: List[Tuple[Tuple[float, float, float, float], bytes]] = []
     for i in range(1, n):
         x, y, w, h, _area = stats[i]
         if (w / zoom) * (h / zoom) < min_area_pt:
             continue
-        sub = rgb[y:y + h, x:x + w]
-        alpha = (mask[y:y + h, x:x + w] * 255).astype(np.uint8)
+        comp_mask = labels[y:y + h, x:x + w] == i
+        if int((clean_color[y:y + h, x:x + w] & comp_mask).sum()) < min_ink_px:
+            continue
+        sub_ink = combined[y:y + h, x:x + w] & comp_mask
+        ys, xs = np.where(sub_ink > 0)
+        if not ys.size:
+            continue
+        rx0, ry0 = x + int(xs.min()), y + int(ys.min())
+        rx1, ry1 = x + int(xs.max()) + 1, y + int(ys.max()) + 1
+        sub = rgb[ry0:ry1, rx0:rx1]
+        active = (combined[ry0:ry1, rx0:rx1] & (labels[ry0:ry1, rx0:rx1] == i)) > 0
+        alpha = (active * 255).astype(np.uint8)
         ok, png = cv2.imencode(".png", np.dstack([sub[..., ::-1], alpha]))
         if ok:
-            out.append(((x / zoom, y / zoom, (x + w) / zoom, (y + h) / zoom), png.tobytes()))
+            out.append(((rx0 / zoom, ry0 / zoom, rx1 / zoom, ry1 / zoom), png.tobytes()))
     return out
+
+
+def extract_scan_rules(rgb: np.ndarray, zoom: float) -> List[Tuple[float, float, float, float]]:
+    """Trích đường kẻ ngang mảnh độc lập trên ảnh trang quét → [(x0, y, x1, độ dày) theo pt]."""
+    cv2 = _cv2()
+    gray = rgb.mean(axis=2).astype(np.uint8)
+    h, _w = gray.shape
+    ink = (gray < 180).astype(np.uint8) * 255
+    kh = max(15, int(round(25 * zoom)))
+    horiz = cv2.morphologyEx(ink, cv2.MORPH_OPEN, cv2.getStructuringElement(cv2.MORPH_RECT, (kh, 1)))
+    joined = cv2.dilate(horiz, np.ones((3, max(2, int(round(6 * zoom)))), np.uint8))
+    n, _lab, stats, _ = cv2.connectedComponentsWithStats(joined)
+    pad = max(2, int(round(3.5 * zoom)))
+    rules: List[Tuple[float, float, float, float]] = []
+    for i in range(1, n):
+        x, y, bw, bh, _area = stats[i]
+        mask_c = horiz[y:y + bh, x:x + bw] > 0
+        ys, xs = np.where(mask_c)
+        if not xs.size:
+            continue
+        rx0, rx1 = x + int(xs.min()), x + int(xs.max()) + 1
+        ry0, ry1 = y + int(ys.min()), y + int(ys.max()) + 1
+        w_pt, h_pt = (rx1 - rx0) / zoom, (ry1 - ry0) / zoom
+        if w_pt < 35.0 or h_pt > 4.0:
+            continue
+        inner = float((ink[ry0:ry1, rx0:rx1] > 0).sum())
+        above = float((ink[max(0, ry0 - pad):ry0, rx0:rx1] > 0).sum())
+        below = float((ink[min(h, ry1):min(h, ry1 + pad), rx0:rx1] > 0).sum())
+        if inner <= 0 or (above + below) / inner > 0.8:
+            continue
+        y_mid = (ry0 + ry1) * 0.5 / zoom
+        rules.append((rx0 / zoom, y_mid, rx1 / zoom, max(0.5, min(2.0, h_pt * 0.7))))
+    return sorted(rules, key=lambda r: (r[1], r[0]))
 
 
 class OcrEngine:
@@ -598,6 +785,7 @@ class OcrEngine:
                 base = (y0 + baseline_row(gray[y0:y1, x0:x1])) / zoom
                 lines.append(OcrLine(text, (x0 / zoom, y0 / zoom, x1 / zoom, y1 / zoom), baseline=base))
                 metrics.append((size, stroke / max(1.0, size * zoom), slant))
+        lines, metrics = _filter_false_lines(lines, metrics, zoom)
         assign_styles(lines, metrics)
         return order_lines(lines)
 
@@ -609,7 +797,8 @@ class OcrEngine:
         zoom = dpi / 72.0
         result = OcrPage(page.number, page.rect.width, page.rect.height, self.ocr_image(rgb, zoom, clean_ink))
         if keep_ink_images:
-            result.ink_images = ink_images(rgb, zoom)
+            result.ink_images = ink_images(rgb, zoom, lines=result.lines)
+            result.rules = extract_scan_rules(rgb, zoom)
         result.seconds = time.perf_counter() - t0
         return result
 
@@ -825,6 +1014,8 @@ def build_text_pdf(pages: List[OcrPage], src_doc: fitz.Document) -> fitz.Documen
         page = out.new_page(width=p.width, height=p.height)
         for rect, png in p.ink_images:
             page.insert_image(fitz.Rect(rect), stream=png, overlay=False)
+        for rx0, ry, rx1, rthick in p.rules:
+            page.draw_line(fitz.Point(rx0, ry), fitz.Point(rx1, ry), color=(0, 0, 0), width=rthick)
         for line in p.lines:
             key = (line.bold, line.italic)
             if key not in fonts:

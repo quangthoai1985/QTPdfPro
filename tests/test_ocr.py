@@ -433,6 +433,83 @@ def test_cli_ocr_writes_pdf_with_fake_engine(monkeypatch: pytest.MonkeyPatch, ca
     assert res["pages_ocr"] == 1 and Path(res["output_path"]).name == "ra.pdf"
 
 
+def test_ink_images_ignores_chromatic_aberration_and_keeps_seal_with_signature():
+    import cv2
+
+    zoom = 2.0
+    rgb = np.full((600, 800, 3), 255, np.uint8)
+    # Nhiều dòng chữ in đen có viền quang sai đỏ/xanh mảnh bao quanh (không phải con dấu)
+    for row in (60, 110, 160):
+        rgb[row:row + 18, 80:640] = (20, 20, 20)
+        rgb[row - 2:row, 80:640] = (220, 40, 40)
+        rgb[row + 18:row + 20, 80:640] = (40, 50, 200)
+    # Con dấu tròn đỏ thật + nét chữ ký mực đen nối liền bên phải
+    cv2.circle(rgb, (410, 380), 60, (210, 30, 40), 8)
+    cv2.line(rgb, (465, 365), (565, 345), (25, 25, 25), 5)
+    cv2.line(rgb, (520, 330), (550, 415), (25, 25, 25), 5)
+    # Chữ in đặt trong dòng text bên dưới không được kéo nhầm vào chữ ký
+    rgb[460:478, 350:560] = (20, 20, 20)
+    lines = [
+        ocr.OcrLine("Nội dung dòng in", (40, 30, 320, 40), baseline=39),
+        ocr.OcrLine("Nguyễn Thanh Bình", (175, 230, 280, 239), size=14.0, baseline=238),
+    ]
+    imgs = ocr.ink_images(rgb, zoom=zoom, lines=lines)
+    assert len(imgs) == 1
+    rect, png = imgs[0]
+    assert rect[1] > 140  # bỏ toàn bộ viền quang sai trên các dòng chữ
+    assert rect[2] > 275  # lấy trọn cả phần nét chữ ký mực đen tới ~565 px (282.5 pt)
+    assert len(png) > 100
+
+
+def test_extract_scan_rules():
+    zoom = 2.0
+    rgb = np.full((300, 600, 3), 255, np.uint8)
+    # Đường kẻ ngang mảnh độc lập (80 pt rộng, 1.5 pt dày)
+    rgb[80:83, 100:260] = (30, 30, 30)
+    # Nét ngang nằm lẫn giữa khối mực dày trên/dưới (không phải đường kẻ độc lập)
+    rgb[180:183, 100:260] = (30, 30, 30)
+    rgb[172:179, 100:260] = (30, 30, 30)
+    rgb[184:191, 100:260] = (30, 30, 30)
+    rules = ocr.extract_scan_rules(rgb, zoom=zoom)
+    assert len(rules) == 1
+    x0, y, x1, _thick = rules[0]
+    assert abs(x0 - 50.0) < 2.0 and abs(x1 - 130.0) < 2.0 and 39.5 < y < 42.5
+
+
+def test_clean_ocr_text_and_filter_false_lines():
+    assert ocr.clean_ocr_text("? Nơi nhận:") == "* Nơi nhận:"
+    assert ocr.clean_ocr_text("Độc lập ? Tự do ? Hạnh phúc") == "Độc lập – Tự do – Hạnh phúc"
+    assert ocr.clean_ocr_text("Thông tư số 10/2004/TT BNV") == "Thông tư số 10/2004/TT-BNV"
+    assert ocr.clean_ocr_text("Thông tư liên tịch số 35/2008/TTLT/BGDĐT BNV") == \
+        "Thông tư liên tịch số 35/2008/TTLT/BGDĐT-BNV"
+    assert ocr.clean_ocr_text("Quyết định số 22/2009/QĐ UBND") == "Quyết định số 22/2009/QĐ-UBND"
+    assert ocr.clean_ocr_text("Nghị định số 116/2003/NĐ-CP NGÀY 10") == "Nghị định số 116/2003/NĐ-CP NGÀY 10"
+    assert ocr.clean_ocr_text("Điều 4 Các ông (bà) chịu trách nhiệm") == "Điều 4. Các ông (bà) chịu trách nhiệm"
+
+    zoom = 4.0
+    lines = [
+        ocr.OcrLine("s", (11.3, 1.7, 13.7, 7.0)),
+        ocr.OcrLine("QUYẾT ĐỊNH:", (240.0, 200.0, 355.0, 222.0)),
+        ocr.OcrLine("Ins", (383.8, 658.1, 514.8, 722.6)),
+    ]
+    metrics = [
+        (4.0, 0.25, 1.0),
+        (16.5, 0.14, 1.0),
+        (48.4, 3.5 / (48.4 * zoom), 1.0),  # nét mảnh dài -> rel_stroke ~ 0.0135 < 0.025
+    ]
+    kept_l, kept_m = ocr._filter_false_lines(lines, metrics, zoom)
+    assert [ln.text for ln in kept_l] == ["QUYẾT ĐỊNH:"] and len(kept_m) == 1
+
+    # Harmonize tilted lowercase stamp name back to body font size
+    doc_lines = [
+        ocr.OcrLine("Dòng thân bài 1", (60, 200, 400, 218), size=14.0),
+        ocr.OcrLine("Dòng thân bài 2", (60, 220, 400, 238), size=14.0),
+        ocr.OcrLine("Nguyễn Thanh Bình", (350, 700, 490, 730), size=23.2),
+    ]
+    ocr.harmonize_sizes(doc_lines)
+    assert doc_lines[-1].size == 14.0
+
+
 # ─── Mô hình thật (chỉ khi máy đã cài) ─────────────────────────────────────
 
 # Tìm lúc nạp module (thư mục dữ liệu thật); khi chạy test, conftest đã chuyển

@@ -7,6 +7,18 @@
 
 ## [Chưa phát hành]
 
+### 2026-11-15 — Làm sạch đối tượng nền & nâng cấp hậu xử lý OCR bản quét màu sang DOCX
+- **Khử triệt để đối tượng ảnh rác dưới nền (`qtpdfpro/core/ocr.py` — `ink_images`)**: Trên bản quét màu nén JPEG bị quang sai viền đỏ/xanh quanh chữ in đen (ví dụ bản scan thực tế `801/QĐ-SGDĐT`), `ink_images` trước đây gom nhầm tới 55 ảnh nhỏ (`w:drawing`) rải rác dưới nền chữ. Giờ đây khử vùng hào quang `5×5` quanh chữ tối trung tính, lọc hạt mầm liên thông trước khi giãn `25×25`, kiểm tra mật độ & tổng pixel mực màu thật; đồng thời gộp cả nét chữ ký tay mực đen nằm ngoài khung chữ đã nhận dạng (`text_box_mask`) nối liền với con dấu đỏ và cắt khít kênh alpha → giảm từ **55** ảnh xuống **1 ảnh duy nhất** (con dấu đỏ + trọn chữ ký tay đen sạch nền).
+- **Trích xuất đường kẻ ngang trên trang quét (`extract_scan_rules` + `OcrPage.rules` + `build_text_pdf`)**: Tự động dò các đường kẻ ngang mảnh độc lập (dưới tên cơ quan, Quốc hiệu – Tiêu ngữ, trích yếu) bằng hình thái học kèm kiểm tra mật độ mực lân cận trên/dưới để bỏ qua nét ngang của chữ/chữ ký, vẽ lại thành nét vector trong `build_text_pdf` → engine NĐ30 tái tạo đủ 3 đường kẻ viền đoạn (`w:pBdr`) trong Word.
+- **Lọc nhiễu OCR, chuẩn hoá cỡ chữ/độ đậm & nối khối ký 2 cột (`_filter_false_lines`, `assign_styles`, `harmonize_sizes`, `split_long_line`, `clean_ocr_text`, `admin_layout._NOI_NHAN_RE`)**:
+  - Loại bỏ hộp nhiễu bụi nhỏ ở mép trang (`< 6,5 pt`, `≤ 2` ký tự) và nét chữ ký tay cao mảnh bị nhận nhầm thành chữ (`> 28 pt`, `≤ 6` ký tự, nét/chiều cao `< 0,025`).
+  - Điều chỉnh `BOLD_STROKE_RATIO = 1.19` và chuẩn hoá độ dày nét theo cỡ chữ thân bài để nhận đúng các tiêu đề in đậm (`SỞ GIÁO DỤC VÀ ĐÀO TẠO`, `QUYẾT ĐỊNH:`); kéo dòng dấu tên đóng nghiêng có chữ thường về cỡ thân bài trong `harmonize_sizes`.
+  - Mở rộng cửa sổ tìm khoảng trắng `split_long_line` (`±3,5×h`, chặn tối đa `15,5×h`, ngưỡng `≥ 0,08×h`) để không cắt dính từ ở các dòng dài; bổ sung `clean_ocr_text` sửa `? Nơi nhận:` → `* Nơi nhận:`, ` ? ` → ` – `, `Điều N Chữ` → `Điều N. Chữ`, và khôi phục dấu `-` bị rớt trong mã hiệu văn bản (`TT BNV` → `TT-BNV`, `QĐ UBND` → `QĐ-UBND`).
+  - Cập nhật `admin_layout._NOI_NHAN_RE` chấp nhận ký tự đầu dòng `* Nơi nhận:` / `- Nơi nhận:` để khối ký tách đúng thành bảng 2 cột không viền.
+- **Kiểm thử & Xác minh**:
+  - Bổ sung 3 bài kiểm thử đơn vị trong `tests/test_ocr.py` (`test_ink_images_ignores_chromatic_aberration_and_keeps_seal_with_signature`, `test_extract_scan_rules`, `test_clean_ocr_text_and_filter_false_lines`).
+  - Kiểm thử toàn bộ bộ test: `python -m pytest -q tests` → **320 passed, 1 skipped**, thoát mã **0**; kiểm chứng lại 3 văn bản mẫu `samples/nd30/` (`cong_van_mau` 100,0%, `ke_hoach_mau` 99,9%, `quyet_dinh_mau` 99,9%) và chạy thử thực tế `ocr_to_docx` trên PDF scan `801/QĐ-SGDĐT` → **1** ảnh con dấu + chữ ký sạch nền, **2** bảng không viền NĐ30, **3** đường kẻ ngang (`w:pBdr`).
+
 ### Việc còn dở / Ưu tiên kế tiếp cho Agent phiên sau (cập nhật 2026-11-10)
 1. ~~**Phát hành**~~ — đã phát hành **v1.4.0** ngày 2026-11-10 (một cửa sổ duy nhất, mục V1). Còn: chạy thử mở nhiều PDF từ Explorer trên **bản cài** (đã thử bản `dist\QTPdfPro\QTPdfPro.exe` với dữ liệu tạm).
 2. ~~**Hoàn thiện công cụ «Chọn chữ»**~~ — xong 2026-11-08 tối (mục trên cùng). Còn: chạy thử trên bản `.exe`; tuỳ chọn Ctrl+A lần hai = cả tài liệu, chọn liền qua trang ở chế độ xem một trang.

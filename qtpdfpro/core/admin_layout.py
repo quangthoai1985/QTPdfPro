@@ -47,7 +47,7 @@ _QUOC_HIEU_RE = re.compile(r"C[ỘO]NG\s+H(?:[ÒÓO]A|O[ÀÁA])\s+X[ÃA]\s+H[Ộ
 _TIEU_NGU_RE = re.compile(r"Đ[ộo]c\s+l[ậa]p\s*[-–]\s*T[ựu]\s+do\s*[-–]\s*H[ạa]nh\s+ph[úu]c", re.I)
 _SO_KY_HIEU_RE = re.compile(r"^\s*S[ốo]\s*[:.]", re.I)
 _NGAY_THANG_RE = re.compile(r"ng[àa]y\s+\S+\s+th[áa]ng\s+\S+\s+n[ăa]m", re.I)
-_NOI_NHAN_RE = re.compile(r"^\s*N[ơo]i\s+nh[ậa]n\s*:?", re.I)
+_NOI_NHAN_RE = re.compile(r"^\s*[-–•+*?]?\s*N[ơo]i\s+nh[ậa]n\s*:?", re.I)
 _PAGE_NUMBER_RE = re.compile(r"^[\s\-–—]*\d{1,3}[\s\-–—]*$")
 _BULLET_START_RE = re.compile(r"^\s*[-–•+*]\s")
 
