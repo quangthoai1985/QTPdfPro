@@ -130,6 +130,27 @@ class OcrLayerService(QObject):
         p = self.layer(page_index)
         return p.words if p is not None else None
 
+    def scanned_pages(self) -> List[int]:
+        """Danh sách các trang ảnh quét trong tài liệu."""
+        if self.reader.is_closed:
+            return []
+        return [p for p in range(self.reader.page_count) if self.is_scanned(p)]
+
+    def unrecognized_scanned_pages(self) -> List[int]:
+        """Các trang ảnh quét chưa có lớp chữ OCR (và chưa lỗi)."""
+        return [p for p in self.scanned_pages() if not self.has_layer(p) and p not in self._failed]
+
+    def all_words(self) -> Dict[int, List[ts.Word]]:
+        """Tất cả từ OCR hiện có theo từng trang (tôn trọng góc xoay hiện tại của mỗi trang)."""
+        out: Dict[int, List[ts.Word]] = {}
+        if self.reader.is_closed:
+            return out
+        for pno in list(self.pages):
+            w = self.words(pno)
+            if w is not None:
+                out[pno] = w
+        return out
+
     # ─── Yêu cầu nhận dạng ────────────────────────────────────────────────
 
     def request(self, page_index: int, prefetch: int = 1) -> bool:
@@ -146,6 +167,21 @@ class OcrLayerService(QObject):
         self._queue = [p for p in targets if p != busy]  # trang đang xem được ưu tiên, bỏ hàng đợi cũ
         self._kick()
         return True
+
+    def request_all_scanned(self, priority_page: int = 0) -> int:
+        """Xếp hàng nhận dạng ngầm toàn bộ các trang ảnh quét chưa có lớp chữ (phục vụ Tìm kiếm thông minh).
+
+        Ưu tiên từ `priority_page` trở đi rồi quay lại các trang đầu. Trả về số trang cần nhận dạng."""
+        if not self.enabled or self.reader.is_closed or not self.models_ready():
+            return 0
+        pending = self.unrecognized_scanned_pages()
+        if not pending:
+            return 0
+        busy = self.busy_page
+        ordered = [p for p in pending if p >= priority_page] + [p for p in pending if p < priority_page]
+        self._queue = [p for p in ordered if p != busy]
+        self._kick()
+        return len(pending)
 
     def _kick(self) -> None:
         if not self.enabled or self.reader.is_closed:

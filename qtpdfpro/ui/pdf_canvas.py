@@ -424,17 +424,32 @@ class PDFScrollViewer(QScrollArea):
         self._surface.update()
 
     def scroll_to_hit(self, hit: SearchHit) -> None:
-        """Cuộn tới đúng trang và toạ độ của kết quả tìm kiếm."""
+        """Cuộn tức thì tới đúng trang và toạ độ (dọc & ngang) của kết quả tìm kiếm."""
         self._active_hit = hit
-        if not self._continuous and self._current_page != hit.page_index:
-            self._current_page = hit.page_index
+        if not 0 <= hit.page_index < self.reader.page_count:
+            self._surface.update()
+            return
+        changed = self._current_page != hit.page_index
+        self._current_page = hit.page_index
+        if not self._continuous and changed:
             self._recompute_layout()
+        if 0 <= hit.page_index < len(self._page_rects_px):
+            target_box = hit.rects[0] if getattr(hit, "rects", ()) else hit.bbox
+            hrect = self.page_rect_to_widget(hit.page_index, target_box)
+            vp = self.viewport()
+            vh = max(1, vp.height())
+            vw = max(1, vp.width())
+            self._tracking_suspended = True
+            try:
+                self.verticalScrollBar().setValue(max(0, int(hrect.center().y() - vh * 0.35)))
+                hbar = self.horizontalScrollBar()
+                hx = hbar.value()
+                if hrect.left() < hx + 24 or hrect.right() > hx + vw - 24:
+                    hbar.setValue(max(0, int(hrect.center().x() - vw * 0.5)))
+            finally:
+                self._tracking_suspended = False
+        if changed:
             self.pageChanged.emit(self._current_page)
-        elif self._continuous:
-            if 0 <= hit.page_index < len(self._page_rects_px):
-                hit_y = self.page_rect_to_widget(hit.page_index, hit.bbox).top()
-                vh = self.viewport().height()
-                self.verticalScrollBar().setValue(max(0, int(hit_y - vh * 0.35)))
         self._surface.update()
 
     def go_to_page(self, page_index: int) -> None:
@@ -646,18 +661,24 @@ class PDFScrollViewer(QScrollArea):
             hits = self._search_hits_by_page.get(pno, [])
             transform = self.page_transform(pno) if (hits or self._show_layout_overlay) else None
             for h in hits:
-                hrect = self.page_rect_to_widget(pno, h.bbox, transform).adjusted(-2, -2, 2, 2)
-                is_active = self._active_hit is not None and (
-                    self._active_hit.page_index == h.page_index
+                is_active = self._active_hit is h or (
+                    self._active_hit is not None
+                    and self._active_hit.page_index == h.page_index
                     and self._active_hit.bbox == h.bbox
                 )
-                if is_active:
-                    painter.fillRect(hrect, QColor(249, 115, 22, 115))
-                    painter.setPen(QPen(QColor("#EA580C"), 2.0))
-                else:
-                    painter.fillRect(hrect, QColor(250, 204, 21, 95))
-                    painter.setPen(QPen(QColor("#EAB308"), 1.2))
-                painter.drawRect(hrect)
+                hit_boxes = h.rects if getattr(h, "rects", ()) else (h.bbox,)
+                for rb in hit_boxes:
+                    hrect = self.page_rect_to_widget(pno, rb, transform).adjusted(-2, -2, 2, 2)
+                    if is_active:
+                        painter.setPen(QPen(QColor(249, 115, 22, 85), 5.0))
+                        painter.setBrush(Qt.BrushStyle.NoBrush)
+                        painter.drawRoundedRect(hrect.adjusted(-2, -2, 2, 2), 4, 4)
+                        painter.fillRect(hrect, QColor(249, 115, 22, 125))
+                        painter.setPen(QPen(QColor("#EA580C"), 2.0))
+                    else:
+                        painter.fillRect(hrect, QColor(250, 204, 21, 95))
+                        painter.setPen(QPen(QColor("#EAB308"), 1.2))
+                    painter.drawRect(hrect)
 
             # Lớp phủ 2: Soi bố cục (Layout Inspector Overlay)
             if self._show_layout_overlay:

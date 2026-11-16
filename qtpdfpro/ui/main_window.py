@@ -60,6 +60,7 @@ from qtpdfpro.ui.annotation_tools import (
     AnnotationController,
     AnnotationListPanel,
     EditToolbar,
+    FlowLayout,
 )
 from qtpdfpro.ui.batch_dialog import BatchConvertDialog
 from qtpdfpro.ui.command_palette import SEARCH_IN_DOCUMENT_KEY, CommandPaletteDialog
@@ -79,6 +80,7 @@ from qtpdfpro.ui.page_edit_dialogs import (
 )
 from qtpdfpro.ui.pdf_canvas import PDFScrollViewer
 from qtpdfpro.ui.print_dialog import PrintDialog
+from qtpdfpro.ui.scan_dialog import ScanDialog
 from qtpdfpro.ui.function_bar import FunctionBar
 from qtpdfpro.ui.top_bar import TopBar
 from qtpdfpro.ui.signature_dialog import SignatureCreateDialog, SignatureManagerDialog
@@ -251,23 +253,85 @@ class PDFDocumentTab(QWidget):
         self.toc_tree.itemClicked.connect(self._on_toc_clicked)
         self.sidebar_tabs.addTab(self.toc_tree, "Mục lục")
 
-        # Ngăn 3: Tìm kiếm toàn văn
+        # Ngăn 3: Tìm kiếm thông minh (có dấu / không dấu + tự nhận dạng trang ảnh scan)
         search_panel = QWidget()
         search_layout = QVBoxLayout(search_panel)
+        search_layout.setSpacing(6)
         search_row = QHBoxLayout()
+        search_row.setSpacing(4)
         self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText("Nhập từ khoá cần tìm...")
-        self.search_input.returnPressed.connect(self.run_search)
+        self.search_input.setPlaceholderText("Tìm thông minh (có / không dấu)...")
+        self.search_input.returnPressed.connect(self._on_search_return_pressed)
+        self.search_input.textEdited.connect(self._schedule_live_search)
         self.search_btn = QPushButton("Tìm")
-        self.search_btn.clicked.connect(self.run_search)
+        self.search_btn.clicked.connect(lambda: self.run_search())
         search_row.addWidget(self.search_input, 1)
         search_row.addWidget(self.search_btn)
 
-        self.search_count_lbl = QLabel("Nhập từ khoá và bấm Enter để tìm.")
+        nav_row = QHBoxLayout()
+        nav_row.setSpacing(4)
+        self.search_prev_btn = QToolButton()
+        self.search_prev_btn.setToolTip("Kết quả trước (Shift+F3 / Shift+Enter)")
+        self.search_prev_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        icons.bind(self.search_prev_btn, "chevron-up", 15)
+        self.search_prev_btn.clicked.connect(self.prev_search_hit)
+        self.search_next_btn = QToolButton()
+        self.search_next_btn.setToolTip("Kết quả kế tiếp (F3 / Enter)")
+        self.search_next_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        icons.bind(self.search_next_btn, "chevron-down", 15)
+        self.search_next_btn.clicked.connect(self.next_search_hit)
+        self.search_pos_lbl = QLabel("0 / 0")
+        self.search_pos_lbl.setObjectName("mutedLabel")
+        nav_row.addWidget(self.search_prev_btn)
+        nav_row.addWidget(self.search_next_btn)
+        nav_row.addWidget(self.search_pos_lbl)
+        nav_row.addStretch(1)
+
+        opts_row = FlowLayout(hspacing=8, vspacing=4)
+        opts_row.setContentsMargins(0, 0, 0, 0)
+        self.chk_search_smart = QCheckBox("Không dấu")
+        self.chk_search_smart.setToolTip("Tìm thông minh cả khi gõ không dấu tiếng Việt (vd: 'quyet dinh' → 'Quyết định')")
+        self.chk_search_smart.setChecked(True)
+        self.chk_search_case = QCheckBox("Hoa/thường")
+        self.chk_search_word = QCheckBox("Nguyên từ")
+        for chk in (self.chk_search_smart, self.chk_search_case, self.chk_search_word):
+            chk.toggled.connect(lambda _c: self.run_search() if self.search_input.text().strip() else None)
+            opts_row.addWidget(chk)
+
+        self.search_ocr_bar = QFrame()
+        self.search_ocr_bar.setObjectName("noticeBar")
+        ocr_lay = QVBoxLayout(self.search_ocr_bar)
+        ocr_lay.setContentsMargins(8, 6, 8, 6)
+        ocr_lay.setSpacing(4)
+        self.search_ocr_lbl = QLabel()
+        self.search_ocr_lbl.setWordWrap(True)
+        self.search_ocr_btn = QPushButton("Tải OCR && tìm trong ảnh scan")
+        self.search_ocr_btn.clicked.connect(self._start_ocr_for_search)
+        ocr_lay.addWidget(self.search_ocr_lbl)
+        ocr_lay.addWidget(self.search_ocr_btn)
+        self.search_ocr_bar.setVisible(False)
+
+        self.search_count_lbl = QLabel("Nhập từ khoá để tìm và điều hướng tức thì.")
+        self.search_count_lbl.setWordWrap(True)
         self.search_results_list = QListWidget()
         self.search_results_list.currentRowChanged.connect(self._on_search_hit_selected)
+        self.search_results_list.itemClicked.connect(
+            lambda it: self._on_search_hit_selected(self.search_results_list.row(it))
+        )
+
+        self._last_search_query = ""
+        self._search_timer = QTimer(self)
+        self._search_timer.setSingleShot(True)
+        self._search_timer.setInterval(140)
+        self._search_timer.timeout.connect(lambda: self.run_search())
+        self.search_panel = search_panel
+        for w in (search_panel, self.search_input, self.search_results_list):
+            w.installEventFilter(self)
 
         search_layout.addLayout(search_row)
+        search_layout.addLayout(opts_row)
+        search_layout.addLayout(nav_row)
+        search_layout.addWidget(self.search_ocr_bar)
         search_layout.addWidget(self.search_count_lbl)
         search_layout.addWidget(self.search_results_list, 1)
         self.sidebar_tabs.addTab(search_panel, "Tìm kiếm")
@@ -500,6 +564,11 @@ class PDFDocumentTab(QWidget):
     def _on_ocr_layer_ready(self, page_index: int) -> None:
         self.text_select.on_layer_ready(page_index)
         self.viewer.widget().update()
+        if self.search_input.text().strip():
+            had_no_hits = not self._search_hits
+            self.run_search(keep_position=not had_no_hits)
+        else:
+            self._update_search_ocr_status()
 
     def _scan_tables_step(self) -> None:
         """Dò bảng biểu một trang mỗi lượt (lúc rảnh) để thanh thông báo không làm chậm việc mở tệp."""
@@ -543,7 +612,7 @@ class PDFDocumentTab(QWidget):
             self.hide_notice()
 
     def close_document(self) -> None:
-        for timer in (self._analysis_timer, self._table_scan_timer, self._thumb_timer):
+        for timer in (self._analysis_timer, self._table_scan_timer, self._thumb_timer, self._search_timer):
             timer.stop()
         self.text_select.cancel()
         self.ocr_layer.cancel()
@@ -552,6 +621,17 @@ class PDFDocumentTab(QWidget):
 
     def eventFilter(self, obj, event) -> bool:  # noqa: N802 (tên hàm Qt)
         etype = event.type()
+        if etype == QEvent.Type.KeyPress and obj in (
+            getattr(self, "search_panel", None),
+            getattr(self, "search_input", None),
+            getattr(self, "search_results_list", None),
+        ):
+            if event.key() == Qt.Key.Key_F3:
+                if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+                    self.prev_search_hit()
+                else:
+                    self.next_search_hit()
+                return True
         if etype not in (QEvent.Type.Resize, QEvent.Type.Show) or not hasattr(self, "_analysis_timer"):
             return super().eventFilter(obj, event)  # sự kiện lúc đang dựng tab → bỏ qua
         if obj is self.thumb_list.viewport():
@@ -809,7 +889,7 @@ class PDFDocumentTab(QWidget):
             self.enter_edit_mode(tool, "edit")
             return
 
-        if action_key in ("organize", "combine", "extract_pages", "page_numbers", "watermark", "compress", "fill_mode"):
+        if action_key in ("organize", "combine", "extract_pages", "scan", "page_numbers", "watermark", "compress", "fill_mode"):
             self.editCommandRequested.emit(action_key)
             return
 
@@ -1187,32 +1267,176 @@ class PDFDocumentTab(QWidget):
         self._sync_rail_buttons()
         self.search_input.setFocus()
         self.search_input.selectAll()
+        self._update_search_ocr_status()
 
-    def run_search(self) -> None:
+    def _schedule_live_search(self, _text: str = "") -> None:
+        self._search_timer.start()
+
+    def _on_search_return_pressed(self) -> None:
+        from PySide6.QtWidgets import QApplication
+
         query = self.search_input.text().strip()
+        if query and query == self._last_search_query and self._search_hits:
+            mods = QApplication.keyboardModifiers()
+            if mods & Qt.KeyboardModifier.ShiftModifier:
+                self.prev_search_hit()
+            else:
+                self.next_search_hit()
+            return
+        self.run_search()
+
+    def _update_search_ocr_status(self) -> None:
+        if self.reader.is_closed:
+            self.search_ocr_bar.setVisible(False)
+            return
+        scanned = self.ocr_layer.scanned_pages()
+        unrecognized = self.ocr_layer.unrecognized_scanned_pages()
+        if not scanned or not unrecognized:
+            self.search_ocr_bar.setVisible(False)
+            return
+        done = len(scanned) - len(unrecognized)
+        if self.ocr_layer.models_ready():
+            self.search_ocr_btn.setVisible(False)
+            self.search_ocr_lbl.setText(
+                f"⏳ Đang nhận dạng chữ trên trang ảnh scan để tìm ({done}/{len(scanned)} trang)..."
+            )
+            self.search_ocr_bar.setVisible(True)
+        else:
+            self.search_ocr_btn.setVisible(True)
+            self.search_ocr_btn.setEnabled(True)
+            self.search_ocr_lbl.setText(
+                f"Tài liệu có {len(unrecognized)} trang ảnh scan — bật OCR để tìm kiếm chữ trong ảnh."
+            )
+            self.search_ocr_bar.setVisible(True)
+
+    def _start_ocr_for_search(self) -> None:
+        win = self.window()
+        models_ctrl = getattr(win, "ocr_models", None)
+        if models_ctrl is not None and not self.ocr_layer.models_ready():
+            self.search_ocr_lbl.setText("⏳ Đang tải bộ mô hình OCR tiếng Việt (~88 MB)...")
+            self.search_ocr_btn.setEnabled(False)
+            try:
+                models_ctrl.finished.connect(self._on_search_models_finished, Qt.ConnectionType.UniqueConnection)
+            except Exception:
+                pass
+            models_ctrl.ensure_started()
+        elif self.ocr_layer.models_ready():
+            self.ocr_layer.request_all_scanned(self.viewer.current_page)
+            self._update_search_ocr_status()
+
+    def _on_search_models_finished(self, ok: bool, msg: str) -> None:
+        self.search_ocr_btn.setEnabled(True)
+        if ok:
+            if self.search_input.text().strip():
+                self.run_search(keep_position=bool(self._search_hits))
+            else:
+                self.ocr_layer.request_all_scanned(self.viewer.current_page)
+                self._update_search_ocr_status()
+        elif msg:
+            self.search_ocr_lbl.setText(f"Không tải được OCR: {msg}")
+
+    def _pick_initial_search_row(self, keep_position: bool, prev_hit: Optional[SearchHit]) -> int:
+        if not self._search_hits:
+            return -1
+        if keep_position and prev_hit is not None:
+            for idx, h in enumerate(self._search_hits):
+                if h.page_index == prev_hit.page_index and h.bbox == prev_hit.bbox:
+                    return idx
+        cur_page = self.viewer.current_page
+        for idx, h in enumerate(self._search_hits):
+            if h.page_index >= cur_page and h.exact:
+                return idx
+        for idx, h in enumerate(self._search_hits):
+            if h.page_index >= cur_page:
+                return idx
+        for idx, h in enumerate(self._search_hits):
+            if h.exact:
+                return idx
+        return 0
+
+    def run_search(self, *, keep_position: bool = False) -> None:
+        self._search_timer.stop()
+        query = self.search_input.text().strip()
+        prev_row = self.search_results_list.currentRow()
+        prev_hit = self._search_hits[prev_row] if 0 <= prev_row < len(self._search_hits) else None
+
+        self.search_results_list.blockSignals(True)
         self.search_results_list.clear()
+        self.search_results_list.blockSignals(False)
+
         if not query:
+            self._last_search_query = ""
             self._search_hits = []
             self.viewer.set_search_hits([])
-            self.search_count_lbl.setText("Nhập từ khoá và bấm Enter để tìm.")
+            self.search_pos_lbl.setText("0 / 0")
+            self.search_count_lbl.setText("Nhập từ khoá để tìm và điều hướng tức thì.")
+            self.search_ocr_bar.setVisible(False)
             return
 
-        self._search_hits = self.reader.search(query)
-        self.search_count_lbl.setText(f"Tìm thấy {len(self._search_hits)} kết quả cho '{query}':")
+        self._last_search_query = query
+        ocr_words = self.ocr_layer.all_words()
+        self._search_hits = self.reader.search(
+            query,
+            case_sensitive=self.chk_search_case.isChecked(),
+            whole_word=self.chk_search_word.isChecked(),
+            smart_accents=self.chk_search_smart.isChecked(),
+            ocr_words=ocr_words or None,
+        )
+
+        # Nếu tài liệu có trang ảnh scan chưa nhận dạng → tự động nhận dạng ngầm toàn bộ (khi đã có mô hình)
+        if self.ocr_layer.models_ready():
+            self.ocr_layer.request_all_scanned(self.viewer.current_page)
+        self._update_search_ocr_status()
 
         for hit in self._search_hits:
-            item = QListWidgetItem(f"[Tr. {hit.page_index + 1}] {hit.snippet}")
+            tag = ""
+            if hit.source == "ocr" and not hit.exact:
+                tag = " · scan gần đúng"
+            elif hit.source == "ocr":
+                tag = " · scan"
+            item = QListWidgetItem(f"[Tr. {hit.page_index + 1}{tag}] {hit.snippet}")
             self.search_results_list.addItem(item)
 
         if self._search_hits:
-            self.search_results_list.setCurrentRow(0)
-            self.viewer.set_search_hits(self._search_hits, self._search_hits[0])
+            target_row = self._pick_initial_search_row(keep_position, prev_hit)
+            self.search_count_lbl.setText(f"Tìm thấy {len(self._search_hits)} kết quả cho '{query}':")
+            self.search_pos_lbl.setText(f"{target_row + 1} / {len(self._search_hits)}")
+            self.search_results_list.blockSignals(True)
+            self.search_results_list.setCurrentRow(target_row)
+            self.search_results_list.blockSignals(False)
+            if keep_position:
+                self.viewer.set_search_hits(self._search_hits, None)
+                self.viewer._active_hit = self._search_hits[target_row]
+                self.viewer.widget().update()
+            else:
+                self.viewer.set_search_hits(self._search_hits, self._search_hits[target_row])
         else:
+            unrecognized = self.ocr_layer.unrecognized_scanned_pages()
+            if unrecognized and self.ocr_layer.models_ready():
+                self.search_count_lbl.setText(f"Chưa thấy '{query}' — đang tiếp tục đọc chữ trên ảnh scan...")
+            else:
+                self.search_count_lbl.setText(f"Không tìm thấy kết quả cho '{query}'.")
+            self.search_pos_lbl.setText("0 / 0")
             self.viewer.set_search_hits([])
+
+    def next_search_hit(self) -> None:
+        if not self._search_hits:
+            return
+        cur = self.search_results_list.currentRow()
+        nxt = 0 if cur < 0 else (cur + 1) % len(self._search_hits)
+        self.search_results_list.setCurrentRow(nxt)
+
+    def prev_search_hit(self) -> None:
+        if not self._search_hits:
+            return
+        cur = self.search_results_list.currentRow()
+        prv = len(self._search_hits) - 1 if cur <= 0 else cur - 1
+        self.search_results_list.setCurrentRow(prv)
 
     def _on_search_hit_selected(self, row: int) -> None:
         if 0 <= row < len(self._search_hits):
             hit = self._search_hits[row]
+            self.search_pos_lbl.setText(f"{row + 1} / {len(self._search_hits)}")
             self.viewer.scroll_to_hit(hit)
 
 
@@ -1752,6 +1976,7 @@ class MainWindow(QMainWindow):
             "combine": lambda: self.action_organize("combine"),
             "split": lambda: self.action_organize("split"),
             "extract_pages": lambda: self.action_organize("extract"),
+            "scan": self.action_scan,
             "save": self.action_save,
             "save_as": self.action_save_as,
             "export_flattened": self.action_export_flattened,
@@ -2151,6 +2376,49 @@ class MainWindow(QMainWindow):
     def action_batch_convert(self) -> None:
         """Mở hộp thoại chuyển đổi hàng loạt nhiều tệp PDF sang Word."""
         BatchConvertDialog(self.settings, parent=self).exec()
+
+    def action_scan(self) -> None:
+        """Ctrl+Shift+D: Mở hộp thoại Scan tài liệu (WIA đa thiết bị — Mặt kính / ADF)."""
+        tab = self.active_tab()
+        has_doc = tab is not None and tab.reader.is_pdf and not tab.reader.is_closed
+        dlg = ScanDialog(self.settings, has_active_doc=has_doc, parent=self)
+
+        def _on_pdf_saved(path: str, open_in_app: bool) -> None:
+            if open_in_app:
+                self.open_pdf_path(path)
+                self._show_toast(f"📄 Đã mở bản scan: {Path(path).name}")
+
+        def _on_insert_pages(pdf_bytes: bytes) -> None:
+            import fitz
+
+            target = self.active_tab()
+            if target is None or not target.reader.is_pdf or target.reader.is_closed:
+                return
+            cur = target.viewer.current_page
+            src = fitz.open("pdf", pdf_bytes)
+            inserted = src.page_count
+            try:
+                target.annot_controller.session.run_doc_operation(
+                    "Chèn trang từ máy scan",
+                    cur,
+                    lambda d: d.insert_pdf(src, start_at=cur + 1),
+                )
+            finally:
+                src.close()
+            target.reader.invalidate_all()
+            target._refresh_after_page_edit(
+                cur + 1,
+                f"Đã chèn {inserted} trang vừa scan — Ctrl+Z hoàn tác, Ctrl+S để lưu.",
+                rebuild_thumbs=True,
+            )
+            self._show_toast(f"📄 Đã chèn {inserted} trang vừa scan vào {target.reader.path.name}")
+
+        dlg.pdfSaved.connect(_on_pdf_saved)
+        dlg.insertPagesRequested.connect(_on_insert_pages)
+        try:
+            dlg.exec()
+        finally:
+            dlg.deleteLater()
 
     def action_command_palette(self, query: str = "") -> None:
         dlg = CommandPaletteDialog(self, query=query, has_document=self.active_tab() is not None)

@@ -152,6 +152,9 @@ COMMANDS: tuple[Command, ...] = (
        summary="Mỗi N trang · Theo khoảng · Theo điểm cắt", keywords="split tach chia cat tep"),
     _C("extract_pages", "Trích trang", "file-output", "edit", group="pages",
        summary="Lưu các trang chọn thành tệp mới", keywords="trich trang extract"),
+    _C("scan", "Scan tài liệu", "scan-line", "edit", "Ctrl+Shift+D", group="pages",
+       summary="Quét văn bản từ máy scan (WIA/mặt kính/ADF) ra PDF nền trắng, chữ rõ",
+       keywords="scan quet may scan wia epson canon hp brother fujitsu adf mat kinh pdfscanner"),
     _C("compress", "Nén PDF", "file-archive", "edit", group="process",
        summary="Nhẹ · Vừa · Mạnh — báo dung lượng trước/sau", keywords="compress nen giam dung luong anh email"),
     _C("watermark", "Đóng dấu nước", "droplet", "edit", group="process",
@@ -259,7 +262,7 @@ TAB_LAYOUT: dict[str, tuple[str, ...]] = {
 }
 
 HOME_QUICK_TOOLS: tuple[str, ...] = (
-    "ocr", "batch_convert", "combine", "organize", "compress", "fill_mode", "protect", "print",
+    "scan", "ocr", "batch_convert", "combine", "organize", "compress", "fill_mode", "print",
 )
 
 

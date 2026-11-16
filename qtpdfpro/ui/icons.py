@@ -40,6 +40,8 @@ ICON_NAMES: tuple[str, ...] = (
     "crop", "flip-horizontal-2", "flip-vertical-2", "image-plus", "link-2", "hash",
     "palette", "paperclip", "eye-off", "grip-horizontal", "heading", "file-plus-2",
     "trash-2", "layout-grid",
+    # Máy scan & Tìm kiếm thông minh
+    "scan-line", "chevron-up", "chevron-down", "eye", "sliders-horizontal", "image",
 )
 
 _DEFAULT_COLOR = "#E6E8EC"  # màu chữ giao diện Tối (`_DARK_TOKENS["text"]`)

@@ -109,6 +109,7 @@ class EditSidebar(QFrame):
         insert_menu = QMenu(self.btn_insert_page)
         insert_menu.addAction("Chèn trang trắng sau trang này", lambda: self.actionTriggered.emit("page_insert_blank"))
         insert_menu.addAction("Nhân bản trang hiện tại", lambda: self.actionTriggered.emit("page_duplicate"))
+        insert_menu.addAction("Scan trang mới từ máy scan…", lambda: self.actionTriggered.emit("scan"))
         insert_menu.addAction("Tổ chức && chèn từ tệp PDF khác…", lambda: self.actionTriggered.emit("organize"))
         self.btn_insert_page.setMenu(insert_menu)
         self.btn_insert_page.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
@@ -135,8 +136,10 @@ class EditSidebar(QFrame):
         blay.addLayout(quick_grid)
 
         self.btn_organize = self._list_btn("organize", "layout-grid", "Sắp xếp && ghép trang")
+        self.btn_scan = self._list_btn("scan", "scan-line", "Scan từ máy quét…")
         self.btn_crop_dialog = self._list_btn("crop_margins", "crop", "Cắt lề trang…")
         blay.addWidget(self.btn_organize)
+        blay.addWidget(self.btn_scan)
         blay.addWidget(self.btn_crop_dialog)
 
         blay.addWidget(self._divider())

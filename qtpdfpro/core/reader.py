@@ -17,6 +17,7 @@ import fitz  # PyMuPDF
 from qtpdfpro.core.edit_session import EditSession
 from qtpdfpro.core.font_resolver import normalize_vietnamese_text
 from qtpdfpro.core.layout_analyzer import BBox, PageLayoutSummary, analyze_page_layout
+from qtpdfpro.core.smart_search import SearchHit, SearchOptions, search_document
 
 
 @dataclass
@@ -39,15 +40,6 @@ class BookmarkNode:
     level: int
     title: str
     page_index: int  # 0-based
-
-
-@dataclass
-class SearchHit:
-    """Một kết quả tìm kiếm văn bản trên trang PDF."""
-
-    page_index: int  # 0-based
-    bbox: BBox
-    snippet: str
 
 
 @dataclass
@@ -463,67 +455,24 @@ class PDFDocumentReader:
         raw_text = self._doc[page_index].get_text("text")
         return normalize_vietnamese_text(raw_text)
 
-    def search(self, query: str, max_hits: int = 500) -> List[SearchHit]:
-        """Tìm kiếm văn bản trên toàn bộ tài liệu, trả về toạ độ bbox và ngữ cảnh."""
-        q = normalize_vietnamese_text(query.strip())
-        if not q:
-            return []
-
-        hits: List[SearchHit] = []
-        q_lower = q.lower()
-        q_nbsp = q.replace(" ", "\u00a0").replace("-", "\u00ad")
-
-        for page_idx in range(self.page_count):
-            page = self._doc[page_idx]
-            rects = list(page.search_for(q))
-            if not rects and q_nbsp != q:
-                rects = list(page.search_for(q_nbsp))
-
-            page_text = normalize_vietnamese_text(page.get_text("text"))
-            lines = [ln.strip() for ln in page_text.splitlines() if ln.strip()]
-            matching_lines = [ln for ln in lines if q_lower in ln.lower()]
-
-            if rects:
-                for idx, r in enumerate(rects):
-                    snippet = (
-                        matching_lines[idx]
-                        if idx < len(matching_lines)
-                        else (matching_lines[0] if matching_lines else q)
-                    )
-                    if len(snippet) > 90:
-                        snippet = snippet[:87] + "..."
-                    hits.append(
-                        SearchHit(
-                            page_index=page_idx,
-                            bbox=(float(r.x0), float(r.y0), float(r.x1), float(r.y1)),
-                            snippet=snippet,
-                        )
-                    )
-                    if len(hits) >= max_hits:
-                        return hits
-            elif matching_lines:
-                # Dự phòng quét từng dòng trong dict khi phông chữ PDF dùng CMap đặc biệt
-                raw_dict = page.get_text("dict", flags=fitz.TEXTFLAGS_TEXT)
-                for block in raw_dict.get("blocks", []):
-                    if block.get("type", 0) != 0:
-                        continue
-                    for line in block.get("lines", []):
-                        line_txt = normalize_vietnamese_text(
-                            "".join(s.get("text", "") for s in line.get("spans", []))
-                        ).strip()
-                        if q_lower in line_txt.lower():
-                            lb = line.get("bbox", (0, 0, 0, 0))
-                            snippet = line_txt[:87] + "..." if len(line_txt) > 90 else line_txt
-                            hits.append(
-                                SearchHit(
-                                    page_index=page_idx,
-                                    bbox=(float(lb[0]), float(lb[1]), float(lb[2]), float(lb[3])),
-                                    snippet=snippet,
-                                )
-                            )
-                            if len(hits) >= max_hits:
-                                return hits
-        return hits
+    def search(
+        self,
+        query: str,
+        max_hits: int = 500,
+        *,
+        case_sensitive: bool = False,
+        whole_word: bool = False,
+        smart_accents: bool = True,
+        ocr_words: Optional[Dict[int, list]] = None,
+    ) -> List[SearchHit]:
+        """Tìm kiếm thông minh trên toàn bộ tài liệu (hỗ trợ không dấu, vắt dòng, TCVN3 và lớp chữ OCR)."""
+        opts = SearchOptions(
+            case_sensitive=case_sensitive,
+            whole_word=whole_word,
+            smart_accents=smart_accents,
+            max_hits=max_hits,
+        )
+        return search_document(self._doc, query, opts, ocr_words=ocr_words)
 
     def get_page_layout(self, page_index: int) -> PageLayoutSummary:
         """Phân tích và trả về cấu trúc bố cục của trang `page_index` (có cache).

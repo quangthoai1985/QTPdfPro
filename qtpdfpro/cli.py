@@ -61,6 +61,8 @@ from qtpdfpro.core import printing
 from qtpdfpro.core import file_assoc, fill_sign, update_check
 from qtpdfpro.core import ocr as ocr_mod
 from qtpdfpro.core import ocr_models
+from qtpdfpro.core import scanner as scanner_mod
+from qtpdfpro.core import scanner_wia
 from qtpdfpro.core.pdf_io import PdfToolError, ToolResult, format_size
 from qtpdfpro.core.batch import (
     STATUS_FAILED,
@@ -221,8 +223,100 @@ def build_parser() -> argparse.ArgumentParser:
     _add_ocr_command(sub)
     _add_text_command(sub)
     _add_print_command(sub)
+    _add_scan_command(sub)
     _add_office_commands(sub)
     return parser
+
+
+def _add_scan_command(sub) -> None:
+    """Lệnh «Scan tài liệu»: liệt kê máy scan WIA hoặc scan (thật / giả lập) ra PDF/ảnh."""
+    p = sub.add_parser("scan", help="Quét tài liệu từ máy scan WIA (hoặc trang giả lập) ra PDF/ảnh")
+    p.add_argument("--list-devices", action="store_true", help="Liệt kê các máy scan WIA đang kết nối")
+    p.add_argument("--synthetic", action="store_true", help="Dùng trang văn bản giả lập (không cần máy scan thật)")
+    p.add_argument("-o", "--output-file", help="Đường dẫn tệp PDF / ảnh kết quả")
+    p.add_argument("--dpi", type=int, default=300, choices=list(scanner_mod.DPI_CHOICES), help="Độ phân giải DPI")
+    p.add_argument("--mode", choices=["gray", "color"], default="gray", help="Chế độ scan")
+    p.add_argument("--output-kind", choices=list(scanner_mod.OUTPUT_KINDS), default="gray", help="Loại ảnh xuất")
+    p.add_argument("--preset", type=int, choices=range(len(scanner_mod.PRESETS)), help="Áp dụng mẫu thiết lập (0..3)")
+    p.add_argument("--area", choices=list(scanner_mod.PAPER_SIZES), default="a4", help="Khổ giấy")
+    p.add_argument("--source", choices=["auto", "flatbed", "adf"], default="auto", help="Nguồn giấy")
+    p.add_argument("--device-id", help="ID thiết bị WIA cụ thể")
+    p.add_argument("--json", action="store_true", help="In kết quả dạng JSON")
+
+
+def _run_scan(args) -> int:
+    if args.list_devices:
+        try:
+            with scanner_wia.com_apartment():
+                devices = scanner_wia.list_scanners()
+        except Exception as exc:
+            print(f"Lỗi liệt kê máy scan: {exc}", file=sys.stderr)
+            return 1
+        if args.json:
+            print(json.dumps({"devices": [{"id": d, "name": n} for d, n in devices]}, ensure_ascii=False, indent=2))
+        elif not devices:
+            print("Không tìm thấy máy scan WIA nào.")
+        else:
+            for i, (did, name) in enumerate(devices, 1):
+                print(f"{i}. {name} ({did})")
+        return 0
+
+    s = scanner_mod.Settings(dpi=args.dpi)
+    out_kind = args.output_kind
+    scan_mode = args.mode
+    if args.preset is not None:
+        pr = scanner_mod.PRESETS[args.preset]
+        s = scanner_mod.Settings(dpi=args.dpi, **pr.overrides)
+        out_kind = pr.output
+        scan_mode = pr.scan_mode
+
+    if args.synthetic:
+        raw = scanner_mod.degraded_page(color=(scan_mode == "color" or out_kind == "color"))
+        actual_dpi = args.dpi
+    else:
+        area = None if args.area == "full" else scanner_mod.paper_area(args.area)
+        try:
+            with scanner_wia.com_apartment():
+                raw, actual_dpi = scanner_wia.scan_with_info(
+                    dpi=args.dpi,
+                    mode=scan_mode,
+                    area=area,
+                    device_id=args.device_id,
+                    source=args.source,
+                )
+        except Exception as exc:
+            print(f"Lỗi scan: {exc}", file=sys.stderr)
+            return 1
+
+    s.dpi = actual_dpi
+    page = scanner_mod.Page(raw, s, output=out_kind)
+    processed = page.render()
+    out_path = Path(args.output_file or "scan_out.pdf").resolve()
+    ext = out_path.suffix.lower()
+    if ext in (".jpg", ".jpeg", ".png", ".tif", ".tiff"):
+        fmt = "jpg" if ext in (".jpg", ".jpeg") else ("tif" if ext in (".tif", ".tiff") else "png")
+        scanner_mod.save_image(out_path, processed, page.output, actual_dpi, fmt)
+    else:
+        blob = scanner_mod.encode_page(processed, page.output, actual_dpi)
+        scanner_mod.save_pdf(out_path, [blob], dpis=[actual_dpi])
+
+    if args.json:
+        print(
+            json.dumps(
+                {
+                    "output_path": str(out_path),
+                    "dpi": actual_dpi,
+                    "output_kind": page.output,
+                    "size_bytes": out_path.stat().st_size,
+                    "shape": list(processed.shape),
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+    else:
+        print(f"Đã scan và lưu: {out_path} ({actual_dpi} dpi, {out_path.stat().st_size:,} bytes)")
+    return 0
 
 
 def _add_print_command(sub) -> None:
@@ -1247,6 +1341,8 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     if args.command == "print":
         return _run_print(args)
+    if args.command == "scan":
+        return _run_scan(args)
 
     if args.command in ("merge", "split", "organize", "extract", "annotate", "annots"):
         return _run_edit_command(args)

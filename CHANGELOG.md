@@ -7,6 +7,27 @@
 
 ## [Chưa phát hành]
 
+### 2026-11-16 — Tích hợp Scan từ PDFScanner (đa thiết bị WIA) & Tìm kiếm thông minh (có hỗ trợ ảnh scan OCR)
+#### Đã làm
+1. **Tích hợp chức năng Scan tài liệu đa thiết bị từ `PDFScanner`** (nhận mọi máy scan chuẩn WIA 1.0/2.0/MFP):
+   - **Lõi điều khiển WIA (`qtpdfpro/core/scanner_wia.py`)**: Dò tìm đầy đủ thiết bị scan (`Type == 1` và máy đa chức năng MFP `Type == 0` có thuộc tính scan), tự chọn nguồn Mặt kính (Flatbed) hoặc Khay nạp tự động (ADF), dò kích thước vùng quét đa tầng (`MAX_HORIZONTAL_SIZE`/`BED_WIDTH`/`SHEET_FEED_WIDTH`/`X_EXTENT.SubTypeMax`/mặc định A4-Letter), ép giá trị `SubTypeStep`/`SubTypeValues` chuẩn xác kèm trả về DPI thực tế, đọc luồng ảnh qua 3 tầng (`TYMED_CALLBACK` `idtGetBandedData` -> `item.Transfer` -> `scan_via_common_dialog` WIA CommonDialog), giải mã DIB 1/4/8/16/24/32-bit + PNG/JPEG/TIFF bằng OpenCV/numpy; quét nhiều trang ADF (`scan_adf_pages`). Phụ thuộc thêm `comtypes>=1.4.0` trong `requirements.txt`.
+   - **Lõi xử lý & đóng gói Scan thuần không Qt (`qtpdfpro/core/scanner.py`)**: Dùng thuần `PyMuPDF` (`fitz`) + `cv2` + `numpy` (không thêm Pillow/img2pdf, không import PySide6 trong `core/`). Hỗ trợ các bộ mẫu (`PRESETS`: Văn bản, Văn bản + hình ảnh, Bìa màu, Bản vẽ nét, Gốc), khổ giấy (`PAPER_SIZES`), cắt vùng chọn (`paper_area`), xoay/tẩy chấm nhiễu (`clean_page`/`degraded_page`), bộ nhớ đệm trang `Page` LRU, lưu PDF/ảnh chuẩn DPI (`build_pdf_bytes`, `save_pdf`, `save_image`), và phiên tạm `ScanSession` theo tệp khóa PID (`QT_PDF_PRO_DATA` cô lập khi test).
+   - **Giao diện Scan & Tích hợp (`qtpdfpro/ui/scan_dialog.py`, `commands.py`, `edit_sidebar.py`, `main_window.py`, `cli.py`, `icons.py`)**:
+     - `ScanDialog`: chế độ quét đơn/nhiều trang, chọn thiết bị WIA / nguồn / DPI / màu / khổ giấy, thanh trượt chỉnh sáng-tương phản-cắt nền-tẩy nhiễu, khung cắt tương tác `ScanImageView` có nhãn kích thước `mm`, dải ảnh thu nhỏ kéo thả đổi thứ tự/xoay/xoá, khôi phục phiên quét dở, nút quét qua hộp thoại chuẩn Windows, xuất PDF tự mở tab mới hoặc **chèn trực tiếp trang vừa scan vào tài liệu PDF đang mở** (hỗ trợ Hoàn tác).
+     - Đăng ký lệnh `scan` (`Ctrl+Shift+D`, nhóm `pages` tab Chỉnh sửa, ô `Scan tài liệu` trên Trang chủ, nút `Scan trang mới từ máy scan…` trong `EditSidebar`, 6 icon Lucide mới trong `ui/assets/icons/`), và lệnh CLI `python -m qtpdfpro.cli scan` (`--list-devices`, `--device`, `--synthetic`).
+2. **Nâng cấp Tìm kiếm thông minh & Tìm kiếm trên văn bản ảnh scan (OCR)**:
+   - **Engine tìm kiếm thông minh (`qtpdfpro/core/smart_search.py` & `core/reader.py`)**: Tùy chọn `SearchOptions` (không phân biệt dấu tiếng Việt, phân biệt Hoa/thường, nguyên từ). Tự động giữ tìm chính xác khi từ khóa có dấu và mở rộng khớp tiếng Việt không dấu (gồm xử lý `đ`/`d`) khi từ khóa không dấu; khớp cụm từ **vắt nhiều dòng** trả về đầy đủ danh sách khung `rects` từng dòng; giải mã phông **TCVN3 (`.Vn*`)** qua `text_select.page_words`; tạo trích đoạn ngữ cảnh canh giữa theo từng lần xuất hiện; hợp nhất tìm kiếm từ lớp chữ PDF lẫn `ocr_words` trên trang ảnh quét (kèm Pass 2 nới lỏng dấu trên dữ liệu OCR).
+   - **Giao diện & Tự động OCR nền khi tìm (`ui/pdf_canvas.py`, `ui/ocr_layer_service.py`, `ui/main_window.py`)**:
+     - `scroll_to_hit()` căn giữa cả chiều dọc và chiều ngang tới đúng vùng khớp (cả chế độ cuộn liên tục lẫn xem từng trang) và tô sáng toàn bộ các đoạn `rects` với viền cam nổi bật cho kết quả đang chọn.
+     - `OcrLayerService`: bổ sung `scanned_pages()`, `unrecognized_scanned_pages()`, `all_words()`, `request_all_scanned(priority_page)` tự nhận dạng ngầm toàn bộ các trang ảnh scan ngay khi mở ngăn Tìm kiếm (tự nạp lại kết quả & điều hướng ngay khi từng trang OCR xong; hiện thanh tải mô hình `search_ocr_bar` nếu máy chưa cài bộ mô hình OCR).
+     - Ngăn Tìm kiếm mới (`Ngăn 3`): tìm live có debounce, 3 tùy chọn (`Không dấu`, `Hoa/thường`, `Nguyên từ`) bố trí bằng `FlowLayout(hspacing=8, vspacing=4)`, nút Lên/Xuống kèm chỉ báo vị trí `k/N`, `Enter`/`Shift+Enter` và `F3`/`Shift+F3` (xử lý qua `eventFilter` của `PDFDocumentTab`), khởi đầu nhảy tới kết quả gần trang đang xem nhất (`_pick_initial_search_row`).
+3. **Kiểm thử & Kiểm chứng**:
+   - Bổ sung `tests/test_scanner.py` (15 bài test phần Scan + WIA mock) và `tests/test_smart_search.py`.
+   - `python -m pytest -q tests`: **335 passed, 1 skipped** (`EXIT=0`).
+   - Kiểm chứng AST: 0 import `PySide6` trong `qtpdfpro/core/`.
+   - Kiểm chứng với **bộ mô hình ONNX OCR thật** trên ảnh scan 200 dpi từ `samples/nd30/cong_van_mau.pdf`: trích được `202` từ OCR và tìm `"cong hoa"` ra 1 kết quả đúng toạ độ `(317.52, 55.80, 388.80, 72.36)`.
+   - Chụp kiểm tra hiển thị giao diện tiếng Việt thực tế (`scan_dialog_v2.png` và `main_smart_search_v2.png`) bằng `QT_PDF_PRO_DATA` tạm: chữ rõ nét, không cắt chữ/vỡ bố cục.
+
 ### Việc còn dở / Ưu tiên kế tiếp cho Agent phiên sau (cập nhật 2026-11-15)
 1. ~~**Phát hành**~~ — đã phát hành **v1.5.1** ngày 2026-11-15.
 2. ~~**Hoàn thiện công cụ «Chọn chữ»**~~ — xong 2026-11-08 tối. Còn: Ctrl+A lần hai = cả tài liệu, chọn liền qua trang ở chế độ xem một trang.
