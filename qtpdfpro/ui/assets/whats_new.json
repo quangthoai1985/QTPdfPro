@@ -1,6 +1,35 @@
 {
   "versions": [
     {
+      "version": "1.6.0",
+      "date": "2026-11-16",
+      "headline": "Tích hợp Scan tài liệu đa thiết bị & Tìm kiếm thông minh trên bản scan OCR",
+      "items": [
+        {
+          "icon": "scan-line",
+          "title": "Quét tài liệu trực tiếp từ mọi máy scan (WIA)",
+          "text": "Tích hợp đầy đủ công cụ Scan vào QT PDF Pro: tự dò mọi máy scan & máy đa chức năng chuẩn WIA, chọn Mặt kính (Flatbed) hoặc Khay nạp tự động (ADF), lưu thẳng thành PDF.",
+          "shortcut": "Ctrl+Shift+D"
+        },
+        {
+          "icon": "sliders-horizontal",
+          "title": "Xử lý ảnh scan chuyên sâu & Chèn thẳng vào PDF đang mở",
+          "text": "Hỗ trợ các bộ mẫu làm sạch chữ/nền, kéo khung cắt hiển thị kích thước mm, dải trang kéo thả đổi thứ tự/xoay/xoá và chèn trang vừa scan thẳng vào tệp đang xem."
+        },
+        {
+          "icon": "search",
+          "title": "Tìm kiếm thông minh: có/không dấu, vắt dòng & điều hướng tức thì",
+          "text": "Tự động mở rộng tìm không dấu tiếng Việt, khớp cụm từ vắt nhiều dòng, đọc chuẩn phông TCVN3 cũ, nhảy và canh giữa ngay tới đúng đoạn khớp bằng Enter / F3.",
+          "shortcut": "Ctrl+F"
+        },
+        {
+          "icon": "scan-text",
+          "title": "Tìm kiếm thông minh trực tiếp trên văn bản PDF ảnh scan",
+          "text": "Tự nhận dạng ngầm các trang ảnh scan trong tài liệu (khi máy có bộ mô hình OCR) để tìm từ khóa và tô sáng đúng vị trí trên trang ảnh quét."
+        }
+      ]
+    },
+    {
       "version": "1.5.1",
       "date": "2026-11-15",
       "headline": "Bản scan màu sang Word sạch nền, giữ trọn chữ ký & đường kẻ NĐ30",

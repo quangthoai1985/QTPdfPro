@@ -7,8 +7,19 @@
 
 ## [Chưa phát hành]
 
-### 2026-11-16 — Tích hợp Scan từ PDFScanner (đa thiết bị WIA) & Tìm kiếm thông minh (có hỗ trợ ảnh scan OCR)
-#### Đã làm
+### Việc còn dở / Ưu tiên kế tiếp cho Agent phiên sau (cập nhật 2026-11-16)
+1. ~~**Phát hành**~~ — đã phát hành **v1.6.0** ngày 2026-11-16.
+2. ~~**Hoàn thiện công cụ «Chọn chữ»**~~ — xong 2026-11-08 tối. Còn: Ctrl+A lần hai = cả tài liệu, chọn liền qua trang ở chế độ xem một trang.
+3. **Kiểm thử engine NĐ30 trên văn bản thật** (PDF ký số VGCA, PDF xuất từ phần mềm quản lý văn bản, PDF in từ LibreOffice): chạy `python -m qtpdfpro.cli convert <tệp> --mode nd30 --verify-layout` (hoặc `cli batch <thư mục> --verify-layout`) và xử lý các trường hợp «Lệch nhỏ».
+4. **Lộ trình** (`docs/DE_XUAT_TINH_NANG.md`): **Xem 2 trang song song**, ~~**V1**~~ (xong v1.4.0), **V2** thông báo «Đã lưu», phần còn lại của **A3** (dấu nước ảnh), **A6** giai đoạn 2 (điền AcroForm); sau đó **B1** (áp công cụ trên tab có Hoàn tác), **B2** (so sánh 2 PDF), **V5** (trang quản lý mô-đun), **B4** (ký số USB token, v2.0). OCR: thử thêm bản scan mờ / nghiêng / có bảng, dựng bảng Word từ trang scan. In thử 1 trang ra giấy trên máy in thật khi người dùng đồng ý.
+   - «Chỉnh sửa PDF» mở rộng: đổi cỡ hộp chữ/hình bằng tay nắm, sửa kiểu dáng chú thích đã có, dấu đóng có ảnh chữ ký.
+5. Tuỳ chọn: chuyển hàng loạt song song bằng nhiều tiến trình (`ProcessPoolExecutor`, cần `multiprocessing.freeze_support()` cho bản PyInstaller); ký số (code signing) bộ cài để SmartScreen không cảnh báo.
+
+---
+
+## [1.6.0] — 2026-11-16 (Tích hợp Scan tài liệu đa thiết bị WIA & Tìm kiếm thông minh hỗ trợ ảnh scan OCR)
+
+### Tính năng mới & Cải tiến
 1. **Tích hợp chức năng Scan tài liệu đa thiết bị từ `PDFScanner`** (nhận mọi máy scan chuẩn WIA 1.0/2.0/MFP):
    - **Lõi điều khiển WIA (`qtpdfpro/core/scanner_wia.py`)**: Dò tìm đầy đủ thiết bị scan (`Type == 1` và máy đa chức năng MFP `Type == 0` có thuộc tính scan), tự chọn nguồn Mặt kính (Flatbed) hoặc Khay nạp tự động (ADF), dò kích thước vùng quét đa tầng (`MAX_HORIZONTAL_SIZE`/`BED_WIDTH`/`SHEET_FEED_WIDTH`/`X_EXTENT.SubTypeMax`/mặc định A4-Letter), ép giá trị `SubTypeStep`/`SubTypeValues` chuẩn xác kèm trả về DPI thực tế, đọc luồng ảnh qua 3 tầng (`TYMED_CALLBACK` `idtGetBandedData` -> `item.Transfer` -> `scan_via_common_dialog` WIA CommonDialog), giải mã DIB 1/4/8/16/24/32-bit + PNG/JPEG/TIFF bằng OpenCV/numpy; quét nhiều trang ADF (`scan_adf_pages`). Phụ thuộc thêm `comtypes>=1.4.0` trong `requirements.txt`.
    - **Lõi xử lý & đóng gói Scan thuần không Qt (`qtpdfpro/core/scanner.py`)**: Dùng thuần `PyMuPDF` (`fitz`) + `cv2` + `numpy` (không thêm Pillow/img2pdf, không import PySide6 trong `core/`). Hỗ trợ các bộ mẫu (`PRESETS`: Văn bản, Văn bản + hình ảnh, Bìa màu, Bản vẽ nét, Gốc), khổ giấy (`PAPER_SIZES`), cắt vùng chọn (`paper_area`), xoay/tẩy chấm nhiễu (`clean_page`/`degraded_page`), bộ nhớ đệm trang `Page` LRU, lưu PDF/ảnh chuẩn DPI (`build_pdf_bytes`, `save_pdf`, `save_image`), và phiên tạm `ScanSession` theo tệp khóa PID (`QT_PDF_PRO_DATA` cô lập khi test).
@@ -27,14 +38,6 @@
    - Kiểm chứng AST: 0 import `PySide6` trong `qtpdfpro/core/`.
    - Kiểm chứng với **bộ mô hình ONNX OCR thật** trên ảnh scan 200 dpi từ `samples/nd30/cong_van_mau.pdf`: trích được `202` từ OCR và tìm `"cong hoa"` ra 1 kết quả đúng toạ độ `(317.52, 55.80, 388.80, 72.36)`.
    - Chụp kiểm tra hiển thị giao diện tiếng Việt thực tế (`scan_dialog_v2.png` và `main_smart_search_v2.png`) bằng `QT_PDF_PRO_DATA` tạm: chữ rõ nét, không cắt chữ/vỡ bố cục.
-
-### Việc còn dở / Ưu tiên kế tiếp cho Agent phiên sau (cập nhật 2026-11-15)
-1. ~~**Phát hành**~~ — đã phát hành **v1.5.1** ngày 2026-11-15.
-2. ~~**Hoàn thiện công cụ «Chọn chữ»**~~ — xong 2026-11-08 tối. Còn: Ctrl+A lần hai = cả tài liệu, chọn liền qua trang ở chế độ xem một trang.
-3. **Kiểm thử engine NĐ30 trên văn bản thật** (PDF ký số VGCA, PDF xuất từ phần mềm quản lý văn bản, PDF in từ LibreOffice): chạy `python -m qtpdfpro.cli convert <tệp> --mode nd30 --verify-layout` (hoặc `cli batch <thư mục> --verify-layout`) và xử lý các trường hợp «Lệch nhỏ».
-4. **Lộ trình** (`docs/DE_XUAT_TINH_NANG.md`): **Xem 2 trang song song**, ~~**V1**~~ (xong v1.4.0), **V2** thông báo «Đã lưu», phần còn lại của **A3** (dấu nước ảnh), **A6** giai đoạn 2 (điền AcroForm); sau đó **B1** (áp công cụ trên tab có Hoàn tác), **B2** (so sánh 2 PDF), **V5** (trang quản lý mô-đun), **B4** (ký số USB token, v2.0). OCR: thử thêm bản scan mờ / nghiêng / có bảng, dựng bảng Word từ trang scan. In thử 1 trang ra giấy trên máy in thật khi người dùng đồng ý.
-   - «Chỉnh sửa PDF» mở rộng: đổi cỡ hộp chữ/hình bằng tay nắm, sửa kiểu dáng chú thích đã có, dấu đóng có ảnh chữ ký.
-5. Tuỳ chọn: chuyển hàng loạt song song bằng nhiều tiến trình (`ProcessPoolExecutor`, cần `multiprocessing.freeze_support()` cho bản PyInstaller); ký số (code signing) bộ cài để SmartScreen không cảnh báo.
 
 ---
 
