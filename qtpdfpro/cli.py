@@ -340,7 +340,13 @@ def _add_print_command(sub) -> None:
     p.add_argument("--orientation", choices=list(printing.ORIENTATIONS), default="auto",
                    help="Hướng giấy: auto = theo đa số trang (mặc định)")
     p.add_argument("--scale", choices=list(printing.SCALE_MODES), default="fit",
-                   help="fit = vừa khổ giấy (mặc định), actual = cỡ thật, shrink = chỉ thu nhỏ trang quá khổ")
+                   help="fit = vừa khổ giấy (mặc định), actual = cỡ thật, shrink = chỉ thu nhỏ trang quá khổ, custom = tùy chỉnh tỷ lệ & vị trí")
+    p.add_argument("--scale-percent", type=float, default=100.0,
+                   help="Tỷ lệ %% khi dùng --scale custom (5 - 400, mặc định 100)")
+    p.add_argument("--align", choices=list(printing.ALIGN_POSITIONS), default="center",
+                   help="Vị trí đặt trang khi dùng --scale custom (mặc định: center)")
+    p.add_argument("--offset-mm", default=None,
+                   help="Tọa độ góc trên-trái 'X,Y' theo mm khi dùng --scale custom (ưu tiên hơn --align)")
     p.add_argument("--no-auto-rotate", action="store_true", help="Không xoay trang khác hướng giấy")
     p.add_argument("--grayscale", action="store_true", help="In đen trắng (thang xám)")
     p.add_argument("--duplex", choices=list(printing.DUPLEX_MODES), default="none",
@@ -1264,10 +1270,27 @@ def _run_print(args: argparse.Namespace) -> int:
         print("Lỗi: thiếu tệp PDF cần in.", file=sys.stderr)
         return 2
 
+    offset_x_pt = None
+    offset_y_pt = None
+    if args.offset_mm is not None:
+        parts = [s.strip() for s in args.offset_mm.split(",")]
+        if len(parts) != 2:
+            print("Lỗi: --offset-mm phải có dạng 'X,Y' tính theo mm (ví dụ: 10,15).", file=sys.stderr)
+            return 1
+        try:
+            mm_to_pt = 72.0 / 25.4
+            offset_x_pt = float(parts[0]) * mm_to_pt
+            offset_y_pt = float(parts[1]) * mm_to_pt
+        except ValueError:
+            print("Lỗi: --offset-mm phải chứa hai số thực tính theo mm (ví dụ: 10,15).", file=sys.stderr)
+            return 1
+
     src = Path(args.input_pdf).resolve()
     opts = printing.PrintOptions(
         copies=args.copies, collate=not args.no_collate, paper=args.paper, orientation=args.orientation,
-        scale=args.scale, auto_rotate=not args.no_auto_rotate, duplex=args.duplex, grayscale=args.grayscale,
+        scale=args.scale, custom_scale=args.scale_percent, position_anchor=args.align,
+        offset_x_pt=offset_x_pt, offset_y_pt=offset_y_pt,
+        auto_rotate=not args.no_auto_rotate, duplex=args.duplex, grayscale=args.grayscale,
         annotations=not args.no_annots, subset=args.subset, reverse=args.reverse,
         max_dpi=args.dpi if (args.printer and args.dpi) else printing.MAX_PRINT_DPI,
     ).normalized()
@@ -1294,8 +1317,12 @@ def _run_print(args: argparse.Namespace) -> int:
                     print(f"{src.name}: {plan.summary()} (chưa tính lề không in được của máy in)")
                     for k, sh in enumerate(plan.sheets, 1):
                         rot = f", xoay {sh.rotate}°" if sh.rotate else ""
+                        pos = (
+                            f", vị trí ({sh.target[0] * 25.4 / 72.0:.1f}, {sh.target[1] * 25.4 / 72.0:.1f}) mm"
+                            if opts.scale == "custom" else ""
+                        )
                         cut = " — mất mép (lớn hơn khổ giấy)" if sh.clipped else ""
-                        print(f"  Tờ {k}: trang {sh.page_index + 1}, tỷ lệ {sh.scale * 100:.1f}%{rot}{cut}")
+                        print(f"  Tờ {k}: trang {sh.page_index + 1}, tỷ lệ {sh.scale * 100:.1f}%{rot}{pos}{cut}")
                 return 0
             res = printing.print_to_pdf(doc, plan, args.to_pdf, dpi=args.dpi or printing.MIN_PRINT_DPI)
         else:

@@ -3,17 +3,19 @@ từng tờ đúng như sẽ in, nhớ thiết lập lần trước và gửi l�
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import fitz  # PyMuPDF
-from PySide6.QtCore import QRectF, QSize, QThread, QTimer, Qt, Signal
-from PySide6.QtGui import QColor, QImage, QPainter, QPen, QResizeEvent, QStandardItemModel
+from PySide6.QtCore import QPointF, QRectF, QSize, QThread, QTimer, Qt, Signal
+from PySide6.QtGui import QBrush, QColor, QImage, QMouseEvent, QPainter, QPen, QResizeEvent, QStandardItemModel, QWheelEvent
 from PySide6.QtWidgets import (
     QButtonGroup,
     QCheckBox,
     QComboBox,
     QDialog,
+    QDoubleSpinBox,
     QFileDialog,
     QFormLayout,
     QFrame,
@@ -33,6 +35,7 @@ from PySide6.QtWidgets import (
 )
 
 from qtpdfpro.core.printing import (
+    ALIGN_POSITIONS,
     DUPLEX_MODES,
     ORIENTATIONS,
     PAPER_LABELS,
@@ -59,6 +62,17 @@ PDF_TARGET = "__pdf__"  # mục «Lưu bản in thành tệp PDF» trong danh s�
 QUALITY_CHOICES = [("Cao — theo máy in (tối đa 600 dpi)", 600), ("Nhanh — 300 dpi", 300)]
 COLOR_CHOICES = [("Màu", False), ("Đen trắng (thang xám)", True)]
 _PREVIEW_MIN_DPI, _PREVIEW_MAX_DPI = 36, 220
+_MM = 72.0 / 25.4
+_HANDLE_CURSORS: Dict[str, Qt.CursorShape] = {
+    "nw": Qt.CursorShape.SizeFDiagCursor,
+    "se": Qt.CursorShape.SizeFDiagCursor,
+    "ne": Qt.CursorShape.SizeBDiagCursor,
+    "sw": Qt.CursorShape.SizeBDiagCursor,
+    "n": Qt.CursorShape.SizeVerCursor,
+    "s": Qt.CursorShape.SizeVerCursor,
+    "w": Qt.CursorShape.SizeHorCursor,
+    "e": Qt.CursorShape.SizeHorCursor,
+}
 
 
 class _PrintWorker(QThread):
@@ -101,9 +115,10 @@ class _PrintWorker(QThread):
 
 
 class PrintPreviewView(QWidget):
-    """Tờ giấy xem trước: vùng không in được (viền gạch), ảnh trang đặt đúng khung của kế hoạch in."""
+    """Tờ giấy xem trước: vùng không in được, ảnh trang có thể nắm kéo đổi vị trí & kéo 8 tay nắm thu phóng."""
 
     resized = Signal()
+    placementChanged = Signal(float, float, float, bool)  # (tỷ lệ %, x0_pt, y0_pt, finished)
 
     def __init__(self, dark: bool = True, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -112,6 +127,14 @@ class PrintPreviewView(QWidget):
         self.image: Optional[QImage] = None
         self.margins: Tuple[float, float, float, float] = (0.0, 0.0, 0.0, 0.0)
         self.message = ""
+        self.interactive = True
+        self.show_custom_badge = False
+        self._drag_mode = ""
+        self._drag_handle = ""
+        self._drag_start_pos = QPointF()
+        self._drag_orig_target: Tuple[float, float, float, float] = (0.0, 0.0, 0.0, 0.0)
+        self._drag_orig_scale = 1.0
+        self.setMouseTracking(True)
         self.setMinimumSize(260, 320)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
@@ -131,9 +154,196 @@ class PrintPreviewView(QWidget):
         w, h = paper_w * k, paper_h * k
         return QRectF((self.width() - w) / 2, (self.height() - h) / 2, w, h)
 
+    def target_widget_rect(self) -> Optional[QRectF]:
+        """Khung trang nội dung hiện tại theo toạ độ điểm ảnh trên widget."""
+        sheet = self.sheet
+        if sheet is None or sheet.is_blank:
+            return None
+        paper = self.paper_rect(sheet.paper_width, sheet.paper_height)
+        k = paper.width() / max(1.0, sheet.paper_width)
+        x0, y0, x1, y1 = sheet.target
+        return QRectF(paper.x() + x0 * k, paper.y() + y0 * k, (x1 - x0) * k, (y1 - y0) * k)
+
+    @staticmethod
+    def handle_rects(tr: QRectF) -> Dict[str, QRectF]:
+        """8 ô tay nắm ở 4 góc và 4 cạnh quanh khung `tr`."""
+        cx = (tr.left() + tr.right()) / 2.0
+        cy = (tr.top() + tr.bottom()) / 2.0
+        pts = {
+            "nw": (tr.left(), tr.top()),
+            "n": (cx, tr.top()),
+            "ne": (tr.right(), tr.top()),
+            "e": (tr.right(), cy),
+            "se": (tr.right(), tr.bottom()),
+            "s": (cx, tr.bottom()),
+            "sw": (tr.left(), tr.bottom()),
+            "w": (tr.left(), cy),
+        }
+        return {k: QRectF(x - 4.0, y - 4.0, 8.0, 8.0) for k, (x, y) in pts.items()}
+
+    def _handle_at(self, pos: QPointF) -> str:
+        tr = self.target_widget_rect()
+        if tr is None:
+            return ""
+        for key, hrect in self.handle_rects(tr).items():
+            if hrect.adjusted(-4.0, -4.0, 4.0, 4.0).contains(pos):
+                return key
+        return ""
+
     def resizeEvent(self, event: QResizeEvent) -> None:  # noqa: N802 - API Qt
         super().resizeEvent(event)
         self.resized.emit()
+
+    def mousePressEvent(self, event: QMouseEvent) -> None:  # noqa: N802 - API Qt
+        if (
+            event.button() == Qt.MouseButton.LeftButton
+            and self.interactive
+            and self.sheet is not None
+            and not self.sheet.is_blank
+        ):
+            pos = event.position()
+            handle = self._handle_at(pos)
+            tr = self.target_widget_rect()
+            if handle:
+                self._drag_mode = "resize"
+                self._drag_handle = handle
+                self._drag_start_pos = pos
+                self._drag_orig_target = self.sheet.target
+                self._drag_orig_scale = self.sheet.scale
+                self.setCursor(_HANDLE_CURSORS[handle])
+                return
+            if tr is not None and tr.contains(pos):
+                self._drag_mode = "move"
+                self._drag_handle = ""
+                self._drag_start_pos = pos
+                self._drag_orig_target = self.sheet.target
+                self._drag_orig_scale = self.sheet.scale
+                self.setCursor(Qt.CursorShape.ClosedHandCursor)
+                return
+        super().mousePressEvent(event)
+
+    @staticmethod
+    def _snap_val(val: float, candidates: Tuple[float, ...], tol: float = 4.0) -> float:
+        best = val
+        best_dist = tol
+        for c in candidates:
+            d = abs(val - c)
+            if d < best_dist:
+                best = c
+                best_dist = d
+        return best
+
+    def mouseMoveEvent(self, event: QMouseEvent) -> None:  # noqa: N802 - API Qt
+        pos = event.position()
+        sheet = self.sheet
+        if self._drag_mode and sheet is not None and not sheet.is_blank:
+            paper = self.paper_rect(sheet.paper_width, sheet.paper_height)
+            k = paper.width() / max(1.0, sheet.paper_width)
+            ox0, oy0, ox1, oy1 = self._drag_orig_target
+            ow, oh = max(1.0, ox1 - ox0), max(1.0, oy1 - oy0)
+            pw, ph = sheet.paper_width, sheet.paper_height
+            ml, mt, mr, mb = self.margins
+
+            if self._drag_mode == "move":
+                nx0 = ox0 + (pos.x() - self._drag_start_pos.x()) / k
+                ny0 = oy0 + (pos.y() - self._drag_start_pos.y()) / k
+                keep_x = min(24.0, ow)
+                keep_y = min(24.0, oh)
+                nx0 = max(keep_x - ow, min(pw - keep_x, nx0))
+                ny0 = max(keep_y - oh, min(ph - keep_y, ny0))
+                if not (event.modifiers() & Qt.KeyboardModifier.AltModifier):
+                    nx0 = self._snap_val(nx0, (0.0, ml, (pw - ow) / 2.0, pw - mr - ow, pw - ow))
+                    ny0 = self._snap_val(ny0, (0.0, mt, (ph - oh) / 2.0, ph - mb - oh, ph - oh))
+                self.sheet = replace(sheet, target=(nx0, ny0, nx0 + ow, ny0 + oh))
+                self.update()
+                self.placementChanged.emit(self.sheet.scale * 100.0, nx0, ny0, False)
+                return
+
+            if self._drag_mode == "resize":
+                px = (pos.x() - paper.x()) / k
+                py = (pos.y() - paper.y()) / k
+                h = self._drag_handle
+                cand_w = (ox1 - px) if "w" in h else ((px - ox0) if "e" in h else ow)
+                cand_h = (oy1 - py) if "n" in h else ((py - oy0) if "s" in h else oh)
+                if len(h) == 2:
+                    rw = cand_w / ow
+                    rh = cand_h / oh
+                    ratio = rw if abs(rw - 1.0) >= abs(rh - 1.0) else rh
+                elif "w" in h or "e" in h:
+                    ratio = cand_w / ow
+                else:
+                    ratio = cand_h / oh
+                min_ratio = 0.05 / max(1e-6, self._drag_orig_scale)
+                max_ratio = 4.0 / max(1e-6, self._drag_orig_scale)
+                ratio = max(min_ratio, min(max_ratio, ratio))
+                new_scale = self._drag_orig_scale * ratio
+                nw, nh = ow * ratio, oh * ratio
+
+                if "w" in h:
+                    nx0 = ox1 - nw
+                elif "e" in h:
+                    nx0 = ox0
+                else:
+                    nx0 = (ox0 + ox1) / 2.0 - nw / 2.0
+
+                if "n" in h:
+                    ny0 = oy1 - nh
+                elif "s" in h:
+                    ny0 = oy0
+                else:
+                    ny0 = (oy0 + oy1) / 2.0 - nh / 2.0
+
+                self.sheet = replace(sheet, target=(nx0, ny0, nx0 + nw, ny0 + nh), scale=new_scale)
+                self.update()
+                self.placementChanged.emit(new_scale * 100.0, nx0, ny0, False)
+                return
+
+        if self.interactive and sheet is not None and not sheet.is_blank:
+            handle = self._handle_at(pos)
+            tr = self.target_widget_rect()
+            if handle:
+                self.setCursor(_HANDLE_CURSORS[handle])
+            elif tr is not None and tr.contains(pos):
+                self.setCursor(Qt.CursorShape.OpenHandCursor)
+            else:
+                self.setCursor(Qt.CursorShape.ArrowCursor)
+        else:
+            self.setCursor(Qt.CursorShape.ArrowCursor)
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event: QMouseEvent) -> None:  # noqa: N802 - API Qt
+        if event.button() == Qt.MouseButton.LeftButton and self._drag_mode and self.sheet is not None:
+            self._drag_mode = ""
+            self._drag_handle = ""
+            self.setCursor(Qt.CursorShape.OpenHandCursor)
+            self.update()
+            self.placementChanged.emit(self.sheet.scale * 100.0, self.sheet.target[0], self.sheet.target[1], True)
+            return
+        super().mouseReleaseEvent(event)
+
+    def wheelEvent(self, event: QWheelEvent) -> None:  # noqa: N802 - API Qt
+        sheet = self.sheet
+        if not self.interactive or sheet is None or sheet.is_blank:
+            super().wheelEvent(event)
+            return
+        delta = event.angleDelta().y()
+        if delta == 0:
+            return
+        step = 5.0 if delta > 0 else -5.0
+        cur_pct = sheet.scale * 100.0
+        new_pct = max(5.0, min(400.0, round((cur_pct + step) * 2.0) / 2.0))
+        if abs(new_pct - cur_pct) < 0.01:
+            return
+        ox0, oy0, ox1, oy1 = sheet.target
+        ow, oh = ox1 - ox0, oy1 - oy0
+        ratio = (new_pct / 100.0) / max(1e-6, sheet.scale)
+        nw, nh = ow * ratio, oh * ratio
+        nx0 = (ox0 + ox1) / 2.0 - nw / 2.0
+        ny0 = (oy0 + oy1) / 2.0 - nh / 2.0
+        self.sheet = replace(sheet, target=(nx0, ny0, nx0 + nw, ny0 + nh), scale=new_pct / 100.0)
+        self.update()
+        self.placementChanged.emit(new_pct, nx0, ny0, True)
+        event.accept()
 
     def paintEvent(self, _event) -> None:  # noqa: N802 - API Qt
         p = QPainter(self)
@@ -153,9 +363,9 @@ class PrintPreviewView(QWidget):
         p.fillRect(paper, QColor("#FFFFFF"))
         p.save()
         p.setClipRect(paper)
+        x0, y0, x1, y1 = sheet.target
+        target = QRectF(paper.x() + x0 * k, paper.y() + y0 * k, (x1 - x0) * k, (y1 - y0) * k)
         if self.image is not None:
-            x0, y0, x1, y1 = sheet.target
-            target = QRectF(paper.x() + x0 * k, paper.y() + y0 * k, (x1 - x0) * k, (y1 - y0) * k)
             p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
             p.drawImage(target, self.image)
         p.restore()
@@ -168,6 +378,32 @@ class PrintPreviewView(QWidget):
         p.setPen(QPen(QColor("#94A3B8"), 1))
         p.setBrush(Qt.BrushStyle.NoBrush)
         p.drawRect(paper)
+
+        if not sheet.is_blank and self.interactive:
+            p.setPen(QPen(QColor("#2563EB"), 1.3, Qt.PenStyle.DashLine))
+            p.setBrush(Qt.BrushStyle.NoBrush)
+            p.drawRect(target)
+            p.setPen(QPen(QColor("#2563EB"), 1.2))
+            p.setBrush(QBrush(QColor("#FFFFFF")))
+            for hrect in self.handle_rects(target).values():
+                p.drawRect(hrect)
+            if self._drag_mode or self.show_custom_badge:
+                label = (
+                    f"{sheet.scale * 100:.0f}% · "
+                    f"{(x1 - x0) / _MM:.0f}×{(y1 - y0) / _MM:.0f} mm · "
+                    f"({x0 / _MM:.0f}, {y0 / _MM:.0f}) mm"
+                )
+                fm = p.fontMetrics()
+                bw = fm.horizontalAdvance(label) + 12
+                bh = fm.height() + 6
+                bx = max(4.0, min(float(self.width()) - bw - 4.0, target.center().x() - bw / 2.0))
+                by = min(float(self.height()) - bh - 4.0, target.bottom() + 6.0)
+                badge = QRectF(bx, by, bw, bh)
+                p.setPen(Qt.PenStyle.NoPen)
+                p.setBrush(QBrush(QColor(30, 41, 59, 230)))
+                p.drawRoundedRect(badge, 4, 4)
+                p.setPen(QColor("#F8FAFC"))
+                p.drawText(badge, Qt.AlignmentFlag.AlignCenter, label)
         p.end()
 
 
@@ -206,6 +442,8 @@ class PrintDialog(QDialog):
         self._caps_cache: Dict[str, dict] = {}
         self._image_cache: Dict[tuple, QImage] = {}
         self._allowed = printing_allowed(doc)
+        self._syncing_placement = False
+        self._custom_offset_pt: Optional[Tuple[float, float]] = None
 
         self.setWindowTitle(f"In tài liệu — {self.doc_name}")
         self.setWindowFlag(Qt.WindowType.WindowMaximizeButtonHint, True)
@@ -328,6 +566,51 @@ class PrintDialog(QDialog):
         for key, label in SCALE_MODES.items():
             self.scale_combo.addItem(label, userData=key)
         lay_paper.addRow("Tỷ lệ:", self.scale_combo)
+
+        self.custom_box = QWidget()
+        custom_lay = QFormLayout(self.custom_box)
+        custom_lay.setContentsMargins(0, 4, 0, 0)
+        custom_lay.setSpacing(6)
+        scale_row = QHBoxLayout()
+        scale_row.setSpacing(6)
+        self.scale_pct_spin = QDoubleSpinBox()
+        self.scale_pct_spin.setRange(5.0, 400.0)
+        self.scale_pct_spin.setDecimals(1)
+        self.scale_pct_spin.setSingleStep(5.0)
+        self.scale_pct_spin.setSuffix(" %")
+        self.scale_pct_spin.setValue(100.0)
+        self.btn_fit_scale = QPushButton("Vừa giấy")
+        self.btn_fit_scale.setToolTip("Tính tỷ lệ % vừa khít vùng in của khổ giấy đã chọn")
+        scale_row.addWidget(self.scale_pct_spin, 1)
+        scale_row.addWidget(self.btn_fit_scale)
+        custom_lay.addRow("Thu phóng:", scale_row)
+
+        self.align_combo = QComboBox()
+        for key, (label, _ax, _ay) in ALIGN_POSITIONS.items():
+            self.align_combo.addItem(label, userData=key)
+        self.align_combo.addItem("Tự do (kéo chuột)", userData="free")
+        custom_lay.addRow("Vị trí:", self.align_combo)
+
+        pos_row = QHBoxLayout()
+        pos_row.setSpacing(4)
+        self.pos_x_spin = QDoubleSpinBox()
+        self.pos_y_spin = QDoubleSpinBox()
+        for spin in (self.pos_x_spin, self.pos_y_spin):
+            spin.setRange(-1000.0, 1000.0)
+            spin.setDecimals(1)
+            spin.setSingleStep(1.0)
+            spin.setSuffix(" mm")
+        self.btn_reset_pos = QPushButton("Giữa")
+        self.btn_reset_pos.setToolTip("Đặt lại trang vào chính giữa vùng in")
+        pos_row.addWidget(QLabel("X:"))
+        pos_row.addWidget(self.pos_x_spin, 1)
+        pos_row.addWidget(QLabel("Y:"))
+        pos_row.addWidget(self.pos_y_spin, 1)
+        pos_row.addWidget(self.btn_reset_pos)
+        custom_lay.addRow("Tọa độ:", pos_row)
+        lay_paper.addRow(self.custom_box)
+        self.custom_box.setVisible(False)
+
         self.chk_auto_rotate = QCheckBox("Tự xoay trang ngang / dọc cho vừa giấy")
         lay_paper.addRow("", self.chk_auto_rotate)
         form.addWidget(grp_paper)
@@ -357,7 +640,13 @@ class PrintDialog(QDialog):
         preview_col.setSpacing(6)
         self.preview = PrintPreviewView(dark)
         self.preview.resized.connect(self._schedule_preview)
+        self.preview.placementChanged.connect(self._on_preview_placement_changed)
         preview_col.addWidget(self.preview, 1)
+        self.preview_hint_label = QLabel("Mẹo: Kéo trang để di chuyển · Kéo ô vuông góc để thu phóng · Lăn chuột ±5% (giữ Alt kéo tự do)")
+        self.preview_hint_label.setObjectName("mutedLabel")
+        self.preview_hint_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.preview_hint_label.setWordWrap(True)
+        preview_col.addWidget(self.preview_hint_label)
         nav = QHBoxLayout()
         self.btn_prev = QPushButton("◀")
         self.btn_prev.setToolTip("Tờ trước (PgUp)")
@@ -406,9 +695,16 @@ class PrintDialog(QDialog):
         self.printer_combo.currentIndexChanged.connect(self._on_printer_changed)
         self.scope_group.idToggled.connect(lambda _i, on: on and self._schedule_refresh())
         self.range_edit.textChanged.connect(self._on_range_edited)
-        for combo in (self.subset_combo, self.paper_combo, self.orient_combo, self.scale_combo,
+        for combo in (self.subset_combo, self.paper_combo, self.orient_combo,
                       self.duplex_combo, self.color_combo, self.quality_combo):
             combo.currentIndexChanged.connect(self._schedule_refresh)
+        self.scale_combo.currentIndexChanged.connect(self._on_scale_mode_changed)
+        self.scale_pct_spin.valueChanged.connect(lambda _v: not self._syncing_placement and self._schedule_refresh())
+        self.align_combo.currentIndexChanged.connect(self._on_align_changed)
+        self.pos_x_spin.valueChanged.connect(self._on_offset_edited)
+        self.pos_y_spin.valueChanged.connect(self._on_offset_edited)
+        self.btn_reset_pos.clicked.connect(self._reset_position_center)
+        self.btn_fit_scale.clicked.connect(self._fit_custom_scale_to_paper)
         for chk in (self.chk_reverse, self.chk_auto_rotate, self.chk_annots, self.chk_collate):
             chk.toggled.connect(self._schedule_refresh)
         self.copies_spin.valueChanged.connect(self._schedule_refresh)
@@ -429,7 +725,21 @@ class PrintDialog(QDialog):
         self.chk_collate.setChecked(opts.collate)
         self._select_data(self.paper_combo, opts.paper)
         self._select_data(self.orient_combo, opts.orientation)
-        self._select_data(self.scale_combo, opts.scale)
+        self._syncing_placement = True
+        try:
+            self._select_data(self.scale_combo, opts.scale)
+            self.scale_pct_spin.setValue(opts.custom_scale)
+            if opts.offset_x_pt is not None and opts.offset_y_pt is not None:
+                self._custom_offset_pt = (opts.offset_x_pt, opts.offset_y_pt)
+                self._select_data(self.align_combo, "free")
+                self.pos_x_spin.setValue(round(opts.offset_x_pt / _MM, 1))
+                self.pos_y_spin.setValue(round(opts.offset_y_pt / _MM, 1))
+            else:
+                self._custom_offset_pt = None
+                self._select_data(self.align_combo, opts.position_anchor)
+            self.custom_box.setVisible(opts.scale == "custom")
+        finally:
+            self._syncing_placement = False
         self.chk_auto_rotate.setChecked(opts.auto_rotate)
         self._select_data(self.duplex_combo, opts.duplex)
         self._select_data(self.color_combo, opts.grayscale)
@@ -446,13 +756,21 @@ class PrintDialog(QDialog):
         return ("all", "current", "custom")[max(0, self.scope_group.checkedId())]
 
     def current_options(self) -> PrintOptions:
+        scale = str(self.scale_combo.currentData())
+        align_data = str(self.align_combo.currentData() or "center")
+        position_anchor = align_data if align_data in ALIGN_POSITIONS else "center"
+        use_free = (scale == "custom" and align_data == "free" and self._custom_offset_pt is not None)
         return PrintOptions(
             printer=self.printer_target,
             copies=self.copies_spin.value(),
             collate=self.chk_collate.isChecked(),
             paper=str(self.paper_combo.currentData()),
             orientation=str(self.orient_combo.currentData()),
-            scale=str(self.scale_combo.currentData()),
+            scale=scale,
+            custom_scale=float(self.scale_pct_spin.value()),
+            position_anchor=position_anchor,
+            offset_x_pt=self._custom_offset_pt[0] if use_free else None,
+            offset_y_pt=self._custom_offset_pt[1] if use_free else None,
             auto_rotate=self.chk_auto_rotate.isChecked(),
             duplex=str(self.duplex_combo.currentData()) if self.duplex_combo.isEnabled() else "none",
             grayscale=bool(self.color_combo.currentData()),
@@ -624,12 +942,117 @@ class PrintDialog(QDialog):
             self._image_cache[key] = img
         return img
 
+    def _on_scale_mode_changed(self) -> None:
+        if self._syncing_placement:
+            return
+        is_custom = (self.scale_combo.currentData() == "custom")
+        self.custom_box.setVisible(is_custom)
+        self._schedule_refresh()
+
+    def _on_align_changed(self) -> None:
+        if self._syncing_placement:
+            return
+        data = str(self.align_combo.currentData() or "center")
+        if data == "free":
+            if self._custom_offset_pt is None and self.plan and self.plan.sheets:
+                x0, y0, _, _ = self.plan.sheets[self.preview_index].target
+                self._custom_offset_pt = (x0, y0)
+            else:
+                self._custom_offset_pt = (
+                    float(self.pos_x_spin.value()) * _MM,
+                    float(self.pos_y_spin.value()) * _MM,
+                )
+        else:
+            self._custom_offset_pt = None
+        self._schedule_refresh()
+
+    def _on_offset_edited(self, _val: float) -> None:
+        if self._syncing_placement:
+            return
+        self._syncing_placement = True
+        try:
+            self._select_data(self.align_combo, "free")
+            self._custom_offset_pt = (
+                float(self.pos_x_spin.value()) * _MM,
+                float(self.pos_y_spin.value()) * _MM,
+            )
+        finally:
+            self._syncing_placement = False
+        self._schedule_refresh()
+
+    def _reset_position_center(self) -> None:
+        self._syncing_placement = True
+        try:
+            self._custom_offset_pt = None
+            self._select_data(self.align_combo, "center")
+        finally:
+            self._syncing_placement = False
+        self.refresh_plan()
+
+    def _fit_custom_scale_to_paper(self) -> None:
+        opts = self.current_options()
+        fit_opts = replace(opts, scale="fit")
+        margins = self._printer_margins(self.printer_target, opts.paper, fetch=False) or (0.0, 0.0, 0.0, 0.0)
+        try:
+            page_idx = 0
+            if self.plan and self.plan.sheets:
+                p = self.plan.sheets[self.preview_index].page_index
+                if p is not None:
+                    page_idx = p
+            fit_plan = plan_print(self._sizes, [page_idx], fit_opts, margins)
+            if fit_plan.sheets:
+                pct = max(5.0, min(400.0, round(fit_plan.sheets[0].scale * 100.0, 1)))
+                self._syncing_placement = True
+                try:
+                    self.scale_pct_spin.setValue(pct)
+                finally:
+                    self._syncing_placement = False
+                self.refresh_plan()
+        except Exception:
+            pass
+
+    def _on_preview_placement_changed(
+        self,
+        new_scale_pct: float,
+        new_x_pt: float,
+        new_y_pt: float,
+        is_finished: bool,
+    ) -> None:
+        self._syncing_placement = True
+        try:
+            if self.scale_combo.currentData() != "custom":
+                self._select_data(self.scale_combo, "custom")
+                self.custom_box.setVisible(True)
+            self.scale_pct_spin.setValue(round(new_scale_pct, 1))
+            self._custom_offset_pt = (new_x_pt, new_y_pt)
+            self._select_data(self.align_combo, "free")
+            self.pos_x_spin.setValue(round(new_x_pt / _MM, 1))
+            self.pos_y_spin.setValue(round(new_y_pt / _MM, 1))
+            self.preview.show_custom_badge = True
+        finally:
+            self._syncing_placement = False
+        if is_finished:
+            self.refresh_plan()
+
+    def _sync_custom_box_from_sheet(self, sheet: PrintSheet) -> None:
+        self._syncing_placement = True
+        try:
+            align_data = str(self.align_combo.currentData() or "center")
+            if align_data != "free":
+                x0, y0, _, _ = sheet.target
+                self.pos_x_spin.setValue(round(x0 / _MM, 1))
+                self.pos_y_spin.setValue(round(y0 / _MM, 1))
+        finally:
+            self._syncing_placement = False
+
     def update_preview(self) -> None:
         plan = self.plan
         if plan is None or not plan.sheets:
             return
         sheet = plan.sheets[self.preview_index]
+        self.preview.show_custom_badge = (plan.options.scale == "custom")
         self.preview.set_content(sheet, self.preview_image(sheet), plan.margins)
+        self._sync_custom_box_from_sheet(sheet)
         n = plan.sheet_count
         page_txt = f"trang {sheet.page_index + 1} của tài liệu" if sheet.page_index is not None else "tờ trắng"
         extra = " · xoay 90°" if sheet.rotate else ""
@@ -700,6 +1123,7 @@ class PrintDialog(QDialog):
     def _set_controls_enabled(self, enabled: bool) -> None:
         for w in self.findChildren(QGroupBox):
             w.setEnabled(enabled)
+        self.preview.interactive = enabled
         self.print_btn.setEnabled(enabled and self.plan is not None and self._allowed)
         self.cancel_btn.setText("Huỷ" if enabled else "Dừng in")
 

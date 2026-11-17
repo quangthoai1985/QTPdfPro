@@ -243,3 +243,83 @@ def test_cli_print_to_pdf_and_plan(tmp_path: Path, capsys: pytest.CaptureFixture
     assert "nằm ngoài" in capsys.readouterr().err
     with pytest.raises(SystemExit):  # phải chọn đích in — không tự in ra máy in mặc định
         cli.main(["print", str(pdf)])
+
+
+def test_plan_custom_scale_anchors_and_offset() -> None:
+    opts = P.PrintOptions(scale="custom", custom_scale=50.0, position_anchor="top-left").normalized()
+    assert opts.scale == "custom" and opts.custom_scale == 50.0 and opts.position_anchor == "top-left"
+    clamped = P.PrintOptions(scale="custom", custom_scale=2.0).normalized()
+    assert clamped.custom_scale == 5.0
+    clamped_hi = P.PrintOptions(scale="custom", custom_scale=600.0).normalized()
+    assert clamped_hi.custom_scale == 400.0
+
+    margins = (10.0, 20.0, 10.0, 20.0)
+    half_w, half_h = A4[0] / 2.0, A4[1] / 2.0
+    plan_tl = P.plan_print([A4], [0], opts, margins=margins)
+    sh_tl = plan_tl.sheets[0]
+    assert sh_tl.scale == pytest.approx(0.5)
+    assert sh_tl.clipped is False
+    assert sh_tl.target == pytest.approx((10.0, 20.0, 10.0 + half_w, 20.0 + half_h), abs=0.1)
+
+    opts_br = P.PrintOptions(scale="custom", custom_scale=50.0, position_anchor="bottom-right")
+    sh_br = P.plan_print([A4], [0], opts_br, margins=margins).sheets[0]
+    assert sh_br.target[2] == pytest.approx(A4[0] - 10.0, abs=0.1)
+    assert sh_br.target[3] == pytest.approx(A4[1] - 20.0, abs=0.1)
+    assert sh_br.target[0] == pytest.approx(A4[0] - 10.0 - half_w, abs=0.1)
+
+    opts_free = P.PrintOptions(
+        scale="custom",
+        custom_scale=50.0,
+        position_anchor="center",
+        offset_x_pt=30.0,
+        offset_y_pt=40.0,
+    )
+    sh_free = P.plan_print([A4], [0], opts_free, margins=margins).sheets[0]
+    assert sh_free.target == pytest.approx((30.0, 40.0, 30.0 + half_w, 40.0 + half_h), abs=0.1)
+
+    opts_big = P.PrintOptions(scale="custom", custom_scale=150.0, position_anchor="center")
+    sh_big = P.plan_print([A4], [0], opts_big, margins=margins).sheets[0]
+    assert sh_big.clipped is True and sh_big.scale == pytest.approx(1.5)
+
+
+def test_print_to_pdf_custom_corner_placement(tmp_path: Path) -> None:
+    pdf = _mixed_pdf(tmp_path / "tron.pdf")
+    out = tmp_path / "ban_in_goc.pdf"
+    opts = P.PrintOptions(scale="custom", custom_scale=40.0, position_anchor="bottom-right")
+    with fitz.open(str(pdf)) as doc:
+        plan = P.plan_document(doc, [0], opts)
+        res = P.print_to_pdf(doc, plan, out, dpi=72)
+    assert res.sheets_printed == 1 and not res.cancelled
+    with fitz.open(str(out)) as printed:
+        pix = printed[0].get_pixmap(dpi=72, alpha=False)
+        # Góc trên-trái của tờ A4 phải trắng (vì trang đã thu 40% về góc dưới-phải)
+        assert pix.pixel(15, 15) == (255, 255, 255)
+        # Vùng góc trên-trái của trang nội dung nằm quanh x = 595 * 0.6 + 8, y = 842 * 0.6 + 8 → ô đỏ
+        r, g, b = pix.pixel(int(595 * 0.6) + 8, int(842 * 0.6) + 8)
+        assert r > 200 and g < 50 and b < 50
+
+
+def test_cli_print_custom_scale_and_offset(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    pdf = _mixed_pdf(tmp_path / "tron.pdf")
+    assert cli.main([
+        "print", str(pdf), "--pages", "1", "--plan",
+        "--scale", "custom", "--scale-percent", "50", "--align", "bottom-right", "--json",
+    ]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    plan = payload["plan"]
+    assert plan["custom_scale"] == 50.0 and plan["position_anchor"] == "bottom-right"
+    t0 = plan["sheets"][0]["target"]
+    assert t0[2] == pytest.approx(595.0, abs=0.5) and t0[3] == pytest.approx(842.0, abs=0.5)
+
+    assert cli.main([
+        "print", str(pdf), "--pages", "1", "--plan",
+        "--scale", "custom", "--scale-percent", "40", "--offset-mm", "10,20", "--json",
+    ]) == 0
+    plan2 = json.loads(capsys.readouterr().out)["plan"]
+    t1 = plan2["sheets"][0]["target"]
+    mm_to_pt = 72.0 / 25.4
+    assert t1[0] == pytest.approx(10.0 * mm_to_pt, abs=0.2)
+    assert t1[1] == pytest.approx(20.0 * mm_to_pt, abs=0.2)
+
+    assert cli.main(["print", str(pdf), "--pages", "1", "--plan", "--scale", "custom", "--offset-mm", "abc"]) == 1
+    assert "--offset-mm" in capsys.readouterr().err

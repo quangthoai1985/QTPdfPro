@@ -8,6 +8,8 @@ from pathlib import Path
 
 import fitz  # PyMuPDF
 import pytest
+from PySide6.QtCore import QEvent, QPoint, QPointF, Qt
+from PySide6.QtGui import QMouseEvent, QWheelEvent
 from PySide6.QtWidgets import QApplication
 
 from qtpdfpro.core.printing import PrintOptions
@@ -212,3 +214,135 @@ def test_main_window_ctrl_p_opens_print_dialog(sample_vietnamese_pdf: Path, monk
     win.run_command("print")
     assert len(opened) == 3
     win.close()
+
+
+def _red_corner_pdf(path: Path) -> Path:
+    """Tạo PDF A4 1 trang có ô đỏ lớn (120×120 pt) ở góc trên-trái để kiểm tra vị trí in."""
+    doc = fitz.open()
+    page = doc.new_page(width=595, height=842)
+    page.draw_rect(fitz.Rect(0, 0, 120, 120), color=None, fill=(1, 0, 0))
+    doc.save(str(path))
+    doc.close()
+    return path
+
+
+def test_print_dialog_custom_scale_and_offset_controls(tmp_path: Path, no_real_printers: None) -> None:
+    app = _app()
+    pdf = _red_corner_pdf(tmp_path / "do.pdf")
+    with fitz.open(str(pdf)) as doc:
+        dlg = PrintDialog(doc, AppSettings.load())
+        assert dlg.custom_box.isHidden() is True
+
+        dlg.scale_combo.setCurrentIndex(dlg.scale_combo.findData("custom"))
+        assert dlg.custom_box.isHidden() is False
+
+        dlg.scale_pct_spin.setValue(50.0)
+        dlg.align_combo.setCurrentIndex(dlg.align_combo.findData("bottom-right"))
+        plan = dlg.refresh_plan()
+        assert plan is not None
+        sh = plan.sheets[0]
+        assert sh.scale == pytest.approx(0.5)
+        assert sh.target[2] == pytest.approx(595.0, abs=0.5)
+        assert sh.target[3] == pytest.approx(842.0, abs=0.5)
+
+        dlg.pos_x_spin.setValue(0.0)
+        dlg.pos_y_spin.setValue(0.0)
+        assert dlg.align_combo.currentData() == "free"
+        plan2 = dlg.refresh_plan()
+        assert plan2 is not None and plan2.sheets[0].target[0] == pytest.approx(0.0, abs=0.5)
+
+        out = tmp_path / "out_custom_ui.pdf"
+        dlg.output_path = str(out)
+        assert dlg.start_print() is True
+        assert dlg.wait_for_worker(30000)
+        deadline = time.time() + 10
+        while dlg.result is None and time.time() < deadline:
+            app.processEvents()
+        assert dlg.result is not None and not dlg.result.cancelled
+
+        dlg.btn_reset_pos.click()
+        assert dlg.align_combo.currentData() == "center"
+        dlg.reject()
+
+    with fitz.open(str(out)) as printed:
+        pix = printed[0].get_pixmap(dpi=72, alpha=False)
+        # Góc trên-trái có ô đỏ, góc dưới-phải hoàn toàn trắng
+        r, g, b = pix.pixel(20, 20)
+        assert r > 200 and g < 50 and b < 50
+        assert pix.pixel(570, 810) == (255, 255, 255)
+
+
+def test_print_preview_drag_resize_and_wheel(tmp_path: Path, no_real_printers: None) -> None:
+    app = _app()
+    pdf = _red_corner_pdf(tmp_path / "drag.pdf")
+    with fitz.open(str(pdf)) as doc:
+        dlg = PrintDialog(doc, AppSettings.load())
+        dlg.preview.resize(460, 560)
+        dlg.refresh_plan()
+        dlg.update_preview()
+
+        tr0 = dlg.preview.target_widget_rect()
+        assert tr0 is not None
+        handles = dlg.preview.handle_rects(tr0)
+        assert set(handles.keys()) == {"nw", "n", "ne", "e", "se", "s", "sw", "w"}
+
+        # Kéo tay nắm "se" hướng về tâm để thu nhỏ trang
+        p_se = handles["se"].center()
+        p_in = QPointF(p_se.x() - 140.0, p_se.y() - 190.0)
+        QApplication.sendEvent(
+            dlg.preview,
+            QMouseEvent(QEvent.Type.MouseButtonPress, p_se, p_se, Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier),
+        )
+        QApplication.sendEvent(
+            dlg.preview,
+            QMouseEvent(QEvent.Type.MouseMove, p_in, p_in, Qt.MouseButton.NoButton, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier),
+        )
+        QApplication.sendEvent(
+            dlg.preview,
+            QMouseEvent(QEvent.Type.MouseButtonRelease, p_in, p_in, Qt.MouseButton.LeftButton, Qt.MouseButton.NoButton, Qt.KeyboardModifier.NoModifier),
+        )
+        app.processEvents()
+        assert dlg.scale_combo.currentData() == "custom"
+        shrunk_pct = dlg.scale_pct_spin.value()
+        assert shrunk_pct < 75.0
+        assert dlg.plan is not None and dlg.plan.sheets[0].scale < 0.75
+
+        # Kéo phần trang để di chuyển về góc trên-trái (nhấn giữ Alt để tự do, không snap)
+        tr = dlg.preview.target_widget_rect()
+        assert tr is not None
+        p_start = tr.center()
+        p_end = QPointF(p_start.x() - 70.0, p_start.y() - 110.0)
+        QApplication.sendEvent(
+            dlg.preview,
+            QMouseEvent(QEvent.Type.MouseButtonPress, p_start, p_start, Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.AltModifier),
+        )
+        QApplication.sendEvent(
+            dlg.preview,
+            QMouseEvent(QEvent.Type.MouseMove, p_end, p_end, Qt.MouseButton.NoButton, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.AltModifier),
+        )
+        QApplication.sendEvent(
+            dlg.preview,
+            QMouseEvent(QEvent.Type.MouseButtonRelease, p_end, p_end, Qt.MouseButton.LeftButton, Qt.MouseButton.NoButton, Qt.KeyboardModifier.AltModifier),
+        )
+        app.processEvents()
+        assert dlg.align_combo.currentData() == "free"
+        assert dlg.plan is not None
+        assert dlg.plan.sheets[0].target[0] < 60.0 and dlg.plan.sheets[0].target[1] < 80.0
+
+        # Lăn chuột lên để tăng +5% tỷ lệ
+        before_wheel = dlg.scale_pct_spin.value()
+        center_pt = dlg.preview.rect().center()
+        wheel_ev = QWheelEvent(
+            QPointF(center_pt),
+            QPointF(center_pt),
+            QPoint(0, 0),
+            QPoint(0, 120),
+            Qt.MouseButton.NoButton,
+            Qt.KeyboardModifier.NoModifier,
+            Qt.ScrollPhase.NoScrollPhase,
+            False,
+        )
+        QApplication.sendEvent(dlg.preview, wheel_ev)
+        app.processEvents()
+        assert dlg.scale_pct_spin.value() == pytest.approx(min(400.0, round((before_wheel + 5.0) * 2) / 2), abs=0.2)
+        dlg.reject()

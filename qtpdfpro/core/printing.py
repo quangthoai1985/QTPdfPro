@@ -42,6 +42,18 @@ SCALE_MODES: Dict[str, str] = {
     "fit": "Vừa khổ giấy",
     "actual": "Cỡ thật (100%)",
     "shrink": "Chỉ thu nhỏ trang quá khổ",
+    "custom": "Tuỳ chỉnh tỷ lệ & vị trí",
+}
+ALIGN_POSITIONS: Dict[str, Tuple[str, float, float]] = {
+    "center": ("Chính giữa", 0.5, 0.5),
+    "top-left": ("Góc trên - trái", 0.0, 0.0),
+    "top-center": ("Trên - giữa", 0.5, 0.0),
+    "top-right": ("Góc trên - phải", 1.0, 0.0),
+    "center-left": ("Giữa - trái", 0.0, 0.5),
+    "center-right": ("Giữa - phải", 1.0, 0.5),
+    "bottom-left": ("Góc dưới - trái", 0.0, 1.0),
+    "bottom-center": ("Dưới - giữa", 0.5, 1.0),
+    "bottom-right": ("Góc dưới - phải", 1.0, 1.0),
 }
 DUPLEX_MODES: Dict[str, str] = {
     "none": "In 1 mặt",
@@ -88,6 +100,10 @@ class PrintOptions:
     subset: str = "all"  # all | odd | even (theo số trang)
     reverse: bool = False  # in ngược thứ tự (tờ cuối ra trước)
     max_dpi: int = MAX_PRINT_DPI  # trần DPI kết xuất (300 = in nhanh, 600 = theo máy in)
+    custom_scale: float = 100.0  # tỷ lệ % khi scale == "custom" (5..400)
+    position_anchor: str = "center"  # khoá trong ALIGN_POSITIONS
+    offset_x_pt: Optional[float] = None  # toạ độ mép trái trên tờ giấy (pt); None = theo position_anchor
+    offset_y_pt: Optional[float] = None  # toạ độ mép trên trên tờ giấy (pt)
 
     def normalized(self) -> "PrintOptions":
         """Bản sao đã đưa mọi giá trị về miền hợp lệ (giá trị lạ → mặc định)."""
@@ -100,6 +116,22 @@ class PrintOptions:
             max_dpi = int(self.max_dpi)
         except (TypeError, ValueError):
             max_dpi = MAX_PRINT_DPI
+        try:
+            custom_scale = float(self.custom_scale)
+            if not math.isfinite(custom_scale):
+                custom_scale = 100.0
+        except (TypeError, ValueError):
+            custom_scale = 100.0
+
+        def _opt_pt(val: Optional[float]) -> Optional[float]:
+            if val is None:
+                return None
+            try:
+                f = float(val)
+                return f if math.isfinite(f) else None
+            except (TypeError, ValueError):
+                return None
+
         return replace(
             self,
             printer=str(self.printer or ""),
@@ -115,6 +147,10 @@ class PrintOptions:
             subset=self.subset if self.subset in SUBSETS else base.subset,
             reverse=bool(self.reverse),
             max_dpi=max(MIN_PRINT_DPI, min(MAX_PRINT_DPI, max_dpi)),
+            custom_scale=max(5.0, min(400.0, custom_scale)),
+            position_anchor=self.position_anchor if self.position_anchor in ALIGN_POSITIONS else base.position_anchor,
+            offset_x_pt=_opt_pt(self.offset_x_pt),
+            offset_y_pt=_opt_pt(self.offset_y_pt),
         )
 
     def to_settings(self) -> Dict[str, object]:
@@ -210,7 +246,10 @@ class PrintPlan:
         o = self.options
         parts = [f"{self.sheet_count} trang" + (f" × {o.copies} bản" if o.copies > 1 else "")]
         parts.append(f"{o.paper} {'ngang' if self.landscape else 'dọc'}")
-        parts.append(SCALE_MODES[o.scale])
+        if o.scale == "custom":
+            parts.append(f"Tuỳ chỉnh ({o.custom_scale:g}%)")
+        else:
+            parts.append(SCALE_MODES[o.scale])
         if o.duplex != "none":
             parts.append("2 mặt")
         parts.append("Đen trắng" if o.grayscale else "Màu")
@@ -223,6 +262,8 @@ class PrintPlan:
             "orientation": "landscape" if self.landscape else "portrait",
             "paper_size_pt": [round(v, 2) for v in self.paper_size],
             "scale_mode": o.scale,
+            "custom_scale": o.custom_scale,
+            "position_anchor": o.position_anchor,
             "copies": o.copies,
             "collate": o.collate,
             "duplex": o.duplex,
@@ -387,14 +428,22 @@ def plan_print(
             s = fit
         elif opts.scale == "shrink":
             s = min(1.0, fit)
+        elif opts.scale == "custom":
+            s = opts.custom_scale / 100.0
         else:
             s = 1.0
         tw, th = cw * s, ch * s
-        if opts.scale == "actual":
-            x0, y0 = (pw - tw) / 2, (ph - th) / 2
+        if opts.scale == "custom" and opts.offset_x_pt is not None and opts.offset_y_pt is not None:
+            x0, y0 = float(opts.offset_x_pt), float(opts.offset_y_pt)
         else:
-            x0, y0 = ml + (area_w - tw) / 2, mt + (area_h - th) / 2
-        clipped = opts.scale == "actual" and (tw > area_w + 0.5 or th > area_h + 0.5)
+            _lbl, ax, ay = ALIGN_POSITIONS.get(opts.position_anchor, ALIGN_POSITIONS["center"])
+            if opts.scale == "actual" and opts.position_anchor == "center":
+                x0, y0 = (pw - tw) / 2, (ph - th) / 2
+            else:
+                x0, y0 = ml + (area_w - tw) * ax, mt + (area_h - th) * ay
+        clipped = opts.scale in ("actual", "custom") and (
+            x0 < ml - 0.5 or y0 < mt - 0.5 or x0 + tw > pw - mr + 0.5 or y0 + th > ph - mb + 0.5
+        )
         sheets.append(PrintSheet(idx, pw, ph, rotate, (x0, y0, x0 + tw, y0 + th), s, clipped))
     return PrintPlan(sheets, opts, landscape, (pw, ph), (ml, mt, mr, mb))
 
@@ -544,9 +593,10 @@ def print_to_pdf(
 
 
 __all__ = [
-    "PAPER_SIZES", "PAPER_LABELS", "ORIENTATIONS", "SCALE_MODES", "DUPLEX_MODES", "SUBSETS", "PAGE_SCOPES",
-    "MIN_PRINT_DPI", "MAX_PRINT_DPI", "PrintError", "PrintOptions", "PrintSheet", "PrintPlan", "PrintImage",
-    "PrintResult", "parse_print_range", "resolve_print_pages", "apply_subset", "page_sizes", "paper_size",
-    "choose_landscape", "plan_print", "plan_document", "clamp_print_dpi", "effective_dpi", "render_page_pixmap",
-    "render_sheet_pixmap", "render_sheet", "printing_allowed", "snapshot_pdf_bytes", "print_to_pdf",
+    "PAPER_SIZES", "PAPER_LABELS", "ORIENTATIONS", "SCALE_MODES", "ALIGN_POSITIONS", "DUPLEX_MODES", "SUBSETS",
+    "PAGE_SCOPES", "MIN_PRINT_DPI", "MAX_PRINT_DPI", "PrintError", "PrintOptions", "PrintSheet", "PrintPlan",
+    "PrintImage", "PrintResult", "parse_print_range", "resolve_print_pages", "apply_subset", "page_sizes",
+    "paper_size", "choose_landscape", "plan_print", "plan_document", "clamp_print_dpi", "effective_dpi",
+    "render_page_pixmap", "render_sheet_pixmap", "render_sheet", "printing_allowed", "snapshot_pdf_bytes",
+    "print_to_pdf",
 ]

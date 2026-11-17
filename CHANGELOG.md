@@ -7,6 +7,19 @@
 
 ## [Chưa phát hành]
 
+### 2026-11-17 — Tuỳ chỉnh tỷ lệ (5–400%) & kéo thả trực tiếp vị trí trang in trên bản xem trước
+- **Lõi lập kế hoạch in (`core/printing.py`)**:
+  - Thêm chế độ `"custom": "Tuỳ chỉnh tỷ lệ & vị trí"` vào `SCALE_MODES`, bổ sung `ALIGN_POSITIONS` (9 vị trí neo: tâm, 4 góc, 4 cạnh).
+  - Bổ sung vào `PrintOptions`: `custom_scale` (`5.0–400.0%`), `position_anchor`, `offset_x_pt`, `offset_y_pt` (cố ý không đưa vào `REMEMBERED_KEYS` để không nhớ nhầm toạ độ cũ giữa các lần mở); cập nhật `plan_print()`, `PrintPlan.summary()`, `PrintPlan.to_dict()`.
+- **Hộp thoại In & Xem trước tương tác (`ui/print_dialog.py`)**:
+  - `PrintPreviewView`: hỗ trợ nắm kéo trang nội dung tới bất kỳ vị trí nào trên tờ giấy (bắt dính `≤ 4.0 pt` vào lề vùng in / mép giấy / tâm trang; giữ `Alt` để kéo tự do), 8 tay nắm góc/cạnh thu phóng giữ nguyên tỷ lệ (5–400%), lăn chuột ±5%, vẽ khung nét đứt và badge `% · W×H mm · (X, Y) mm`, phát tín hiệu `placementChanged`.
+  - `PrintDialog`: thêm bảng điều khiển tuỳ chỉnh (`custom_box`) gồm `scale_pct_spin`, nút «Vừa giấy», `align_combo` (9 góc + «Tự do (kéo chuột)»), nhập trực tiếp tọa độ `X`/`Y (mm)`, nút đặt lại «Giữa»; đồng bộ hai chiều với thao tác kéo trên bản xem trước; kết xuất và in ra `QPrinter` / PDF đúng `sheet.target`.
+- **Dòng lệnh CLI (`qtpdfpro/cli.py`)**: Bổ sung `--scale custom`, `--scale-percent`, `--align`, `--offset-mm X,Y` cho lệnh `print`.
+- **Kiểm thử & Xác minh**:
+  - Thêm `test_plan_custom_scale_anchors_and_offset`, `test_print_to_pdf_custom_corner_placement`, `test_cli_print_custom_scale_and_offset` (`tests/test_printing.py`) và `test_print_dialog_custom_scale_and_offset_controls`, `test_print_preview_drag_resize_and_wheel` (`tests/test_print_ui.py`).
+  - Kiểm tra AST: 0 import `PySide6` trong `qtpdfpro/core/`.
+  - Chạy toàn bộ bộ kiểm thử `python -m pytest -q tests`: **343 passed, 1 skipped** (`EXIT=0`).
+
 ### 2026-11-17 — Đổi khổ giấy (A4, A5…), Tạo PDF trắng mới, Nhúng trang PDF lên mặt trang & 8 tay nắm chỉnh cỡ
 - **Đổi khổ giấy trang (`core/page_edit.py` -> `resize_pages_in_doc`, `PageSizeDialog`, CLI `resize`)**:
   - Hỗ trợ đổi trang hiện tại, khoảng trang hoặc toàn tài liệu sang **A4, A5, A3, B5, Letter, Legal** hoặc kích thước **tuỳ chỉnh (`mm`)**, hướng **Dọc / Ngang / Giữ tự động theo từng trang**, với 3 chế độ: *Co giãn nội dung vừa khổ mới (`fit`)*, *Giữ nguyên kích thước nội dung căn giữa (`center`)* và *Kéo giãn khít trang (`stretch`)*.
