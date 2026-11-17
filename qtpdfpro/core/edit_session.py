@@ -66,6 +66,7 @@ class EditSession:
         self._full_save_ids: set[int] = set()
         self._prepared_full_save = False
         self._annot_images: Dict[int, bytes] = {}
+        self._annot_pdfs: Dict[int, bytes] = {}
         self._words: Dict[int, List[tuple]] = {}
         self._leaders: Dict[int, List[fs.Leader]] = {}
         self._boxes: Dict[int, List[fitz.Rect]] = {}
@@ -108,6 +109,7 @@ class EditSession:
         self._full_save_ids.clear()
         self._prepared_full_save = False
         self._annot_images.clear()
+        self._annot_pdfs.clear()
         self._words.clear()
         self._leaders.clear()
         self._boxes.clear()
@@ -450,6 +452,95 @@ class EditSession:
         self._annot_images[xref] = image_bytes
         return xref
 
+    def add_pdf_page_overlay(
+        self,
+        page_index: int,
+        rect: fitz.Rect,
+        page_pdf_bytes: bytes,
+        *,
+        source_name: str = "",
+        source_page_1based: int = 1,
+        rotation: int = 0,
+        flip_h: bool = False,
+        flip_v: bool = False,
+        opacity: float = 1.0,
+        border_color: Optional[str] = "#CBD5E1",
+        border_width: float = 0.6,
+    ) -> int:
+        """Nhúng một trang PDF khác lên trang hiện tại như đối tượng kéo thả, đổi cỡ sắc nét."""
+        xref = self._add(
+            "Chèn trang PDF",
+            page_index,
+            lambda p: pe.add_pdf_page_annotation(
+                p,
+                rect,
+                page_pdf_bytes,
+                source_name=source_name,
+                source_page_1based=source_page_1based,
+                rotation=rotation,
+                flip_h=flip_h,
+                flip_v=flip_v,
+                opacity=opacity,
+                border_color=border_color,
+                border_width=border_width,
+                author=self.author,
+            ),
+        )
+        self._annot_pdfs[xref] = page_pdf_bytes
+        return xref
+
+    def embed_pdf_pages(
+        self,
+        page_index: int,
+        src_doc: fitz.Document,
+        page_indices: Sequence[int],
+        *,
+        source_name: str = "",
+        layout_mode: str = "auto_grid",
+        margin_mm: float = 12.0,
+        gap_mm: float = 5.0,
+        border_color: Optional[str] = "#CBD5E1",
+        border_width: float = 0.6,
+    ) -> List[int]:
+        """Import nhiều trang từ `src_doc` lên cùng một trang `page_index` (1 bước Hoàn tác chung)."""
+        indices = [int(i) for i in page_indices if 0 <= int(i) < src_doc.page_count]
+        if not indices:
+            raise pe.PageEditError("Không có trang hợp lệ nào được chọn từ tệp PDF nguồn.")
+        target_page = self.doc[page_index]
+        extracted = [(pno, *pe.extract_single_page_pdf_bytes(src_doc, pno)) for pno in indices]
+        aspects = [h / max(1.0, w) for _pno, _raw, w, h in extracted]
+        disp_rects = pe.layout_embedded_pages_rects(
+            target_page.rect,
+            aspects,
+            layout_mode=layout_mode,
+            margin_pt=float(margin_mm) * pe.MM,
+            gap_pt=float(gap_mm) * pe.MM,
+        )
+        derot = target_page.derotation_matrix
+        xrefs: List[int] = []
+        for (pno, raw_pdf, _w, _h), disp_rect in zip(extracted, disp_rects):
+            unrot = (disp_rect * derot).normalize()
+            annot = pe.add_pdf_page_annotation(
+                target_page,
+                unrot,
+                raw_pdf,
+                source_name=source_name,
+                source_page_1based=pno + 1,
+                border_color=border_color,
+                border_width=border_width,
+                author=self.author,
+            )
+            xrefs.append(annot.xref)
+            self._annot_pdfs[annot.xref] = raw_pdf
+
+        def _hide_all(hidden: bool) -> None:
+            for x in xrefs:
+                self._set_hidden(page_index, x, hidden)
+
+        label = f"Chèn {len(xrefs)} trang PDF" if len(xrefs) > 1 else "Chèn trang PDF"
+        self._push(label, page_index, undo=lambda: _hide_all(True), redo=lambda: _hide_all(False))
+        return xrefs
+
     def transform_image_annot(
         self,
         page_index: int,
@@ -459,36 +550,85 @@ class EditSession:
         toggle_flip_h: bool = False,
         toggle_flip_v: bool = False,
     ) -> bool:
-        """Xoay 90° hoặc lật ngang/dọc một hình ảnh đã chèn trên trang."""
+        """Xoay 90° hoặc lật ngang/dọc một hình ảnh hoặc trang PDF nhúng đã chèn trên trang."""
         info = self.info(page_index, xref)
-        if info is None or info.app_kind != "image":
+        if info is None or info.app_kind not in ("image", "pdfpage"):
             return False
         page = self.doc[page_index]
-        raw = self._annot_images.get(xref)
-        if not raw:
-            raw = pe.render_annot_png(page, xref, scale=2.0)
-            self._annot_images[xref] = raw
         keys = ("AP", "Rect", "M", an.QT_KEY)
         before = _snapshot(self.doc, xref, keys)
-        pe.rebuild_image_annotation(
+        if info.app_kind == "pdfpage":
+            pe.rebuild_pdf_page_annotation(
+                page,
+                xref,
+                self._annot_pdfs.get(xref),
+                rotate_delta=rotate_delta,
+                toggle_flip_h=toggle_flip_h,
+                toggle_flip_v=toggle_flip_v,
+            )
+        else:
+            raw = self._annot_images.get(xref)
+            if not raw:
+                raw = pe.render_annot_png(page, xref, scale=3.0)
+                self._annot_images[xref] = raw
+            pe.rebuild_image_annotation(
+                page,
+                xref,
+                raw,
+                rotate_delta=rotate_delta,
+                toggle_flip_h=toggle_flip_h,
+                toggle_flip_v=toggle_flip_v,
+            )
+        after = _snapshot(self.doc, xref, keys)
+
+        def apply(snap: Dict[str, str]) -> None:
+            _restore(self.doc, xref, snap)
+
+        kind_txt = "trang PDF" if info.app_kind == "pdfpage" else "ảnh"
+        label = (
+            f"Lật {kind_txt} ngang" if toggle_flip_h
+            else f"Lật {kind_txt} dọc" if toggle_flip_v
+            else f"Xoay {kind_txt}"
+        )
+        self._push(label, page_index, undo=lambda: apply(before), redo=lambda: apply(after))
+        return True
+
+    def resize(
+        self,
+        page_index: int,
+        xref: int,
+        new_rect: fitz.Rect,
+        sig_library: Optional[fs.SignatureLibrary] = None,
+    ) -> bool:
+        """Đổi kích thước chú thích / ảnh / trang PDF nhúng / hộp chữ sang `new_rect` (Hoàn tác được)."""
+        info = self.info(page_index, xref)
+        if not pe.is_resizable_annotation(info):
+            return False
+        assert info is not None
+        page = self.doc[page_index]
+        if info.app_kind == "image" and xref not in self._annot_images:
+            self._annot_images[xref] = pe.render_annot_png(page, xref, scale=3.0)
+        keys = ("Rect", "AP", "M", "Border", an.QT_KEY)
+        before = _snapshot(self.doc, xref, keys)
+        pe.resize_annotation_in_page(
             page,
             xref,
-            raw,
-            rotate_delta=rotate_delta,
-            toggle_flip_h=toggle_flip_h,
-            toggle_flip_v=toggle_flip_v,
+            new_rect,
+            image_bytes=self._annot_images.get(xref),
+            pdf_bytes=self._annot_pdfs.get(xref),
+            sig_library=sig_library,
         )
         after = _snapshot(self.doc, xref, keys)
 
         def apply(snap: Dict[str, str]) -> None:
             _restore(self.doc, xref, snap)
 
-        label = (
-            "Lật ảnh ngang" if toggle_flip_h
-            else "Lật ảnh dọc" if toggle_flip_v
-            else "Xoay ảnh"
+        self._push(
+            f"Đổi cỡ {info.label.lower()}",
+            page_index,
+            undo=lambda: apply(before),
+            redo=lambda: apply(after),
         )
-        self._push(label, page_index, undo=lambda: apply(before), redo=lambda: apply(after))
         return True
 
     def add_link(

@@ -162,8 +162,25 @@ class _Drag:
     current: fitz.Point
     points: List[Tuple[float, float]] = field(default_factory=list)
     rects: List[fitz.Rect] = field(default_factory=list)
-    xref: Optional[int] = None  # chú thích đang kéo di chuyển (công cụ Chọn)
+    xref: Optional[int] = None  # chú thích đang kéo di chuyển / đổi cỡ (công cụ Chọn)
     area: bool = False
+    handle: str = ""  # "nw" | "n" | "ne" | "e" | "se" | "s" | "sw" | "w"
+    orig_rect: Optional[fitz.Rect] = None
+    preview_rect: Optional[fitz.Rect] = None
+    keep_aspect: bool = False
+
+
+_HANDLE_CURSORS: Dict[str, Qt.CursorShape] = {
+    "nw": Qt.CursorShape.SizeFDiagCursor,
+    "se": Qt.CursorShape.SizeFDiagCursor,
+    "ne": Qt.CursorShape.SizeBDiagCursor,
+    "sw": Qt.CursorShape.SizeBDiagCursor,
+    "n": Qt.CursorShape.SizeVerCursor,
+    "s": Qt.CursorShape.SizeVerCursor,
+    "w": Qt.CursorShape.SizeHorCursor,
+    "e": Qt.CursorShape.SizeHorCursor,
+}
+_ASPECT_LOCKED_KINDS = ("image", "pdfpage", "signature", "stamp", "fillmark")
 
 
 def _qcolor(hex_color: str, alpha: Optional[int] = None) -> QColor:
@@ -345,7 +362,13 @@ class AnnotationController(QObject):
         if self._selected is None:
             return False
         info = self.session.info(*self._selected)
-        return info is not None and info.app_kind == "image"
+        return info is not None and info.app_kind in ("image", "pdfpage")
+
+    def is_pdf_page_selected(self) -> bool:
+        if self._selected is None:
+            return False
+        info = self.session.info(*self._selected)
+        return info is not None and info.app_kind == "pdfpage"
 
     def transform_selected_image(
         self,
@@ -354,9 +377,10 @@ class AnnotationController(QObject):
         flip_h: bool = False,
         flip_v: bool = False,
     ) -> bool:
-        """Xoay 90° hoặc lật ngang/dọc hình ảnh đang chọn (hoặc ảnh sắp chèn)."""
+        """Xoay 90° hoặc lật ngang/dọc hình ảnh hoặc trang PDF nhúng đang chọn (hoặc ảnh sắp chèn)."""
         if self._selected is not None and self.is_image_selected():
             page_index, xref = self._selected
+            is_pdf = self.is_pdf_page_selected()
             if self.session.transform_image_annot(
                 page_index,
                 xref,
@@ -364,7 +388,7 @@ class AnnotationController(QObject):
                 toggle_flip_h=flip_h,
                 toggle_flip_v=flip_v,
             ):
-                self._done(page_index, "Đã biến đổi hình ảnh.")
+                self._done(page_index, "Đã biến đổi trang PDF nhúng." if is_pdf else "Đã biến đổi hình ảnh.")
                 return True
         if self._tool == "image":
             if rotate_delta:
@@ -490,8 +514,8 @@ class AnnotationController(QObject):
         info = self.session.info(page_index, xref)
         if info is None:
             return False
-        if info.app_kind in ("fillmark", "signature", "image"):
-            extra = " (chọn ảnh để xoay/lật)" if info.app_kind == "image" else ""
+        if info.app_kind in ("fillmark", "signature", "image", "pdfpage"):
+            extra = " (hoặc kéo 8 tay nắm để phóng to/thu nhỏ, bấm Xoay/Lật ở trên)" if info.app_kind in ("image", "pdfpage") else ""
             self.message.emit(f"{info.label}: kéo bằng công cụ Chọn để di chuyển{extra}, Delete để xoá.")
             return False
         title = {"textbox": "Sửa hộp chữ", "filltext": "Sửa chữ điền"}.get(info.app_kind, f"Nội dung — {info.label}")
@@ -521,6 +545,18 @@ class AnnotationController(QObject):
         if tool in INK_TOOLS:
             self._drag.points.append((pt.x, pt.y))
         elif tool == "select":
+            handle = self._handle_at(viewer, page_index, pt) if self._selected is not None and self._selected[0] == page_index else ""
+            if handle and self._selected is not None:
+                xref = self._selected[1]
+                info = self.session.info(page_index, xref)
+                orig = self.session.annotation_rect(page_index, xref)
+                if orig is not None and pe.is_resizable_annotation(info):
+                    self._drag.xref = xref
+                    self._drag.handle = handle
+                    self._drag.orig_rect = orig
+                    self._drag.preview_rect = orig
+                    self._drag.keep_aspect = bool(info and info.app_kind in _ASPECT_LOCKED_KINDS)
+                    return
             xref = self.session.annotation_at(page_index, pt)
             self._set_selected((page_index, xref) if xref else None)
             info = self.session.info(page_index, xref) if xref else None
@@ -537,6 +573,12 @@ class AnnotationController(QObject):
         d = self._drag
         shift = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
         tool = self._tool
+        if tool == "select" and d.xref is not None and d.handle and d.orig_rect is not None and pt is not None:
+            d.current = pt
+            d.preview_rect = self._compute_resized_unrot_rect(
+                d.page, d.orig_rect, d.handle, pt, shift_pressed=shift, keep_aspect_default=d.keep_aspect
+            )
+            return
         if tool in ("rect", "ellipse") and shift:
             pt = _square(d.start, pt)
         elif tool in ("line", "arrow") and shift:
@@ -658,6 +700,14 @@ class AnnotationController(QObject):
                     return
                 session.add_signature(page_index, sig, center=end, rect=rect)
                 self._done(page_index, "Đã ký nháy." if initials else "Đã ký.")
+            elif tool == "select" and d.xref is not None and d.handle and d.orig_rect is not None:
+                if moved >= 1.0:
+                    shift = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
+                    new_rect = d.preview_rect or self._compute_resized_unrot_rect(
+                        page_index, d.orig_rect, d.handle, end, shift_pressed=shift, keep_aspect_default=d.keep_aspect
+                    )
+                    if session.resize(page_index, d.xref, new_rect, sig_library=self.library):
+                        self._done(page_index, "Đã đổi kích thước đối tượng.")
             elif tool == "select" and d.xref is not None and moved >= 0.5:
                 if session.move(page_index, d.xref, end.x - d.start.x, end.y - d.start.y):
                     self._done(page_index, "Đã di chuyển chú thích.")
@@ -703,13 +753,21 @@ class AnnotationController(QObject):
             r = self.session.annotation_rect(*self._selected)
             if r is not None:
                 d = self._drag
-                if d is not None and d.xref == self._selected[1]:
+                resizing = d is not None and d.xref == self._selected[1] and bool(d.handle) and d.preview_rect is not None
+                if resizing and d is not None and d.preview_rect is not None:
+                    r = d.preview_rect
+                elif d is not None and d.xref == self._selected[1] and not d.handle:
                     dx, dy = d.current.x - d.start.x, d.current.y - d.start.y
                     r = r + (dx, dy, dx, dy)
                 wr = viewer.page_rect_to_widget(page_index, r, t).adjusted(-3, -3, 3, 3)
                 painter.setPen(QPen(_qcolor("#2563EB"), 1.5, Qt.PenStyle.DashLine))
                 painter.setBrush(QBrush(_qcolor("#2563EB", 22)))
                 painter.drawRect(wr)
+                info = self.session.info(*self._selected)
+                if pe.is_resizable_annotation(info):
+                    self._paint_resize_handles(painter, wr)
+                if resizing:
+                    self._paint_size_badge(painter, wr, r)
         fh = self._fill_hover
         if fh is not None and fh[0] == page_index and self._drag is None:
             wr = viewer.page_rect_to_widget(page_index, fh[1], t)
@@ -853,6 +911,125 @@ class AnnotationController(QObject):
             return page_index, (box * derot).normalize(), "sign"
         return None
 
+    @staticmethod
+    def _widget_handle_rects(wr: QRectF) -> Dict[str, QRectF]:
+        """Tám ô tay nắm (góc & cạnh) quanh khung widget `wr`."""
+        cx = (wr.left() + wr.right()) / 2.0
+        cy = (wr.top() + wr.bottom()) / 2.0
+        pts = {
+            "nw": (wr.left(), wr.top()),
+            "n": (cx, wr.top()),
+            "ne": (wr.right(), wr.top()),
+            "e": (wr.right(), cy),
+            "se": (wr.right(), wr.bottom()),
+            "s": (cx, wr.bottom()),
+            "sw": (wr.left(), wr.bottom()),
+            "w": (wr.left(), cy),
+        }
+        return {k: QRectF(x - 4.0, y - 4.0, 8.0, 8.0) for k, (x, y) in pts.items()}
+
+    def _handle_at(self, viewer, page_index: int, pt: fitz.Point) -> str:
+        """Trả về mã tay nắm (`nw`..`w`) nếu con trỏ nằm trên một tay nắm của đối tượng đang chọn."""
+        if self._selected is None or self._selected[0] != page_index:
+            return ""
+        info = self.session.info(*self._selected)
+        if not pe.is_resizable_annotation(info):
+            return ""
+        r = self.session.annotation_rect(*self._selected)
+        if r is None:
+            return ""
+        t = viewer.page_transform(page_index)
+        wr = viewer.page_rect_to_widget(page_index, r, t).adjusted(-3, -3, 3, 3)
+        wp = t.map(QPointF(pt.x, pt.y))
+        for key, hrect in self._widget_handle_rects(wr).items():
+            if hrect.adjusted(-3.0, -3.0, 3.0, 3.0).contains(wp):
+                return key
+        return ""
+
+    def _compute_resized_unrot_rect(
+        self,
+        page_index: int,
+        orig_unrot: fitz.Rect,
+        handle: str,
+        current_pt: fitz.Point,
+        *,
+        shift_pressed: bool = False,
+        keep_aspect_default: bool = True,
+    ) -> fitz.Rect:
+        """Tính khung trang chưa xoay mới khi kéo tay nắm `handle` tới `current_pt` (khớp hướng nhìn trên màn hình)."""
+        mat = self.reader.page_view_matrix(page_index, 1.0)
+        inv = ~mat
+        orig_view = (fitz.Rect(orig_unrot) * mat).normalize()
+        cur_view = fitz.Point(current_pt) * mat
+        pw, ph = self.reader.get_page_size(page_index)
+        min_dim = 12.0
+
+        x0, y0, x1, y1 = orig_view.x0, orig_view.y0, orig_view.x1, orig_view.y1
+        if "w" in handle:
+            x0 = max(0.0, min(cur_view.x, x1 - min_dim))
+        if "e" in handle:
+            x1 = min(pw, max(cur_view.x, x0 + min_dim))
+        if "n" in handle:
+            y0 = max(0.0, min(cur_view.y, y1 - min_dim))
+        if "s" in handle:
+            y1 = min(ph, max(cur_view.y, y0 + min_dim))
+
+        keep_aspect = keep_aspect_default ^ shift_pressed
+        if len(handle) == 2 and keep_aspect:
+            aspect = orig_view.height / max(1.0, orig_view.width)
+            w = max(min_dim, x1 - x0)
+            h = max(min_dim, y1 - y0)
+            if h / max(1.0, orig_view.height) > w / max(1.0, orig_view.width):
+                w = max(min_dim, h / aspect)
+            else:
+                h = max(min_dim, w * aspect)
+            ax = orig_view.x1 if "w" in handle else orig_view.x0
+            ay = orig_view.y1 if "n" in handle else orig_view.y0
+            max_w = ax if "w" in handle else (pw - ax)
+            max_h = ay if "n" in handle else (ph - ay)
+            if w > max_w > 1.0:
+                w = max(min_dim, max_w)
+                h = max(min_dim, w * aspect)
+            if h > max_h > 1.0:
+                h = max(min_dim, max_h)
+                w = max(min_dim, h / aspect)
+            if "w" in handle:
+                x0, x1 = ax - w, ax
+            else:
+                x0, x1 = ax, ax + w
+            if "n" in handle:
+                y0, y1 = ay - h, ay
+            else:
+                y0, y1 = ay, ay + h
+
+        new_view = fitz.Rect(x0, y0, x1, y1).normalize()
+        return (new_view * inv).normalize()
+
+    def _paint_resize_handles(self, painter: QPainter, wr: QRectF) -> None:
+        painter.save()
+        painter.setPen(QPen(_qcolor("#2563EB"), 1.3))
+        painter.setBrush(QBrush(_qcolor("#FFFFFF")))
+        for hrect in self._widget_handle_rects(wr).values():
+            painter.drawRect(hrect)
+        painter.restore()
+
+    def _paint_size_badge(self, painter: QPainter, wr: QRectF, unrot_rect: fitz.Rect) -> None:
+        disp = an._display_rect(self.reader.doc[self._selected[0]], unrot_rect) if self._selected else unrot_rect
+        label = f"{disp.width / pe.MM:.0f} × {disp.height / pe.MM:.0f} mm"
+        painter.save()
+        fm = painter.fontMetrics()
+        bw = fm.horizontalAdvance(label) + 12
+        bh = fm.height() + 6
+        bx = wr.right() - bw
+        by = wr.bottom() + 6
+        box = QRectF(max(4.0, bx), by, bw, bh)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QBrush(_qcolor("#1E293B", 230)))
+        painter.drawRoundedRect(box, 4, 4)
+        painter.setPen(_qcolor("#F8FAFC"))
+        painter.drawText(box, Qt.AlignmentFlag.AlignCenter, label)
+        painter.restore()
+
     def _update_hover(self, viewer, page_index: Optional[int], pt: Optional[fitz.Point]) -> None:
         if self._tool in FILL_TOOLS:
             preview = None
@@ -867,15 +1044,22 @@ class AnnotationController(QObject):
             return
         if self._tool not in ("select", "eraser"):
             return
+        if self._tool == "select" and page_index is not None and pt is not None:
+            handle = self._handle_at(viewer, page_index, pt)
+            if handle:
+                viewer.refresh_cursor(_HANDLE_CURSORS[handle])
+                return
         hover = None
         if page_index is not None and pt is not None:
             xref = self.session.annotation_at(page_index, pt)
             hover = (page_index, xref) if xref else None
-        if hover != self._hover:
+        if hover != self._hover or self._tool == "select":
+            changed = hover != self._hover
             self._hover = hover
             if self._tool == "select":
                 viewer.refresh_cursor(Qt.CursorShape.SizeAllCursor if hover else Qt.CursorShape.ArrowCursor)
-            viewer.widget().update()
+            if changed:
+                viewer.widget().update()
 
 
 # ─── Thanh công cụ ────────────────────────────────────────────────────────
@@ -1240,7 +1424,10 @@ class EditToolbar(QFrame):
         elif tool == "image" and self.controller.pending_image_name:
             hint = f"Ảnh đang chọn: «{self.controller.pending_image_name}» — nhấp hoặc kéo lên trang để đặt."
         elif img_selected:
-            hint = "Đang chọn hình ảnh — kéo để di chuyển, Delete để xoá, hoặc bấm Xoay / Lật ở bên trái."
+            if self.controller.is_pdf_page_selected():
+                hint = "Đang chọn trang PDF nhúng — kéo để di chuyển, kéo 8 tay nắm để phóng to/thu nhỏ, bấm Xoay / Lật hoặc Delete để xoá."
+            else:
+                hint = "Đang chọn hình ảnh — kéo để di chuyển, kéo 8 tay nắm để đổi cỡ, Delete để xoá, hoặc bấm Xoay / Lật ở bên trái."
         elif tool in FILL_SIGN_TOOLS and self.controller.current_signature(tool == "fill_initials") is None:
             hint = "Chưa có chữ ký — nhấp vào trang hoặc bấm «Thư viện chữ ký» để tạo (vẽ, gõ tên, ảnh)."
         self.hint_lbl.setText(hint)

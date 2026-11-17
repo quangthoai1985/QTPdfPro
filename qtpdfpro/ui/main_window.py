@@ -52,6 +52,7 @@ from qtpdfpro import __app_name__, __github_repo__, __version__
 from qtpdfpro.core import fill_sign, page_edit, page_stamp
 from qtpdfpro.core.converter import is_admin_document
 from qtpdfpro.core.ocr_layer import CachedOcrEngine
+from qtpdfpro.core.page_ops import parse_page_selection
 from qtpdfpro.core.reader import PDFDocumentReader, SearchHit
 from qtpdfpro.core.settings import AppSettings
 from qtpdfpro.core.word_com_bridge import is_ms_word_available
@@ -75,8 +76,11 @@ from qtpdfpro.ui.organizer_dialog import PageOrganizerDialog
 from qtpdfpro.ui.page_edit_dialogs import (
     BatesDialog,
     CropMarginsDialog,
+    EmbedPdfDialog,
     HeaderFooterDialog,
+    InsertBlankPageDialog,
     PageBackgroundDialog,
+    PageSizeDialog,
 )
 from qtpdfpro.ui.pdf_canvas import PDFScrollViewer
 from qtpdfpro.ui.print_dialog import PrintDialog
@@ -889,7 +893,10 @@ class PDFDocumentTab(QWidget):
             self.enter_edit_mode(tool, "edit")
             return
 
-        if action_key in ("organize", "combine", "extract_pages", "scan", "page_numbers", "watermark", "compress", "fill_mode"):
+        if action_key in (
+            "organize", "combine", "extract_pages", "scan", "page_numbers", "watermark",
+            "compress", "fill_mode", "page_resize", "embed_pdf_pages", "new_blank_pdf",
+        ):
             self.editCommandRequested.emit(action_key)
             return
 
@@ -909,6 +916,27 @@ class PDFDocumentTab(QWidget):
                 self._refresh_after_page_edit(
                     new_idx, f"Đã chèn trang trắng tại vị trí trang {new_idx + 1}.", rebuild_thumbs=True
                 )
+            elif action_key == "page_insert_sized":
+                w, h = self.reader.get_page_size(cur)
+                dlg = InsertBlankPageDialog(w, h, self.reader.page_count, cur + 1, parent=self)
+                if dlg.exec() == QDialog.DialogCode.Accepted:
+                    vals = dlg.values()
+                    pos = vals["position"]
+                    after_idx = self.reader.page_count - 1 if pos == "end" else cur
+                    new_idx = self.reader.insert_blank_page_in_doc(
+                        after_idx,
+                        preset=vals["preset"],
+                        orientation=vals["orientation"],
+                        width_mm=vals["width_mm"],
+                        height_mm=vals["height_mm"],
+                        count=vals["count"],
+                        before=(pos == "before"),
+                    )
+                    self._refresh_after_page_edit(
+                        new_idx,
+                        f"Đã chèn {vals['count']} trang trắng khổ {vals['preset']} tại vị trí trang {new_idx + 1}.",
+                        rebuild_thumbs=True,
+                    )
             elif action_key == "page_duplicate":
                 new_idx = self.reader.duplicate_page_in_doc(cur)
                 self._refresh_after_page_edit(
@@ -1976,6 +2004,8 @@ class MainWindow(QMainWindow):
             "combine": lambda: self.action_organize("combine"),
             "split": lambda: self.action_organize("split"),
             "extract_pages": lambda: self.action_organize("extract"),
+            "page_resize": self.action_page_resize,
+            "embed_pdf_pages": self.action_embed_pdf_pages,
             "scan": self.action_scan,
             "save": self.action_save,
             "save_as": self.action_save_as,
@@ -1985,6 +2015,7 @@ class MainWindow(QMainWindow):
             "sig_inspect": lambda: self._open_inspector(True),
             # Hệ thống
             "open": self.action_open_pdf,
+            "new_blank_pdf": self.action_new_blank_pdf,
             "close_tab": self.action_close_current_tab,
             "home": self.action_go_home,
             "quit": self.close,
@@ -2462,6 +2493,132 @@ class MainWindow(QMainWindow):
         files, _ = QFileDialog.getOpenFileNames(self, "Chọn tệp PDF để mở", "", "Tài liệu PDF (*.pdf);;Tất cả các tệp (*.*)")
         for f in files:
             self.open_pdf_path(f)
+
+    def action_new_blank_pdf(self) -> None:
+        """Ctrl+N: Tạo tài liệu PDF trắng mới theo khổ giấy chọn sẵn (A4, A5…)."""
+        dlg = InsertBlankPageDialog(for_new_doc=True, parent=self)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        vals = dlg.values()
+        docs_dir = Path.home() / "Documents"
+        base_dir = docs_dir if docs_dir.is_dir() else Path.home()
+        preset_slug = "tuy_chinh" if vals["preset"] == "custom" else str(vals["preset"]).lower()
+        default_path = str(base_dir / f"Tai_lieu_{preset_slug}.pdf")
+        chosen, _ = QFileDialog.getSaveFileName(self, "Lưu tài liệu PDF mới", default_path, "Tài liệu PDF (*.pdf)")
+        if not chosen:
+            return
+        target = Path(chosen).resolve()
+        if target.suffix.lower() != ".pdf":
+            target = target.with_suffix(".pdf")
+        if self._tab_for_path(target) is not None:
+            QMessageBox.warning(self, "Tệp đang mở", f"«{target.name}» đang mở ở tab khác — hãy chọn tên khác.")
+            return
+        try:
+            data = page_edit.create_blank_pdf_bytes(
+                preset=vals["preset"],
+                orientation=vals["orientation"],
+                width_mm=vals["width_mm"],
+                height_mm=vals["height_mm"],
+                page_count=vals["count"],
+            )
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(data)
+        except Exception as exc:
+            QMessageBox.critical(self, "Không tạo được tệp PDF", str(exc))
+            return
+        tab = self.open_pdf_path(target)
+        if tab is not None:
+            self.set_function_tab("edit")
+            self._show_toast(f"📄 Đã tạo {target.name} ({vals['count']} trang khổ {vals['preset']}).")
+
+    def action_page_resize(self) -> None:
+        """Đổi khổ giấy (A4, A5, A3, Letter hoặc mm tuỳ chỉnh) cho trang hiện tại hoặc nhiều trang."""
+        tab = self.active_tab()
+        if tab is None or not tab.reader.is_pdf or tab.reader.is_closed:
+            return
+        cur = tab.viewer.current_page
+        w, h = tab.reader.get_page_size(cur)
+        dlg = PageSizeDialog(w, h, tab.reader.page_count, cur + 1, self)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        vals = dlg.values()
+        try:
+            changed = tab.reader.resize_pages_in_doc(cur, **vals)
+        except Exception as exc:
+            QMessageBox.warning(self, "Không đổi được khổ giấy", str(exc))
+            return
+        tab._refresh_after_page_edit(
+            cur,
+            f"Đã đổi khổ giấy {changed} trang — Ctrl+Z hoàn tác, Ctrl+S để lưu.",
+            rebuild_thumbs=True,
+        )
+        self._sync_toolbar_with_active_tab()
+
+    def action_embed_pdf_pages(self) -> None:
+        """Import 1 hoặc nhiều trang từ tệp PDF khác đặt lên trang hiện tại (kéo 8 tay nắm chỉnh cỡ)."""
+        import fitz
+
+        tab = self.active_tab()
+        if tab is None or not tab.reader.is_pdf or tab.reader.is_closed:
+            return
+        cur = tab.viewer.current_page
+        w, h = tab.reader.get_page_size(cur)
+        open_pdfs: list[tuple[str, str]] = []
+        for i in range(self.doc_tabs.count()):
+            other = self.doc_tabs.widget(i)
+            if isinstance(other, PDFDocumentTab) and other.reader.is_pdf and not other.reader.is_closed:
+                open_pdfs.append((str(other.reader.path), f"{other.reader.path.name} ({other.reader.page_count} trang)"))
+        dlg = EmbedPdfDialog(w, h, open_pdfs=open_pdfs, parent=self)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        vals = dlg.values()
+        src_path = Path(vals["source_path"])
+        try:
+            src_doc = fitz.open(str(src_path))
+        except Exception as exc:
+            QMessageBox.warning(self, "Không mở được tệp PDF nguồn", str(exc))
+            return
+        try:
+            if src_doc.needs_pass:
+                pwd, ok = QInputDialog.getText(
+                    self, "Tệp nguồn có mật khẩu", f"Nhập mật khẩu để mở «{src_path.name}»:", QLineEdit.EchoMode.Password
+                )
+                if not ok or not src_doc.authenticate(pwd):
+                    QMessageBox.warning(self, "Sai mật khẩu", "Không mở khoá được tệp PDF nguồn.")
+                    return
+            page_indices = parse_page_selection(vals["pages_spec"], src_doc.page_count)
+            if vals.get("ensure_a4"):
+                tab.reader.resize_pages_in_doc(
+                    cur, preset="A4", orientation="portrait", scale_mode="fit", pages_spec=str(cur + 1)
+                )
+            border_color = "#CBD5E1" if vals["border"] else None
+            border_width = 0.6 if vals["border"] else 0.0
+            xrefs = tab.annot_controller.session.embed_pdf_pages(
+                cur,
+                src_doc,
+                page_indices,
+                source_name=src_path.name,
+                layout_mode=vals["layout_mode"],
+                margin_mm=vals["margin_mm"],
+                gap_mm=vals["gap_mm"],
+                border_color=border_color,
+                border_width=border_width,
+            )
+        except Exception as exc:
+            QMessageBox.warning(self, "Không chèn được trang PDF", str(exc))
+            return
+        finally:
+            src_doc.close()
+
+        tab.enter_edit_mode("select", "edit")
+        if xrefs:
+            tab.annot_controller.select(cur, xrefs[-1])
+        tab._refresh_after_page_edit(
+            cur,
+            f"Đã chèn {len(xrefs)} trang PDF từ «{src_path.name}» — kéo 8 tay nắm để phóng to/thu nhỏ, Ctrl+Z hoàn tác.",
+            rebuild_thumbs=bool(vals.get("ensure_a4")),
+        )
+        self._sync_toolbar_with_active_tab()
 
     def action_convert_to_docx_mode(self, mode: str = "auto") -> None:
         tab = self.active_tab()

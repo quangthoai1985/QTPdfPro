@@ -107,8 +107,11 @@ class EditSidebar(QFrame):
             "", "file-plus-2", "Chèn trang trắng / Nhân bản trang hiện tại"
         )
         insert_menu = QMenu(self.btn_insert_page)
-        insert_menu.addAction("Chèn trang trắng sau trang này", lambda: self.actionTriggered.emit("page_insert_blank"))
+        insert_menu.addAction("Chèn trang trắng (cùng kích thước)", lambda: self.actionTriggered.emit("page_insert_blank"))
+        insert_menu.addAction("Chèn trang trắng theo khổ giấy (A4, A5…)…", lambda: self.actionTriggered.emit("page_insert_sized"))
+        insert_menu.addAction("Tạo tệp PDF trắng mới (Ctrl+N)…", lambda: self.actionTriggered.emit("new_blank_pdf"))
         insert_menu.addAction("Nhân bản trang hiện tại", lambda: self.actionTriggered.emit("page_duplicate"))
+        insert_menu.addAction("Chèn trang PDF khác vào mặt trang này…", lambda: self.actionTriggered.emit("embed_pdf_pages"))
         insert_menu.addAction("Scan trang mới từ máy scan…", lambda: self.actionTriggered.emit("scan"))
         insert_menu.addAction("Tổ chức && chèn từ tệp PDF khác…", lambda: self.actionTriggered.emit("organize"))
         self.btn_insert_page.setMenu(insert_menu)
@@ -136,9 +139,11 @@ class EditSidebar(QFrame):
         blay.addLayout(quick_grid)
 
         self.btn_organize = self._list_btn("organize", "layout-grid", "Sắp xếp && ghép trang")
+        self.btn_page_size = self._list_btn("page_resize", "maximize", "Đổi khổ giấy (A4, A5…)…")
         self.btn_scan = self._list_btn("scan", "scan-line", "Scan từ máy quét…")
         self.btn_crop_dialog = self._list_btn("crop_margins", "crop", "Cắt lề trang…")
         blay.addWidget(self.btn_organize)
+        blay.addWidget(self.btn_page_size)
         blay.addWidget(self.btn_scan)
         blay.addWidget(self.btn_crop_dialog)
 
@@ -149,6 +154,7 @@ class EditSidebar(QFrame):
 
         self.btn_text = self._list_btn("tool:text", "type", "Văn bản (Hộp chữ)", checkable_tool="text")
         self.btn_image = self._list_btn("tool:image", "image-plus", "Chèn ảnh", checkable_tool="image")
+        self.btn_embed_pdf = self._list_btn("embed_pdf_pages", "file-plus-2", "Chèn trang PDF vào trang…")
         self.btn_header_footer = self._menu_btn(
             "header_footer_menu",
             "heading",
@@ -171,6 +177,7 @@ class EditSidebar(QFrame):
 
         blay.addWidget(self.btn_text)
         blay.addWidget(self.btn_image)
+        blay.addWidget(self.btn_embed_pdf)
         blay.addWidget(self.btn_header_footer)
         blay.addWidget(self.btn_watermark)
         blay.addWidget(self.btn_link)

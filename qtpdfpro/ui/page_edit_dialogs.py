@@ -5,7 +5,7 @@ Nền trang, Cắt lề trang theo thông số và Chèn liên kết.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Sequence, Tuple
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
@@ -31,6 +31,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from qtpdfpro.core import page_edit as pe
 from qtpdfpro.core.page_edit import MM
 from qtpdfpro.core.page_stamp import POSITIONS
 
@@ -420,3 +421,401 @@ class LinkInsertDialog(QDialog):
         if self.rad_url.isChecked():
             return {"uri": self.ed_url.text().strip(), "target_page": None}
         return {"uri": "", "target_page": int(self.spin_page.value()) - 1}
+
+
+def _populate_paper_combo(combo: QComboBox, *, include_same: bool = False) -> None:
+    if include_same:
+        combo.addItem("Cùng khổ với trang hiện tại", "same")
+    for code, label, _w, _h in pe.PAGE_SIZE_SPECS:
+        combo.addItem(label, code)
+    combo.addItem("Tuỳ chỉnh (mm)…", "custom")
+
+
+def _is_a4_size(w_pt: float, h_pt: float) -> bool:
+    a4_w, a4_h = 210.0 * MM, 297.0 * MM
+    tol = 4.0
+    return (abs(w_pt - a4_w) <= tol and abs(h_pt - a4_h) <= tol) or (
+        abs(w_pt - a4_h) <= tol and abs(h_pt - a4_w) <= tol
+    )
+
+
+class PageSizeDialog(QDialog):
+    """Hộp thoại đổi khổ giấy trang PDF (A4, A5, A3, B5, Letter, Legal hoặc tuỳ chỉnh mm)."""
+
+    def __init__(
+        self,
+        page_w_pt: float,
+        page_h_pt: float,
+        page_count: int,
+        current_page_1based: int = 1,
+        parent: Optional[QWidget] = None,
+    ) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Đổi khổ giấy trang")
+        self.setMinimumWidth(440)
+        self._page_count = max(1, int(page_count))
+        self._current_page = max(1, min(self._page_count, int(current_page_1based)))
+
+        root = QVBoxLayout(self)
+        cur_info = QLabel(
+            f"Trang {self._current_page} hiện tại: <b>{page_w_pt / MM:.1f} × {page_h_pt / MM:.1f} mm</b> "
+            f"({page_w_pt:.0f} × {page_h_pt:.0f} pt)"
+        )
+        root.addWidget(cur_info)
+
+        form = QFormLayout()
+        self.combo_preset = QComboBox()
+        _populate_paper_combo(self.combo_preset, include_same=False)
+        self.combo_preset.setCurrentIndex(max(0, self.combo_preset.findData("A4")))
+        self.combo_preset.currentIndexChanged.connect(self._on_preset_changed)
+
+        self.combo_ori = QComboBox()
+        self.combo_ori.addItem("Dọc (Portrait)", "portrait")
+        self.combo_ori.addItem("Ngang (Landscape)", "landscape")
+        self.combo_ori.addItem("Giữ hướng từng trang (Tự động)", "auto")
+        self.combo_ori.currentIndexChanged.connect(self._on_ori_changed)
+
+        size_row = QHBoxLayout()
+        self.spin_w = QDoubleSpinBox()
+        self.spin_h = QDoubleSpinBox()
+        for sp in (self.spin_w, self.spin_h):
+            sp.setRange(20.0, 2000.0)
+            sp.setDecimals(1)
+            sp.setSuffix(" mm")
+        size_row.addWidget(QLabel("Rộng:"))
+        size_row.addWidget(self.spin_w, 1)
+        size_row.addWidget(QLabel("Cao:"))
+        size_row.addWidget(self.spin_h, 1)
+
+        self.combo_scale = QComboBox()
+        self.combo_scale.addItem("Co giãn nội dung vừa khổ mới (khuyên dùng)", "fit")
+        self.combo_scale.addItem("Chỉ đổi khổ giấy, giữ nguyên cỡ nội dung (căn giữa)", "center")
+        self.combo_scale.addItem("Kéo giãn khít 100% khung giấy mới", "stretch")
+
+        form.addRow("Khổ giấy:", self.combo_preset)
+        form.addRow("Hướng giấy:", self.combo_ori)
+        form.addRow("Kích thước:", size_row)
+        form.addRow("Cách xử lý nội dung:", self.combo_scale)
+        root.addLayout(form)
+
+        scope_grp = QGroupBox("Phạm vi áp dụng")
+        sl = QVBoxLayout(scope_grp)
+        self.rad_current = QRadioButton(f"Chỉ trang hiện tại (Trang {self._current_page})")
+        self.rad_all = QRadioButton(f"Tất cả các trang (1–{self._page_count})")
+        self.rad_custom = QRadioButton("Tuỳ chọn khoảng trang:")
+        self.ed_pages = QLineEdit()
+        self.ed_pages.setPlaceholderText(f"Ví dụ: 1-3, 5 (1–{self._page_count})")
+        self.ed_pages.textEdited.connect(lambda _t: self.rad_custom.setChecked(True))
+        self.rad_current.setChecked(True)
+        sl.addWidget(self.rad_current)
+        sl.addWidget(self.rad_all)
+        crow = QHBoxLayout()
+        crow.addWidget(self.rad_custom)
+        crow.addWidget(self.ed_pages, 1)
+        sl.addLayout(crow)
+        root.addWidget(scope_grp)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        buttons.button(QDialogButtonBox.StandardButton.Ok).setText("Áp dụng")
+        buttons.button(QDialogButtonBox.StandardButton.Cancel).setText("Huỷ")
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        root.addWidget(buttons)
+
+        self._on_preset_changed()
+
+    def _on_preset_changed(self) -> None:
+        preset = str(self.combo_preset.currentData())
+        custom = preset == "custom"
+        self.spin_w.setEnabled(custom)
+        self.spin_h.setEnabled(custom)
+        if not custom:
+            ori = str(self.combo_ori.currentData())
+            w_pt, h_pt = pe.resolve_page_size_pt(preset, orientation="portrait" if ori == "auto" else ori)
+            self.spin_w.setValue(round(w_pt / MM, 1))
+            self.spin_h.setValue(round(h_pt / MM, 1))
+
+    def _on_ori_changed(self) -> None:
+        if str(self.combo_preset.currentData()) == "custom":
+            ori = str(self.combo_ori.currentData())
+            w, h = self.spin_w.value(), self.spin_h.value()
+            if (ori == "landscape" and w < h) or (ori == "portrait" and w > h):
+                self.spin_w.setValue(h)
+                self.spin_h.setValue(w)
+        else:
+            self._on_preset_changed()
+
+    def values(self) -> dict:
+        if self.rad_all.isChecked():
+            pages_spec = ""
+        elif self.rad_custom.isChecked():
+            pages_spec = self.ed_pages.text().strip() or str(self._current_page)
+        else:
+            pages_spec = str(self._current_page)
+        return {
+            "preset": str(self.combo_preset.currentData()),
+            "orientation": str(self.combo_ori.currentData()),
+            "width_mm": float(self.spin_w.value()),
+            "height_mm": float(self.spin_h.value()),
+            "scale_mode": str(self.combo_scale.currentData()),
+            "pages_spec": pages_spec,
+        }
+
+
+class InsertBlankPageDialog(QDialog):
+    """Hộp thoại tạo PDF trắng mới hoặc chèn trang trắng chọn khổ giấy (A4, A5…)."""
+
+    def __init__(
+        self,
+        page_w_pt: float = 210.0 * MM,
+        page_h_pt: float = 297.0 * MM,
+        page_count: int = 1,
+        current_page_1based: int = 1,
+        *,
+        for_new_doc: bool = False,
+        parent: Optional[QWidget] = None,
+    ) -> None:
+        super().__init__(parent)
+        self._for_new = bool(for_new_doc)
+        self._cur_w = float(page_w_pt)
+        self._cur_h = float(page_h_pt)
+        self._page_count = max(1, int(page_count))
+        self._current_page = max(1, min(self._page_count, int(current_page_1based)))
+
+        self.setWindowTitle("Tạo tài liệu PDF trắng mới" if self._for_new else "Chèn trang trắng theo khổ giấy")
+        self.setMinimumWidth(400)
+
+        root = QVBoxLayout(self)
+        form = QFormLayout()
+
+        self.combo_preset = QComboBox()
+        _populate_paper_combo(self.combo_preset, include_same=not self._for_new)
+        default_code = "A4"
+        self.combo_preset.setCurrentIndex(max(0, self.combo_preset.findData(default_code)))
+        self.combo_preset.currentIndexChanged.connect(self._on_preset_changed)
+
+        self.combo_ori = QComboBox()
+        self.combo_ori.addItem("Dọc (Portrait)", "portrait")
+        self.combo_ori.addItem("Ngang (Landscape)", "landscape")
+        self.combo_ori.currentIndexChanged.connect(self._on_ori_changed)
+
+        size_row = QHBoxLayout()
+        self.spin_w = QDoubleSpinBox()
+        self.spin_h = QDoubleSpinBox()
+        for sp in (self.spin_w, self.spin_h):
+            sp.setRange(20.0, 2000.0)
+            sp.setDecimals(1)
+            sp.setSuffix(" mm")
+        size_row.addWidget(QLabel("Rộng:"))
+        size_row.addWidget(self.spin_w, 1)
+        size_row.addWidget(QLabel("Cao:"))
+        size_row.addWidget(self.spin_h, 1)
+
+        self.spin_count = QSpinBox()
+        self.spin_count.setRange(1, 200)
+        self.spin_count.setValue(1)
+
+        form.addRow("Khổ giấy:", self.combo_preset)
+        form.addRow("Hướng giấy:", self.combo_ori)
+        form.addRow("Kích thước:", size_row)
+        form.addRow("Số lượng trang:", self.spin_count)
+
+        self.combo_pos = QComboBox()
+        if not self._for_new:
+            self.combo_pos.addItem(f"Sau trang hiện tại (Trang {self._current_page})", "after")
+            self.combo_pos.addItem(f"Trước trang hiện tại (Trang {self._current_page})", "before")
+            self.combo_pos.addItem(f"Cuối tài liệu (sau Trang {self._page_count})", "end")
+            form.addRow("Vị trí chèn:", self.combo_pos)
+
+        root.addLayout(form)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        buttons.button(QDialogButtonBox.StandardButton.Ok).setText("Tạo PDF" if self._for_new else "Chèn trang")
+        buttons.button(QDialogButtonBox.StandardButton.Cancel).setText("Huỷ")
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        root.addWidget(buttons)
+        self._on_preset_changed()
+
+    def _on_preset_changed(self) -> None:
+        preset = str(self.combo_preset.currentData())
+        custom = preset == "custom"
+        same = preset == "same"
+        self.spin_w.setEnabled(custom)
+        self.spin_h.setEnabled(custom)
+        self.combo_ori.setEnabled(not same)
+        if same:
+            self.spin_w.setValue(round(self._cur_w / MM, 1))
+            self.spin_h.setValue(round(self._cur_h / MM, 1))
+        elif not custom:
+            w_pt, h_pt = pe.resolve_page_size_pt(preset, orientation=str(self.combo_ori.currentData()))
+            self.spin_w.setValue(round(w_pt / MM, 1))
+            self.spin_h.setValue(round(h_pt / MM, 1))
+
+    def _on_ori_changed(self) -> None:
+        if str(self.combo_preset.currentData()) == "custom":
+            ori = str(self.combo_ori.currentData())
+            w, h = self.spin_w.value(), self.spin_h.value()
+            if (ori == "landscape" and w < h) or (ori == "portrait" and w > h):
+                self.spin_w.setValue(h)
+                self.spin_h.setValue(w)
+        else:
+            self._on_preset_changed()
+
+    def values(self) -> dict:
+        return {
+            "preset": str(self.combo_preset.currentData()),
+            "orientation": str(self.combo_ori.currentData()),
+            "width_mm": float(self.spin_w.value()),
+            "height_mm": float(self.spin_h.value()),
+            "count": int(self.spin_count.value()),
+            "position": str(self.combo_pos.currentData()) if not self._for_new else "after",
+        }
+
+
+class EmbedPdfDialog(QDialog):
+    """Hộp thoại import 1 hoặc nhiều trang từ tệp PDF khác lên mặt trang hiện tại (A4…) để kéo chỉnh cỡ."""
+
+    def __init__(
+        self,
+        target_page_w_pt: float,
+        target_page_h_pt: float,
+        *,
+        open_pdfs: Sequence[Tuple[str, str]] = (),
+        initial_pdf_path: str = "",
+        parent: Optional[QWidget] = None,
+    ) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Chèn (Import) trang từ PDF khác lên trang này")
+        self.setMinimumWidth(480)
+        self._src_path = ""
+        self._src_page_count = 0
+
+        root = QVBoxLayout(self)
+        hint = QLabel(
+            "Chọn tệp PDF nguồn và các trang cần chèn. Mỗi trang chèn vào giữ nguyên độ nét vector — "
+            "sau khi chèn bạn dùng chuột kéo <b>8 tay nắm</b> ở góc/cạnh để phóng to, thu nhỏ hoặc di chuyển tự do."
+        )
+        hint.setWordWrap(True)
+        root.addWidget(hint)
+
+        src_grp = QGroupBox("1. Tệp PDF nguồn")
+        sg = QVBoxLayout(src_grp)
+        row = QHBoxLayout()
+        self.combo_open = QComboBox()
+        self.combo_open.addItem("— Chọn từ máy tính hoặc tệp đang mở —", "")
+        for p_str, label in open_pdfs:
+            self.combo_open.addItem(label, p_str)
+        self.combo_open.currentIndexChanged.connect(self._on_open_selected)
+        self.btn_browse = QPushButton("Chọn tệp PDF…")
+        self.btn_browse.clicked.connect(self._pick_pdf)
+        row.addWidget(self.combo_open, 1)
+        row.addWidget(self.btn_browse)
+        sg.addLayout(row)
+
+        self.lbl_src_info = QLabel("Chưa chọn tệp PDF nguồn.")
+        self.lbl_src_info.setWordWrap(True)
+        sg.addWidget(self.lbl_src_info)
+        root.addWidget(src_grp)
+
+        opt_grp = QGroupBox("2. Trang cần chèn && Bố cục trên trang đích")
+        form = QFormLayout(opt_grp)
+        self.ed_pages = QLineEdit()
+        self.ed_pages.setPlaceholderText("Để trống = tất cả các trang (hoặc nhập vd: 1-3, 5)")
+
+        self.combo_layout = QComboBox()
+        self.combo_layout.addItem("Tự động chia lưới vừa mặt trang", "auto_grid")
+        self.combo_layout.addItem("Xếp tự do (xếp chồng nhẹ để tự kéo to/nhỏ)", "cascade")
+        self.combo_layout.addItem("Chia 2 ô trên trang", "grid_2")
+        self.combo_layout.addItem("Chia 4 ô (2 × 2) trên trang", "grid_4")
+        self.combo_layout.addItem("Chia 6 ô (2 × 3 / 3 × 2) trên trang", "grid_6")
+
+        mg_row = QHBoxLayout()
+        self.spin_margin = QDoubleSpinBox()
+        self.spin_margin.setRange(0.0, 50.0)
+        self.spin_margin.setValue(10.0)
+        self.spin_margin.setSuffix(" mm")
+        self.spin_gap = QDoubleSpinBox()
+        self.spin_gap.setRange(0.0, 30.0)
+        self.spin_gap.setValue(5.0)
+        self.spin_gap.setSuffix(" mm")
+        mg_row.addWidget(QLabel("Lề:"))
+        mg_row.addWidget(self.spin_margin)
+        mg_row.addWidget(QLabel("Khoảng cách:"))
+        mg_row.addWidget(self.spin_gap)
+
+        self.chk_border = QCheckBox("Vẽ khung viền mảnh quanh mỗi trang chèn")
+        self.chk_border.setChecked(True)
+
+        is_a4 = _is_a4_size(target_page_w_pt, target_page_h_pt)
+        self.chk_ensure_a4 = QCheckBox(
+            f"Đổi trang hiện tại ({target_page_w_pt / MM:.0f} × {target_page_h_pt / MM:.0f} mm) thành khổ A4 dọc trước khi chèn"
+        )
+        self.chk_ensure_a4.setChecked(not is_a4)
+        self.chk_ensure_a4.setVisible(not is_a4)
+
+        form.addRow("Các trang nguồn:", self.ed_pages)
+        form.addRow("Cách đặt ban đầu:", self.combo_layout)
+        form.addRow("Canh lề:", mg_row)
+        form.addRow("", self.chk_border)
+        if not is_a4:
+            form.addRow("", self.chk_ensure_a4)
+        root.addWidget(opt_grp)
+
+        self.buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        self.btn_ok = self.buttons.button(QDialogButtonBox.StandardButton.Ok)
+        self.btn_ok.setText("Chèn vào trang")
+        self.btn_ok.setEnabled(False)
+        self.buttons.button(QDialogButtonBox.StandardButton.Cancel).setText("Huỷ")
+        self.buttons.accepted.connect(self.accept)
+        self.buttons.rejected.connect(self.reject)
+        root.addWidget(self.buttons)
+
+        if initial_pdf_path:
+            self._load_source_pdf(initial_pdf_path)
+
+    def _on_open_selected(self, idx: int) -> None:
+        p = str(self.combo_open.itemData(idx) or "")
+        if p:
+            self._load_source_pdf(p)
+
+    def _pick_pdf(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(self, "Chọn tệp PDF cần import", "", "Tài liệu PDF (*.pdf)")
+        if path:
+            self._load_source_pdf(path)
+
+    def _load_source_pdf(self, path: str) -> None:
+        import fitz
+
+        p = Path(path)
+        if not p.is_file():
+            self.lbl_src_info.setText(f"<span style='color:#DC2626;'>Không tìm thấy tệp: {p}</span>")
+            self.btn_ok.setEnabled(False)
+            return
+        try:
+            with fitz.open(str(p)) as d:
+                n = d.page_count
+                first = d[0].rect if n > 0 else fitz.Rect(0, 0, 0, 0)
+        except Exception as exc:
+            self.lbl_src_info.setText(f"<span style='color:#DC2626;'>Không đọc được tệp PDF: {exc}</span>")
+            self.btn_ok.setEnabled(False)
+            return
+        self._src_path = str(p.resolve())
+        self._src_page_count = n
+        self.lbl_src_info.setText(
+            f"<b>{p.name}</b> — {n} trang (trang 1: {first.width / MM:.0f} × {first.height / MM:.0f} mm)"
+        )
+        self.ed_pages.setPlaceholderText(f"Tất cả (1–{n}), hoặc vd: 1-3, 5")
+        self.btn_ok.setEnabled(n > 0)
+
+    def values(self) -> dict:
+        return {
+            "source_path": self._src_path,
+            "page_count": self._src_page_count,
+            "pages_spec": self.ed_pages.text().strip(),
+            "layout_mode": str(self.combo_layout.currentData()),
+            "margin_mm": float(self.spin_margin.value()),
+            "gap_mm": float(self.spin_gap.value()),
+            "border": bool(self.chk_border.isChecked()),
+            "ensure_a4": bool(self.chk_ensure_a4.isChecked()),
+        }

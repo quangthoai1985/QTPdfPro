@@ -7,12 +7,29 @@
 
 ## [Chưa phát hành]
 
-### Việc còn dở / Ưu tiên kế tiếp cho Agent phiên sau (cập nhật 2026-11-16)
+### 2026-11-17 — Đổi khổ giấy (A4, A5…), Tạo PDF trắng mới, Nhúng trang PDF lên mặt trang & 8 tay nắm chỉnh cỡ
+- **Đổi khổ giấy trang (`core/page_edit.py` -> `resize_pages_in_doc`, `PageSizeDialog`, CLI `resize`)**:
+  - Hỗ trợ đổi trang hiện tại, khoảng trang hoặc toàn tài liệu sang **A4, A5, A3, B5, Letter, Legal** hoặc kích thước **tuỳ chỉnh (`mm`)**, hướng **Dọc / Ngang / Giữ tự động theo từng trang**, với 3 chế độ: *Co giãn nội dung vừa khổ mới (`fit`)*, *Giữ nguyên kích thước nội dung căn giữa (`center`)* và *Kéo giãn khít trang (`stretch`)*.
+  - Bảo toàn nội dung vector/ảnh cùng chú thích & liên kết trên trang (loại bỏ khoá `id` khi nhân bản liên kết qua `insert_link` để tránh lỗi `KeyError: 'xref'` của PyMuPDF); hỗ trợ Hoàn tác / Làm lại (`EditSession.run_doc_operation`) và Lưu `Ctrl+S`.
+- **Tạo PDF trắng mới (`Ctrl+N`) & Chèn trang trắng theo khổ (`InsertBlankPageDialog`, `create_blank_pdf_bytes`, `insert_sized_blank_page`)**:
+  - Tạo nhanh tài liệu PDF trắng với số trang và khổ giấy chuẩn/tuỳ chỉnh (`Ctrl+N` / bảng lệnh `Ctrl+K` / nút `+` trên `EditSidebar` — giữ nguyên menu `☰` theo spec §5.1); chèn thêm 1 hoặc nhiều trang trắng theo khổ giấy (trước/sau trang hiện tại hoặc cuối tài liệu).
+- **Chèn (Import) 1 hoặc nhiều trang từ PDF khác lên mặt trang hiện tại (`embed_pdf_pages`, `EmbedPdfDialog`, `add_pdf_page_annotation`)**:
+  - Import các trang chọn (`1-3, 5` hoặc tất cả) từ tệp PDF bất kỳ (hoặc tab PDF đang mở) vào một trang đích (ví dụ khổ A4), có tuỳ chọn tự động đổi trang đích sang A4 trước khi chèn.
+  - Mỗi trang nhúng là đối tượng độc lập sắc nét vector (`Form XObject`, nén `zlib` + base64 `pdf_z64` trong `/QTPdfPro` giúp tiếp tục phóng to/thu nhỏ không mất nét kể cả sau khi lưu & mở lại), hỗ trợ xếp *Tự động chia lưới*, *2 / 4 / 6 ô* hoặc *Xếp tự do*, xoay 90° và lật ngang/dọc.
+- **Nâng cấp công cụ Chọn (`V`) có 8 tay nắm kéo kích thước (`AnnotationController` trong `ui/annotation_tools.py`, `EditSession.resize`, `page_edit.resize_annotation_in_page`)**:
+  - Hiển thị 8 tay nắm ở 4 góc và 4 cạnh cho **Trang PDF nhúng**, **Hình ảnh**, **Hộp chữ**, **Dấu đóng**, **Chữ ký**, **Dấu điền**, **Khung chữ nhật**, **Elip** và **Vùng che (`Redact`)**.
+  - Kéo 4 góc mặc định giữ nguyên tỷ lệ đối với ảnh / trang PDF nhúng / chữ ký / dấu đóng (giữ `Shift` để kéo tự do); kéo 4 cạnh co giãn độc lập; tính toán theo `page_view_matrix` nên đúng hướng trên mọi góc xoay `/Rotate` và xoay xem; hiển thị nhãn kích thước `Rộng × Cao mm` trực quan; Hoàn tác `Ctrl+Z` / Làm lại `Ctrl+Y`.
+- **Kiểm thử & Xác minh**:
+  - Bổ sung `test_page_size_blank_pdf_and_resize_modes`, `test_embed_pdf_pages_and_8_handle_resize_undo_save`, `test_new_blank_pdf_action_and_cli_resize` trong `tests/test_edit_enhanced.py`.
+  - Kiểm tra AST: 0 import `PySide6` trong `qtpdfpro/core/`.
+  - Chạy toàn bộ bộ kiểm thử `python -m pytest -q tests`: **338 passed, 1 skipped** (`EXIT=0`).
+
+### Việc còn dở / Ưu tiên kế tiếp cho Agent phiên sau (cập nhật 2026-11-17)
 1. ~~**Phát hành**~~ — đã phát hành **v1.6.0** ngày 2026-11-16.
 2. ~~**Hoàn thiện công cụ «Chọn chữ»**~~ — xong 2026-11-08 tối. Còn: Ctrl+A lần hai = cả tài liệu, chọn liền qua trang ở chế độ xem một trang.
 3. **Kiểm thử engine NĐ30 trên văn bản thật** (PDF ký số VGCA, PDF xuất từ phần mềm quản lý văn bản, PDF in từ LibreOffice): chạy `python -m qtpdfpro.cli convert <tệp> --mode nd30 --verify-layout` (hoặc `cli batch <thư mục> --verify-layout`) và xử lý các trường hợp «Lệch nhỏ».
 4. **Lộ trình** (`docs/DE_XUAT_TINH_NANG.md`): **Xem 2 trang song song**, ~~**V1**~~ (xong v1.4.0), **V2** thông báo «Đã lưu», phần còn lại của **A3** (dấu nước ảnh), **A6** giai đoạn 2 (điền AcroForm); sau đó **B1** (áp công cụ trên tab có Hoàn tác), **B2** (so sánh 2 PDF), **V5** (trang quản lý mô-đun), **B4** (ký số USB token, v2.0). OCR: thử thêm bản scan mờ / nghiêng / có bảng, dựng bảng Word từ trang scan. In thử 1 trang ra giấy trên máy in thật khi người dùng đồng ý.
-   - «Chỉnh sửa PDF» mở rộng: đổi cỡ hộp chữ/hình bằng tay nắm, sửa kiểu dáng chú thích đã có, dấu đóng có ảnh chữ ký.
+   - «Chỉnh sửa PDF» mở rộng: ~~đổi cỡ hộp chữ/hình bằng tay nắm~~ (xong 2026-11-17), sửa kiểu dáng chú thích đã có, sao chép/dán đối tượng (`Ctrl+C`/`Ctrl+V`), sửa chữ gốc trên trang PDF, dấu đóng có ảnh chữ ký.
 5. Tuỳ chọn: chuyển hàng loạt song song bằng nhiều tiến trình (`ProcessPoolExecutor`, cần `multiprocessing.freeze_support()` cho bản PyInstaller); ký số (code signing) bộ cài để SmartScreen không cảnh báo.
 
 ---

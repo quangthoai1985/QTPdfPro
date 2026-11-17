@@ -56,7 +56,7 @@ from typing import List, Optional
 from qtpdfpro import __app_name__, __version__
 from qtpdfpro.core import annotations as annots_mod
 from qtpdfpro.core import compress as compress_mod
-from qtpdfpro.core import page_ops, page_stamp, pdf_security
+from qtpdfpro.core import page_edit, page_ops, page_stamp, pdf_security
 from qtpdfpro.core import printing
 from qtpdfpro.core import file_assoc, fill_sign, update_check
 from qtpdfpro.core import ocr as ocr_mod
@@ -412,6 +412,19 @@ def _add_edit_commands(sub) -> None:
     p_list = sub.add_parser("annots", help="Liệt kê chú thích trong tệp PDF")
     p_list.add_argument("input_pdf", help="Tệp PDF")
     p_list.add_argument("--json", action="store_true", help="In kết quả dạng JSON")
+
+    p_rs = sub.add_parser("resize", help="Đổi khổ giấy trang PDF (A4, A5, A3, Letter, tuỳ chỉnh mm)")
+    p_rs.add_argument("input_pdf", help="Tệp PDF nguồn")
+    p_rs.add_argument("-o", "--output", help="Tệp PDF kết quả (mặc định: <tên>_doi_kho.pdf)")
+    p_rs.add_argument("--size", default="A4", help="Khổ giấy: A4, A5, A3, B5, Letter, Legal hoặc custom")
+    p_rs.add_argument("--orientation", choices=["portrait", "landscape", "auto"], default="portrait",
+                      help="Hướng giấy: portrait (dọc), landscape (ngang), auto (giữ theo từng trang)")
+    p_rs.add_argument("--width-mm", type=float, default=None, help="Chiều rộng (mm) khi dùng --size custom")
+    p_rs.add_argument("--height-mm", type=float, default=None, help="Chiều cao (mm) khi dùng --size custom")
+    p_rs.add_argument("--mode", choices=["fit", "center", "stretch"], default="fit",
+                      help="fit = co giãn vừa khổ (mặc định), center = giữ cỡ nội dung căn giữa, stretch = kéo khít")
+    p_rs.add_argument("-p", "--pages", default="", help="Các trang cần đổi khổ, vd '1-3,5' (mặc định: tất cả)")
+    p_rs.add_argument("--json", action="store_true", help="In kết quả dạng JSON")
 
 
 def _add_fill_sign_commands(sub) -> None:
@@ -984,8 +997,54 @@ def _run_edit_command(args: argparse.Namespace) -> int:
                     extra = f" — {i.content}" if i.content else ""
                     who = f" ({i.author})" if i.author else ""
                     print(f"  [Tr. {i.page_index + 1}] {i.label}{who}{extra}")
-    except (page_ops.PageOpsError, annots_mod.AnnotationError, FileNotFoundError, PermissionError,
-            ValueError, OSError) as exc:
+        elif args.command == "resize":
+            import fitz
+
+            src = Path(args.input_pdf).resolve()
+            dst = Path(args.output).resolve() if args.output else src.with_name(f"{src.stem}_doi_kho.pdf")
+            if dst == src:
+                raise page_edit.PageEditError("Không ghi đè trực tiếp tệp nguồn — hãy chỉ định tên tệp khác bằng -o.")
+            doc = fitz.open(str(src))
+            try:
+                if doc.needs_pass:
+                    raise PermissionError("Tệp PDF được bảo vệ bằng mật khẩu.")
+                changed = page_edit.resize_pages_in_doc(
+                    doc,
+                    preset=args.size,
+                    orientation=args.orientation,
+                    width_mm=args.width_mm,
+                    height_mm=args.height_mm,
+                    scale_mode=args.mode,
+                    pages_spec=args.pages,
+                )
+                page_ops.save_pdf(doc, dst)
+                with fitz.open(str(dst)) as check:
+                    first_rect = check[0].rect if check.page_count else fitz.Rect(0, 0, 0, 0)
+                    total_pages = check.page_count
+            finally:
+                doc.close()
+            if args.json:
+                print(
+                    json.dumps(
+                        {
+                            "output": str(dst),
+                            "pages_changed": changed,
+                            "total_pages": total_pages,
+                            "size_pt": [round(first_rect.width, 2), round(first_rect.height, 2)],
+                            "preset": args.size,
+                            "orientation": args.orientation,
+                            "mode": args.mode,
+                        },
+                        ensure_ascii=False,
+                        indent=2,
+                    )
+                )
+            else:
+                print(
+                    f"Đã đổi khổ giấy {changed}/{total_pages} trang ({args.size} {args.orientation}, {args.mode}) → {dst}"
+                )
+    except (page_ops.PageOpsError, page_edit.PageEditError, annots_mod.AnnotationError, FileNotFoundError,
+            PermissionError, ValueError, OSError) as exc:
         print(f"Lỗi: {exc}", file=sys.stderr)
         return 1
     return 0
@@ -1344,7 +1403,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     if args.command == "scan":
         return _run_scan(args)
 
-    if args.command in ("merge", "split", "organize", "extract", "annotate", "annots"):
+    if args.command in ("merge", "split", "organize", "extract", "annotate", "annots", "resize"):
         return _run_edit_command(args)
 
     if args.command in ("fill", "signature"):

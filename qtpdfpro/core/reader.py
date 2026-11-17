@@ -357,18 +357,71 @@ class PDFDocumentReader:
         self.invalidate_pages([page_index])
         return res
 
-    def insert_blank_page_in_doc(self, after_index: int) -> int:
-        """Chèn một trang trắng cùng kích thước ngay sau `after_index`."""
+    def insert_blank_page_in_doc(
+        self,
+        after_index: int,
+        *,
+        preset: str = "same",
+        orientation: str = "portrait",
+        width_mm: Optional[float] = None,
+        height_mm: Optional[float] = None,
+        count: int = 1,
+        before: bool = False,
+    ) -> int:
+        """Chèn 1 hoặc nhiều trang trắng cùng kích thước hoặc theo khổ giấy chuẩn (`A4`, `A5`…)."""
+        from qtpdfpro.core import page_edit as pe
+
         self._check_page_index(after_index)
-        rect = self._doc[after_index].rect
-        w, h = float(rect.width), float(rect.height)
-        self.edit_session().run_doc_operation(
-            "Chèn trang trắng",
-            after_index,
-            lambda d: d.new_page(pno=after_index + 1, width=w, height=h),
-        )
+        inserted_at: List[int] = [after_index]
+
+        def _mutate(d: fitz.Document) -> None:
+            inserted_at[0] = pe.insert_sized_blank_page(
+                d,
+                after_index,
+                preset=preset,
+                orientation=orientation,
+                width_mm=width_mm,
+                height_mm=height_mm,
+                count=count,
+                before=before,
+            )
+
+        self.edit_session().run_doc_operation("Chèn trang trắng", after_index, _mutate)
         self.invalidate_all()
-        return after_index + 1
+        return inserted_at[0]
+
+    def resize_pages_in_doc(
+        self,
+        current_page: int = 0,
+        *,
+        preset: str = "A4",
+        orientation: str = "portrait",
+        width_mm: Optional[float] = None,
+        height_mm: Optional[float] = None,
+        scale_mode: str = "fit",
+        pages_spec: str = "",
+    ) -> int:
+        """Đổi khổ giấy trang trong tài liệu đang mở (có Hoàn tác/Làm lại và Lưu)."""
+        from qtpdfpro.core import page_edit as pe
+
+        self._check_page_index(current_page)
+        self._page_rotations.pop(current_page, None)
+        changed: List[int] = [0]
+
+        def _mutate(d: fitz.Document) -> None:
+            changed[0] = pe.resize_pages_in_doc(
+                d,
+                preset=preset,
+                orientation=orientation,
+                width_mm=width_mm,
+                height_mm=height_mm,
+                scale_mode=scale_mode,
+                pages_spec=pages_spec,
+            )
+
+        self.edit_session().run_doc_operation("Đổi khổ giấy trang", current_page, _mutate)
+        self.invalidate_all()
+        return changed[0]
 
     def duplicate_page_in_doc(self, page_index: int) -> int:
         """Nhân bản trang `page_index` ngay sau nó."""
