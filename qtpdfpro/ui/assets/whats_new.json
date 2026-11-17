@@ -1,6 +1,36 @@
 {
   "versions": [
     {
+      "version": "1.7.0",
+      "date": "2026-11-17",
+      "headline": "Chỉnh khổ giấy, Import trang PDF & Kéo thả tuỳ chỉnh vị trí khi In",
+      "items": [
+        {
+          "icon": "printer",
+          "title": "Kéo thả & thu phóng trang nội dung trực tiếp khi In",
+          "text": "Hộp thoại In (Ctrl+P) cho phép thu nhỏ/phóng to 5%–400%, kéo trang tới bất kỳ góc nào trên tờ giấy (tự bắt dính vào lề hoặc giữ Alt kéo tự do), lăn chuột ±5% hoặc chọn nhanh 9 vị trí & toạ độ mm.",
+          "shortcut": "Ctrl+P"
+        },
+        {
+          "icon": "maximize",
+          "title": "Đổi khổ giấy trang & Tạo nhanh tài liệu PDF trắng",
+          "text": "Đổi kích thước trang sang A4, A5, A3, B5, Letter, Legal hoặc khổ tuỳ chỉnh (mm) với 3 chế độ co giãn; tạo ngay tệp PDF trắng mới bằng Ctrl+N hoặc chèn thêm trang trắng chuẩn khổ.",
+          "shortcut": "Ctrl+N"
+        },
+        {
+          "icon": "file-plus-2",
+          "title": "Import 1 hoặc nhiều trang PDF lên mặt trang đích",
+          "text": "Chèn các trang chọn từ tệp PDF khác hoặc tab đang mở vào một trang (ví dụ trang A4) theo lưới tự động 2/4/6 ô hoặc xếp tự do, giữ nguyên độ sắc nét vector và xoay/lật độc lập."
+        },
+        {
+          "icon": "mouse-pointer-2",
+          "title": "Công cụ Chọn (V) có 8 tay nắm kéo đổi kích thước",
+          "text": "Hiển thị 8 tay nắm góc và cạnh kèm nhãn kích thước mm cho trang PDF nhúng, hình ảnh, hộp chữ, dấu đóng, chữ ký, khung hình và vùng che; hỗ trợ Hoàn tác/Làm lại tức thì.",
+          "shortcut": "Ctrl+E"
+        }
+      ]
+    },
+    {
       "version": "1.6.0",
       "date": "2026-11-16",
       "headline": "Tích hợp Scan tài liệu đa thiết bị & Tìm kiếm thông minh trên bản scan OCR",

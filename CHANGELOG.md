@@ -7,20 +7,24 @@
 
 ## [Chưa phát hành]
 
-### 2026-11-17 — Tuỳ chỉnh tỷ lệ (5–400%) & kéo thả trực tiếp vị trí trang in trên bản xem trước
-- **Lõi lập kế hoạch in (`core/printing.py`)**:
-  - Thêm chế độ `"custom": "Tuỳ chỉnh tỷ lệ & vị trí"` vào `SCALE_MODES`, bổ sung `ALIGN_POSITIONS` (9 vị trí neo: tâm, 4 góc, 4 cạnh).
-  - Bổ sung vào `PrintOptions`: `custom_scale` (`5.0–400.0%`), `position_anchor`, `offset_x_pt`, `offset_y_pt` (cố ý không đưa vào `REMEMBERED_KEYS` để không nhớ nhầm toạ độ cũ giữa các lần mở); cập nhật `plan_print()`, `PrintPlan.summary()`, `PrintPlan.to_dict()`.
-- **Hộp thoại In & Xem trước tương tác (`ui/print_dialog.py`)**:
-  - `PrintPreviewView`: hỗ trợ nắm kéo trang nội dung tới bất kỳ vị trí nào trên tờ giấy (bắt dính `≤ 4.0 pt` vào lề vùng in / mép giấy / tâm trang; giữ `Alt` để kéo tự do), 8 tay nắm góc/cạnh thu phóng giữ nguyên tỷ lệ (5–400%), lăn chuột ±5%, vẽ khung nét đứt và badge `% · W×H mm · (X, Y) mm`, phát tín hiệu `placementChanged`.
-  - `PrintDialog`: thêm bảng điều khiển tuỳ chỉnh (`custom_box`) gồm `scale_pct_spin`, nút «Vừa giấy», `align_combo` (9 góc + «Tự do (kéo chuột)»), nhập trực tiếp tọa độ `X`/`Y (mm)`, nút đặt lại «Giữa»; đồng bộ hai chiều với thao tác kéo trên bản xem trước; kết xuất và in ra `QPrinter` / PDF đúng `sheet.target`.
-- **Dòng lệnh CLI (`qtpdfpro/cli.py`)**: Bổ sung `--scale custom`, `--scale-percent`, `--align`, `--offset-mm X,Y` cho lệnh `print`.
-- **Kiểm thử & Xác minh**:
-  - Thêm `test_plan_custom_scale_anchors_and_offset`, `test_print_to_pdf_custom_corner_placement`, `test_cli_print_custom_scale_and_offset` (`tests/test_printing.py`) và `test_print_dialog_custom_scale_and_offset_controls`, `test_print_preview_drag_resize_and_wheel` (`tests/test_print_ui.py`).
-  - Kiểm tra AST: 0 import `PySide6` trong `qtpdfpro/core/`.
-  - Chạy toàn bộ bộ kiểm thử `python -m pytest -q tests`: **343 passed, 1 skipped** (`EXIT=0`).
+### Việc còn dở / Ưu tiên kế tiếp cho Agent phiên sau (cập nhật 2026-11-17)
+1. ~~**Phát hành**~~ — đã phát hành **v1.7.0** ngày 2026-11-17.
+2. ~~**Hoàn thiện công cụ «Chọn chữ»**~~ — xong 2026-11-08 tối. Còn: Ctrl+A lần hai = cả tài liệu, chọn liền qua trang ở chế độ xem một trang.
+3. **Kiểm thử engine NĐ30 trên văn bản thật** (PDF ký số VGCA, PDF xuất từ phần mềm quản lý văn bản, PDF in từ LibreOffice): chạy `python -m qtpdfpro.cli convert <tệp> --mode nd30 --verify-layout` (hoặc `cli batch <thư mục> --verify-layout`) và xử lý các trường hợp «Lệch nhỏ».
+4. **Lộ trình** (`docs/DE_XUAT_TINH_NANG.md`): **Xem 2 trang song song**, ~~**V1**~~ (xong v1.4.0), **V2** thông báo «Đã lưu», phần còn lại của **A3** (dấu nước ảnh), **A6** giai đoạn 2 (điền AcroForm); sau đó **B1** (áp công cụ trên tab có Hoàn tác), **B2** (so sánh 2 PDF), **V5** (trang quản lý mô-đun), **B4** (ký số USB token, v2.0). OCR: thử thêm bản scan mờ / nghiêng / có bảng, dựng bảng Word từ trang scan. In thử 1 trang ra giấy trên máy in thật khi người dùng đồng ý.
+   - «Chỉnh sửa PDF» mở rộng: ~~đổi cỡ hộp chữ/hình bằng tay nắm~~ (xong v1.7.0), sửa kiểu dáng chú thích đã có, sao chép/dán đối tượng (`Ctrl+C`/`Ctrl+V`), sửa chữ gốc trên trang PDF, dấu đóng có ảnh chữ ký.
+5. Tuỳ chọn: chuyển hàng loạt song song bằng nhiều tiến trình (`ProcessPoolExecutor`, cần `multiprocessing.freeze_support()` cho bản PyInstaller); ký số (code signing) bộ cài để SmartScreen không cảnh báo.
 
-### 2026-11-17 — Đổi khổ giấy (A4, A5…), Tạo PDF trắng mới, Nhúng trang PDF lên mặt trang & 8 tay nắm chỉnh cỡ
+---
+
+## [1.7.0] — 2026-11-17 (Đổi khổ giấy, Tạo PDF trắng, Import PDF lên trang, 8 tay nắm & Kéo thả vị trí trang in)
+
+### Tính năng mới & Cải tiến
+- **Tuỳ chỉnh tỷ lệ (5–400%) & kéo thả trực tiếp vị trí trang in trên bản xem trước (`core/printing.py`, `ui/print_dialog.py`, `cli.py`)**:
+  - Thêm chế độ `"custom": "Tuỳ chỉnh tỷ lệ & vị trí"` vào `SCALE_MODES`, bổ sung `ALIGN_POSITIONS` (9 vị trí neo: tâm, 4 góc, 4 cạnh) và `custom_scale` (`5.0–400.0%`), `position_anchor`, `offset_x_pt`, `offset_y_pt` trong `PrintOptions` (cố ý không đưa vào `REMEMBERED_KEYS` để không nhớ nhầm toạ độ cũ giữa các lần mở); cập nhật `plan_print()`, `PrintPlan.summary()`, `PrintPlan.to_dict()`.
+  - Nâng cấp `PrintPreviewView`: hỗ trợ nắm kéo trang nội dung tới bất kỳ vị trí nào trên tờ giấy (bắt dính `≤ 4.0 pt` vào lề vùng in / mép giấy / tâm trang; giữ `Alt` để kéo tự do), 8 tay nắm góc/cạnh thu phóng giữ nguyên tỷ lệ (5–400%), lăn chuột ±5%, vẽ khung nét đứt và badge `% · W×H mm · (X, Y) mm`, phát tín hiệu `placementChanged`.
+  - Nâng cấp `PrintDialog`: thêm bảng điều khiển tuỳ chỉnh (`custom_box`) gồm `scale_pct_spin`, nút «Vừa giấy», `align_combo` (9 góc + «Tự do (kéo chuột)»), nhập trực tiếp tọa độ `X`/`Y (mm)`, nút đặt lại «Giữa»; đồng bộ hai chiều với thao tác kéo trên bản xem trước; kết xuất và in ra `QPrinter` / PDF đúng `sheet.target`.
+  - Bổ sung `--scale custom`, `--scale-percent`, `--align`, `--offset-mm X,Y` cho lệnh `cli print`.
 - **Đổi khổ giấy trang (`core/page_edit.py` -> `resize_pages_in_doc`, `PageSizeDialog`, CLI `resize`)**:
   - Hỗ trợ đổi trang hiện tại, khoảng trang hoặc toàn tài liệu sang **A4, A5, A3, B5, Letter, Legal** hoặc kích thước **tuỳ chỉnh (`mm`)**, hướng **Dọc / Ngang / Giữ tự động theo từng trang**, với 3 chế độ: *Co giãn nội dung vừa khổ mới (`fit`)*, *Giữ nguyên kích thước nội dung căn giữa (`center`)* và *Kéo giãn khít trang (`stretch`)*.
   - Bảo toàn nội dung vector/ảnh cùng chú thích & liên kết trên trang (loại bỏ khoá `id` khi nhân bản liên kết qua `insert_link` để tránh lỗi `KeyError: 'xref'` của PyMuPDF); hỗ trợ Hoàn tác / Làm lại (`EditSession.run_doc_operation`) và Lưu `Ctrl+S`.
@@ -33,17 +37,9 @@
   - Hiển thị 8 tay nắm ở 4 góc và 4 cạnh cho **Trang PDF nhúng**, **Hình ảnh**, **Hộp chữ**, **Dấu đóng**, **Chữ ký**, **Dấu điền**, **Khung chữ nhật**, **Elip** và **Vùng che (`Redact`)**.
   - Kéo 4 góc mặc định giữ nguyên tỷ lệ đối với ảnh / trang PDF nhúng / chữ ký / dấu đóng (giữ `Shift` để kéo tự do); kéo 4 cạnh co giãn độc lập; tính toán theo `page_view_matrix` nên đúng hướng trên mọi góc xoay `/Rotate` và xoay xem; hiển thị nhãn kích thước `Rộng × Cao mm` trực quan; Hoàn tác `Ctrl+Z` / Làm lại `Ctrl+Y`.
 - **Kiểm thử & Xác minh**:
-  - Bổ sung `test_page_size_blank_pdf_and_resize_modes`, `test_embed_pdf_pages_and_8_handle_resize_undo_save`, `test_new_blank_pdf_action_and_cli_resize` trong `tests/test_edit_enhanced.py`.
+  - Bổ sung kiểm thử trong `tests/test_edit_enhanced.py`, `tests/test_printing.py`, `tests/test_print_ui.py`.
   - Kiểm tra AST: 0 import `PySide6` trong `qtpdfpro/core/`.
-  - Chạy toàn bộ bộ kiểm thử `python -m pytest -q tests`: **338 passed, 1 skipped** (`EXIT=0`).
-
-### Việc còn dở / Ưu tiên kế tiếp cho Agent phiên sau (cập nhật 2026-11-17)
-1. ~~**Phát hành**~~ — đã phát hành **v1.6.0** ngày 2026-11-16.
-2. ~~**Hoàn thiện công cụ «Chọn chữ»**~~ — xong 2026-11-08 tối. Còn: Ctrl+A lần hai = cả tài liệu, chọn liền qua trang ở chế độ xem một trang.
-3. **Kiểm thử engine NĐ30 trên văn bản thật** (PDF ký số VGCA, PDF xuất từ phần mềm quản lý văn bản, PDF in từ LibreOffice): chạy `python -m qtpdfpro.cli convert <tệp> --mode nd30 --verify-layout` (hoặc `cli batch <thư mục> --verify-layout`) và xử lý các trường hợp «Lệch nhỏ».
-4. **Lộ trình** (`docs/DE_XUAT_TINH_NANG.md`): **Xem 2 trang song song**, ~~**V1**~~ (xong v1.4.0), **V2** thông báo «Đã lưu», phần còn lại của **A3** (dấu nước ảnh), **A6** giai đoạn 2 (điền AcroForm); sau đó **B1** (áp công cụ trên tab có Hoàn tác), **B2** (so sánh 2 PDF), **V5** (trang quản lý mô-đun), **B4** (ký số USB token, v2.0). OCR: thử thêm bản scan mờ / nghiêng / có bảng, dựng bảng Word từ trang scan. In thử 1 trang ra giấy trên máy in thật khi người dùng đồng ý.
-   - «Chỉnh sửa PDF» mở rộng: ~~đổi cỡ hộp chữ/hình bằng tay nắm~~ (xong 2026-11-17), sửa kiểu dáng chú thích đã có, sao chép/dán đối tượng (`Ctrl+C`/`Ctrl+V`), sửa chữ gốc trên trang PDF, dấu đóng có ảnh chữ ký.
-5. Tuỳ chọn: chuyển hàng loạt song song bằng nhiều tiến trình (`ProcessPoolExecutor`, cần `multiprocessing.freeze_support()` cho bản PyInstaller); ký số (code signing) bộ cài để SmartScreen không cảnh báo.
+  - Chạy toàn bộ bộ kiểm thử `python -m pytest -q tests`: **343 passed, 1 skipped** (`EXIT=0`).
 
 ---
 
